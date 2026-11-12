@@ -52,7 +52,8 @@ local freeRec = {}
 local active = false
 local freeChain, chainsCreated, chainsInUse = {}, 0, 0
 local freeR, rCreated, rInUse = {}, 0, 0
-local drawErrLogged = false
+local anchorSeen, anchorSeenN = {}, 0
+Orbs.lastAnchorErr = nil -- last anchored-path error message (first 120 chars)
 local arrivedRecently, flashAge, flashOn, flashRested = 0, 0, false, false
 
 local function db()
@@ -68,6 +69,18 @@ end
 
 local function readable(v)
     return not issecretvalue or not issecretvalue(v)
+end
+
+-- Records an anchored-path failure: no silent failures. Logs each distinct (where, message) pair once.
+local function noteAnchorErr(where, err)
+    local msg = string.gsub(string.sub(tostring(err), 1, 120), "[\r\n]+", " ")
+    Orbs.lastAnchorErr = msg
+    local key = where .. "|" .. msg
+    if not anchorSeen[key] and anchorSeenN < 50 then
+        anchorSeen[key] = true
+        anchorSeenN = anchorSeenN + 1
+        ns:Log("ANCHOR_ERR where=%s err=%s", where, msg)
+    end
 end
 
 local function chainCeiling()
@@ -150,7 +163,7 @@ end
 local function acquireChain(R)
     local ch = freeChain[#freeChain]
     local reused = ch ~= nil
-    local ok = pcall(function()
+    local ok, err = pcall(function()
         if reused then
             ch.v:SetParent(R)
             ch.m:SetParent(R)
@@ -174,7 +187,12 @@ local function acquireChain(R)
         ch.m:Show()
         ch.h:Show()
     end)
-    if not ok or not ch or not ch.fill then
+    if not ok then
+        noteAnchorErr("chain", err)
+        return nil
+    end
+    if not ch or not ch.fill then
+        noteAnchorErr("chain", "no status bar fill texture")
         return nil
     end
     if reused then
@@ -213,13 +231,18 @@ local function acquireBurst(plate)
         R = f
         rCreated = rCreated + 1
     end
-    local ok = pcall(function()
+    local ok, err = pcall(function()
         R:ClearAllPoints()
         R:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", 0, 0)
         R:SetPoint("TOPRIGHT", plate, "CENTER", 0, 0)
         R:Show()
     end)
     if not ok then
+        noteAnchorErr("R", err)
+        pcall(function()
+            R:Hide()
+            R:ClearAllPoints()
+        end)
         freeR[#freeR + 1] = R
         return nil
     end
@@ -377,10 +400,7 @@ local function onUpdate(self, dt)
                 local ok, err = pcall(drawOrbA, o, p, dx, dy)
                 if not ok then
                     drop = true
-                    if not drawErrLogged then
-                        drawErrLogged = true
-                        ns:Log("anchored draw error: %s", tostring(err))
-                    end
+                    noteAnchorErr("draw", err)
                 end
             else
                 drawOrb(o, p, dx, dy)
@@ -425,7 +445,8 @@ local function lighten(c)
 end
 
 -- Burst{ x=, y= (UIParent coords) | plate= (nameplate frame, anchored mode), n=, scale= (default 1),
--- nPurple= (default 0), kind= }. n <= 0 is a no-op.
+-- nPurple= (default 0), kind= }. n <= 0 is a no-op (returns nothing).
+-- Returns mode, err: "anchored" | "numeric" | "centre" (a plate was given but could not be anchored, err = why).
 function Orbs:Burst(p)
     if type(p) ~= "table" or type(p.n) ~= "number" or p.n < 1 then
         return
@@ -439,16 +460,19 @@ function Orbs:Burst(p)
         nPurple = 0
     end
     local x, y = p.x, p.y
-    local b
+    local b, mode
     if p.plate ~= nil then
         b = acquireBurst(p.plate)
         if not b then
             x, y = nil, nil -- the plate can't be anchored to: fall back to the screen centre
+            mode = "centre"
         end
     end
     if not b and (type(x) ~= "number" or type(y) ~= "number") then
         x, y = UIParent:GetWidth() / 2, UIParent:GetHeight() * 0.65
+        mode = mode or "centre"
     end
+    mode = mode or (b and "anchored" or "numeric")
     local dx, dy = Target:GetDestination()
     local trail = d.trail
     local need, chainNeed -- orb + underlay + sparkle (+ ghosts)
@@ -516,12 +540,14 @@ function Orbs:Burst(p)
     end
     if b and b.n == 0 then
         releaseBurst(b)
+        mode = "centre" -- no orb could be anchored (chain failure); nothing was drawn
     end
 
     if nLive > 0 and not active then
         active = true
         driver:SetScript("OnUpdate", onUpdate)
     end
+    return mode, mode == "centre" and p.plate ~= nil and Orbs.lastAnchorErr or nil
 end
 
 -- A plate frame we may be anchored to was assigned to a new unit: fade its orbs out (0.15 s) and release them.
@@ -616,7 +642,22 @@ function ns.commands.test(arg)
         _, nPurple = OrbMath.RestedSplit(n, gain, gain / 2)
     end
     local x, y, plate, label = testOrigin(force)
-    Orbs:Burst({ x = x, y = y, plate = plate, n = n, scale = scale, nPurple = nPurple, kind = "test" })
+    local mode, err = Orbs:Burst({
+        x = x,
+        y = y,
+        plate = plate,
+        n = n,
+        scale = scale,
+        nPurple = nPurple,
+        kind = "test",
+    })
+    if plate then
+        if mode == "anchored" then
+            label = label .. " (anchored)"
+        else
+            label = "centre (anchor failed: " .. tostring(err or Orbs.lastAnchorErr or "unknown") .. ")"
+        end
+    end
     ns.Print(string.format("test: %g%% of a level -> %d orbs (%d purple), scale %.2f, origin=%s", pct, n, nPurple,
         scale, label))
 end
@@ -649,6 +690,6 @@ table.insert(ns.statusProviders, function()
     )
 end)
 table.insert(ns.statusProviders, function()
-    return string.format("anchor: chains=%d/%d (ceiling %d) burstFrames=%d/%d", chainsInUse, chainsCreated,
-        chainCeiling(), rInUse, rCreated)
+    return string.format("anchor: chains=%d/%d (ceiling %d) burstFrames=%d/%d lastAnchorErr=%s", chainsInUse,
+        chainsCreated, chainCeiling(), rInUse, rCreated, tostring(Orbs.lastAnchorErr or "none"))
 end)

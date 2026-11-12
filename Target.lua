@@ -97,9 +97,10 @@ local function portraitOf(f)
     return type(c) == "table" and c.Portrait or nil
 end
 
--- Centre of a frame in UIParent space, or nil when hidden / unreadable.
+-- Centre of a frame in UIParent space, or nil when unreadable. Visibility is NOT required: a hidden frame keeps its
+-- laid-out rect (the target frame is hidden once the mob is deselected on death).
 local function frameCentre(f)
-    if type(f) ~= "table" or not isVisible(f) then
+    if type(f) ~= "table" then
         return nil
     end
     local cx, cy = f:GetCenter()
@@ -110,7 +111,10 @@ local function frameCentre(f)
     return OrbMath.ToUIParent(cx, cy, fs, ps)
 end
 
--- Centre of the Blizzard target unit frame (portrait first) in UIParent space, or nil. Never throws.
+Target.lastFrameX, Target.lastFrameY = nil, nil -- last good target-frame centre (UIParent space)
+
+-- Centre of the Blizzard target unit frame (portrait first) in UIParent space. Returns the last good result when
+-- nothing is measurable now, nil only if it has never worked. Never throws.
 function Target:TargetFrameOrigin()
     local tf = _G.TargetFrame
     local okTf, port = pcall(function()
@@ -122,9 +126,13 @@ function Target:TargetFrameOrigin()
         if f then
             local ok, x, y = pcall(frameCentre, f)
             if ok and num(x) and num(y) then
+                self.lastFrameX, self.lastFrameY = x, y
                 return x, y
             end
         end
+    end
+    if self.lastFrameX then
+        return self.lastFrameX, self.lastFrameY
     end
     return nil
 end

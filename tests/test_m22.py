@@ -10,11 +10,12 @@ from test_plates_stub import Game
 OWN = lambda g, a, b: g.env.lua.eval("rawequal")(a, b)  # noqa: E731
 
 
-def make(env, probe=True, fixed_random=True):
+def make(env, probe=True, fixed_random=True, origin="plate"):
     if fixed_random:
         env.lua.execute("math.random = function() return 0.5 end")
     env.load_chunk(TESTS / "stubs_m2.lua", "stubs_m2.lua")(env.ns)
     g = Game(env, probe=probe)
+    g.db.origin = origin  # these tests exercise the experimental plate mode unless they say otherwise
     env.load_chunk(TESTS / "stubs_m22.lua", "stubs_m22.lua")(env.ns)
     g.stub.makeBar("MainStatusTrackingBarContainer", 400, 20, 800, 10, True)
     g.orbs = env.ns.Orbs
@@ -376,12 +377,8 @@ def test_target_frame_origin_reads_portrait(env):
     assert tuple(g.ns.Target.TargetFrameOrigin(g.ns.Target)) == (250, 900)
     portrait.scale = 0.5
     assert tuple(g.ns.Target.TargetFrameOrigin(g.ns.Target)) == (125, 450)
-    portrait.shown = (
-        False  # hidden portrait: falls back to the TargetFrame itself, which is shown
-    )
-    assert tuple(g.ns.Target.TargetFrameOrigin(g.ns.Target)) == (250, 900)
-    g.env.G.TargetFrame.shown = False
-    assert g.ns.Target.TargetFrameOrigin(g.ns.Target) is None
+    portrait.shown = False  # hidden frames still have a rect (v0.8)
+    assert tuple(g.ns.Target.TargetFrameOrigin(g.ns.Target)) == (125, 450)
 
 
 def test_targetframe_mode_prefers_frame_over_plate(env):
@@ -395,13 +392,13 @@ def test_targetframe_mode_prefers_frame_over_plate(env):
     assert g.has_log("origin=targetframe")
 
 
-def test_targetframe_mode_without_frame_uses_plate(env):
+def test_targetframe_mode_without_frame_goes_to_centre_not_anchored(env):
     g = make(env, probe=False)
     g.fake_orbs_on()
     g.db.origin = "targetframe"
-    plate = kill_with_secret_pos_plate(g)
+    kill_with_secret_pos_plate(g)
     (b,) = g.bursts()
-    assert OWN(g, b["plate"], plate) and g.has_log("origin=anchored")
+    assert b["plate"] is None and b["x"] == 960 and g.has_log("origin=centre")
 
 
 def test_plate_mode_falls_back_to_target_frame_without_plate(env):

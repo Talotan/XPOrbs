@@ -14,8 +14,8 @@ ns.defaults = {
     targetFrame = nil,
     showAtMax = false,
     debug = false,
-    origin = "plate", -- kill burst origin: "plate" (anchored to the nameplate) or "targetframe"
-    probe = true, -- M3: log kill bursts instead of drawing them; M4 flips this to false
+    origin = "targetframe", -- kill burst origin: "targetframe" (target unit frame) or "plate" (experimental, anchored)
+    probe = false, -- true: log kill bursts instead of drawing them
 }
 
 -- Modules add lines to /xporbs status by appending functions that return a string (or nil).
@@ -36,7 +36,7 @@ local function deepFill(dst, src)
     end
 end
 
-local SCHEMA = 2
+local SCHEMA = 3
 local OLD_COLOR, OLD_RESTED = { 0.35, 0.65, 1.0 }, { 0.7, 0.45, 1.0 }
 
 local function sameColour(c, ref)
@@ -52,16 +52,20 @@ local function sameColour(c, ref)
 end
 
 -- v2: new default colours. Only colours still equal to the old defaults are replaced (deepFill re-adds them).
+-- v3: kills go live (probe off) and the target frame is the default origin (plate was never a deliberate choice).
 local function migrate(db)
-    local v = db.version
-    if type(v) == "number" and v >= SCHEMA then
-        return
+    local v = type(db.version) == "number" and db.version or 0
+    if v < 2 then
+        if sameColour(db.color, OLD_COLOR) then
+            db.color = nil
+        end
+        if sameColour(db.restedColor, OLD_RESTED) then
+            db.restedColor = nil
+        end
     end
-    if sameColour(db.color, OLD_COLOR) then
-        db.color = nil
-    end
-    if sameColour(db.restedColor, OLD_RESTED) then
-        db.restedColor = nil
+    if v < 3 then
+        db.probe = false
+        db.origin = "targetframe"
     end
 end
 
@@ -115,6 +119,7 @@ function commands.help()
     say("/xporbs status - show addon state")
     say("/xporbs test [pct] [rested] [frame|plate] - fire a test burst")
     say("/xporbs origin plate|frame - where kill orbs start")
+    say("/xporbs lab - plate anchoring experiments on your target (4 s)")
     say("/xporbs pick - pick the XP bar frame")
     say("/xporbs reset - restore default settings")
     say("/xporbs options - open the settings panel")

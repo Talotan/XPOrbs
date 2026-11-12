@@ -1,7 +1,7 @@
 local ADDON, ns = ...
 
 -- Kill pipeline: wires UNIT_DIED / plate removal / chat XP / XP deltas into one KillMatcher and turns its bursts into
--- ns.Orbs:Burst calls. With db.probe on (M3 default) bursts are only logged. Never throws.
+-- ns.Orbs:Burst calls. With db.probe on bursts are only logged (default off since M4). Never throws.
 
 local Kills = {}
 ns.Kills = Kills
@@ -55,13 +55,23 @@ end
 local poller = CreateFrame("Frame")
 Kills.pollFrame = poller
 
-local function screenCentre()
+local function screenCentre(frac)
     local okw, w = pcall(UIParent.GetWidth, UIParent)
     local okh, h = pcall(UIParent.GetHeight, UIParent)
     if okw and okh and num(w) and num(h) and w > 0 and h > 0 then
-        return w / 2, h * 0.65
+        return w / 2, h * (frac or 0.65)
     end
     return nil, nil
+end
+
+-- True when the player is at the level cap. Unavailable APIs (or errors) count as "not at max".
+local function atMaxLevel()
+    local okl, lvl = pcall(UnitLevel, "player")
+    local okm, mx = pcall(GetMaxPlayerLevel)
+    if okl and okm and num(lvl) and num(mx) then
+        return lvl >= mx
+    end
+    return false
 end
 
 local function targetPlate()
@@ -76,11 +86,16 @@ local function targetPlate()
 end
 
 -- Picks the burst origin. Returns x, y, plate, origin: numeric x/y, or a plate to anchor to, or neither (centre).
--- db.origin = "targetframe": target frame first. "plate": the plate (anchored or measured), then the target frame.
+-- db.origin = "targetframe" (default): target frame (kept from its last good measurement), then any measured position,
+-- then the screen centre. "plate" (experimental): the plate (anchored or measured), then the target frame, then centre.
 local function chooseOrigin(b, hadXY)
-    local mode = ns.db and ns.db.origin or "plate"
-    local isKill = b.kind == "kill"
-    if mode == "targetframe" and isKill then
+    local mode = ns.db and ns.db.origin or "targetframe"
+    if b.kind ~= "kill" then
+        local cx, cy = screenCentre(0.55)
+        return cx, cy, nil, cx and "centre" or "none"
+    end
+    local frameMode = mode ~= "plate"
+    if frameMode then
         local fx, fy = ns.Target:TargetFrameOrigin()
         if fx then
             return fx, fy, nil, "targetframe"
@@ -89,10 +104,10 @@ local function chooseOrigin(b, hadXY)
     if hadXY then
         return b.x, b.y, nil, "plate"
     end
-    if b.plate then
-        return nil, nil, b.plate, "anchored"
-    end
-    if isKill then
+    if not frameMode then
+        if b.plate then
+            return nil, nil, b.plate, "anchored"
+        end
         local te = Plates:TargetEntry()
         if te then
             return te.x, te.y, nil, "target"
@@ -101,11 +116,14 @@ local function chooseOrigin(b, hadXY)
         if tp then
             return nil, nil, tp, "anchored"
         end
-        if mode ~= "targetframe" then
-            local fx, fy = ns.Target:TargetFrameOrigin()
-            if fx then
-                return fx, fy, nil, "targetframe"
-            end
+        local fx, fy = ns.Target:TargetFrameOrigin()
+        if fx then
+            return fx, fy, nil, "targetframe"
+        end
+    else
+        local te = Plates:TargetEntry()
+        if te then
+            return te.x, te.y, nil, "target"
         end
     end
     local cx, cy = screenCentre()
@@ -118,14 +136,20 @@ local function emitBurst(b)
     local probe = isProbe()
     ns:Log("BURST tier=%d kind=%s amount=%s rested=%s hadXY=%s origin=%s probe=%s", b.tier, tostring(b.kind),
         tostring(b.amount), tostring(b.rested), tostring(hadXY), origin, tostring(probe))
-    if probe or (x == nil and plate == nil) then
+    local db = ns.db
+    if probe or not db.enabled or (x == nil and plate == nil) then
+        return
+    end
+    if b.kind ~= "kill" and not db.questBursts then
+        return
+    end
+    if not db.showAtMax and atMaxLevel() then
         return
     end
     local orbs = ns.Orbs
     if not (orbs and orbs.Burst) then
         return
     end
-    local db = ns.db
     local n, scale = OrbMath.Count(b.amount, xpCache.max, db.density, db.cap)
     if n <= 0 then
         return

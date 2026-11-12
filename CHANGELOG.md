@@ -1,6 +1,12 @@
 # Changelog
 
-## 0.7 (in progress)
+## 0.8 (in progress)
+- Kills are live (M4): probe off by default, bursts gated by enabled / max level (showAtMax) / questBursts; quest bursts from screen centre. DB schema 3.
+- Target-frame origin is the default and works with a hidden frame (last good result cached).
+- Anchor errors are no longer swallowed: `ANCHOR_ERR` log lines, `lastAnchorErr` in `/xporbs status`, `/xporbs test` reports `anchor failed: <msg>`.
+- `/xporbs lab`: five anchoring/animation experiments on the target's nameplate.
+
+## 0.7
 - Re-probe: nameplates can't be measured on Forever (plate and proxy GetCenter both error every time). Measuring now switches itself off after 20 failures; `geom:` shows `measurable=` and the last error.
 - Anchored origin: orbs start at the mob's plate without measuring it. The path is rewritten as weight*P + known offset, and two invisible StatusBars spanning UIParent's corner to the plate produce the weighted anchor point.
 - Target-frame origin (Talotan's idea): fallback when there is no plate, and selectable with `/xporbs origin plate|frame`; `/xporbs test [pct] [rested] [frame|plate]`.
