@@ -30,7 +30,10 @@ def build(size, alpha_fn):
 
 def orb(u, v):
     r = math.hypot(u, v)
-    return (1 - r) ** 2 if r < 1 else 0.0
+    if r > 1:
+        return 0.0
+    # bright core plus a soft halo
+    return min(1.0, 0.75 * math.exp(-((r / 0.28) ** 2) / 2) + 0.45 * (1 - r) ** 2)
 
 
 def sparkle(u, v):
@@ -75,22 +78,52 @@ def preview(imgs):
                     k = a / 255
                     px_b[x, y] = (min(255, int(br + r * k)), min(255, int(bg_ + g * k)), min(255, int(bb + b * k)), 255)
 
-    blue, purple = (89, 166, 255), (179, 115, 255)
-    # an arc of orbs with ghosts, ~ a burst in flight, at in-game-ish size (28px glow for size 14)
-    for k in range(14):
-        t = k / 13
-        x = 40 + 520 * t
-        y = 280 - 200 * math.sin(math.pi * t * 0.85) - 30 * t
-        col = purple if k % 4 == 0 else blue
-        for g, a in ((2, 0.25), (1, 0.5), (0, 1.0)):
-            gt = max(0, t - 0.03 * g)
-            gx = 40 + 520 * gt
-            gy = 280 - 200 * math.sin(math.pi * gt * 0.85) - 30 * gt
+    def blend(base, layer, pos, size, k_mul):
+        """Normal (BLEND) composite, used for the dark underlay."""
+        layer = layer.resize(size, Image.LANCZOS)
+        px_b, px_l = base.load(), layer.load()
+        for j in range(size[1]):
+            for i in range(size[0]):
+                x, y = pos[0] + i, pos[1] + j
+                if 0 <= x < base.width and 0 <= y < base.height:
+                    r, g, b, a = px_l[i, j]
+                    k = a / 255 * k_mul
+                    br, bg_, bb, _ = px_b[x, y]
+                    px_b[x, y] = (int(br * (1 - k) + r * k), int(bg_ * (1 - k) + g * k), int(bb * (1 - k) + b * k), 255)
+
+    blue, purple = (51, 128, 255), (255, 77, 217)
+    under = (5, 20, 77)
+    glow, size = 2.0, 14  # in-game: orb drawn at size * GLOW, underlay at 1.25x that, sparkle at size * 1.9
+
+    def lighten(rgb):
+        return tuple(int(c + (255 - c) * 0.25) for c in rgb)
+
+    def curve(t):  # stand-in for the pop-then-home path: up and out, then home to the bar
+        x = 40 + 560 * t
+        y = 300 - 230 * math.sin(math.pi * min(1.0, t * 1.15)) ** 0.8 * (1 - t) - 20 * t
+        return x, y
+
+    # a burst in flight: one orb per slot along the path, rested orbs larger, ghosts at 0.015 steps (in p)
+    for k in range(16):
+        t = 0.08 + 0.84 * k / 15
+        rested = k % 4 == 0
+        col = purple if rested else blue
+        sz = size * (1.15 if rested else 1.0)
+        for g, a, gs in ((2, 0.30, 0.70), (1, 0.55, 0.85), (0, 1.0, 1.0)):
+            gx, gy = curve(max(0.0, t - 0.015 * g * 6))  # exaggerated step so the ghosts show at this scale
+            gsz = int(sz * glow * gs)
+            if g == 0:
+                usz = int(sz * glow * 1.25)
+                blend(bg, tint(imgs["orb"], under), (int(gx) - usz // 2, int(gy) - usz // 2), (usz, usz), 0.45)
             layer = tint(imgs["orb"], col)
             layer.putalpha(layer.getchannel("A").point(lambda p, a=a: int(p * a)))
-            add(bg, layer, (int(gx) - 16, int(gy) - 16), (32, 32))
-        add(bg, tint(imgs["sparkle"], (200, 225, 255)), (int(x) - 22, int(y) - 22), (44, 44))
-    add(bg, tint(imgs["flash"], blue), (440, 300), (160, 40))
+            add(bg, layer, (int(gx) - gsz // 2, int(gy) - gsz // 2), (gsz, gsz))
+        x, y = curve(t)
+        ssz = int(sz * 1.9)
+        spark = tint(imgs["sparkle"], lighten(col))
+        spark.putalpha(spark.getchannel("A").point(lambda p: int(p * 0.6)))
+        add(bg, spark, (int(x) - ssz // 2, int(y) - ssz // 2), (ssz, ssz))
+    add(bg, tint(imgs["flash"], blue), (440, 310), (160, 40))
     # large raw sheet
     sheet = Image.new("RGBA", (640, 360), (0, 0, 0, 0))
     out = bg.copy()

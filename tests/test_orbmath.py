@@ -11,27 +11,34 @@ def om(env):
     return env.ns.OrbMath
 
 
-def test_count_one_percent_gives_one(om):
-    assert tuple(om.Count(10, 1000, 100, 40)) == (1, 1)
+@pytest.mark.parametrize(
+    "gain,xp_max,n",
+    [(5.7, 1000, 7), (10, 1000, 8), (50, 1000, 14), (100, 1000, 19), (250, 1000, 28)],
+)
+def test_count_sqrt_curve(om, gain, xp_max, n):
+    assert tuple(om.Count(gain, xp_max, 100, 40)) == (n, 1)
 
 
-def test_count_tenth_percent_hits_minimum(om):
-    assert tuple(om.Count(1, 1000, 100, 40)) == (1, 1)
+def test_count_tiny_gain_hits_minimum_orbs(om):
+    n, scale = om.Count(0.001, 1000, 50, 40)  # raw = (3 + ~0) * 0.5 = 1.5 -> 2; never below 1
+    assert n >= 1 and scale == 1
+    assert tuple(om.Count(1e-9, 1000, 25, 40))[0] == 1
 
 
-def test_count_quarter_bar_gives_25(om):
-    assert tuple(om.Count(250, 1000, 100, 40)) == (25, 1)
+def test_count_density_is_multiplier(om):
+    assert om.Count(100, 1000, 200, 40)[0] == 38  # 2 * 18.8
+    assert om.Count(100, 1000, 25, 40)[0] == 5
 
 
 def test_count_overflow_capped_and_scaled(om):
-    n, scale = om.Count(3000, 1000, 100, 40)
+    n, scale = om.Count(640, 1000, 100, 40)  # 64% -> raw 43
     assert n == 40
-    assert scale == min(2, math.sqrt(300 / 40)) == 2
+    assert scale == pytest.approx(min(1.5, math.sqrt(43 / 40)))
 
 
-def test_count_mild_overflow_scale(om):
-    n, scale = om.Count(500, 1000, 100, 40)  # raw 50 -> sqrt(1.25)
-    assert n == 40 and scale == pytest.approx(math.sqrt(50 / 40))
+def test_count_scale_clamped_at_1_5(om):
+    n, scale = om.Count(1000, 1000, 400, 40)  # raw 32 * 4 = 128 -> sqrt(3.2) > 1.5
+    assert n == 40 and scale == 1.5
 
 
 @pytest.mark.parametrize(
@@ -114,3 +121,44 @@ def test_xpdelta_level_up_wrap(om):
 def test_xpdelta_no_change_and_never_negative(om):
     assert om.XPDelta(100, 1000, 100, 1000, False) == 0
     assert om.XPDelta(500, 400, 10, 400, True) == 0  # oldXP > oldMax would go negative
+
+
+def test_pop_control_stratified_angle_and_radius(om):
+    # rand() = 0 -> ang = (i-1)/n * 2pi, R = 45
+    x, y, r = om.PopControl(1, 4, 100, 200, lambda: 0)
+    assert r == 45
+    assert x == pytest.approx(100 + 45 * 2.2) and y == pytest.approx(200 + 0.35 * 45 * 2.2)
+    x, y, r = om.PopControl(2, 4, 100, 200, lambda: 0)  # ang = pi/2
+    assert x == pytest.approx(100, abs=1e-9) and y == pytest.approx(200 + (0.8 + 0.35) * 45 * 2.2)
+
+
+def test_pop_control_rand_max(om):
+    vals = iter([0.5, 1.0])  # angle jitter then radius
+    x, y, r = om.PopControl(1, 2, 0, 0, lambda: next(vals))
+    assert r == 100
+    ang = (0 + 0.5 * 0.8) / 2 * 2 * math.pi
+    assert x == pytest.approx(math.cos(ang) * 220)
+    assert y == pytest.approx((0.8 * math.sin(ang) + 0.35) * 220)
+
+
+def test_home_control(om):
+    c2x, c2y = om.HomeControl(500, 300, 100, 50, 400)
+    assert c2x == pytest.approx(100 + 400 * 0.15)
+    assert c2y == pytest.approx(50 + 120)
+
+
+def test_pop_ease_monotonic_endpoints(om):
+    ys = [om.PopEase(i / 20) for i in range(21)]
+    assert ys[0] == 0 and ys[-1] == pytest.approx(1)
+    assert all(b > a for a, b in zip(ys, ys[1:]))
+    assert om.PopEase(-1) == 0 and om.PopEase(3) == pytest.approx(1)
+    assert om.PopEase(0.5) == pytest.approx(0.5 * (1 - 0.125) + 0.5 * 0.5**2.2)
+
+
+def test_cubic_endpoints_and_midpoint(om):
+    assert tuple(om.Cubic(0, 1, 2, 3, 4, 5, 6, 7, 8)) == (1, 2)
+    assert tuple(om.Cubic(1, 1, 2, 3, 4, 5, 6, 7, 8)) == (7, 8)
+    # t = 0.5: (P0 + 3*P1 + 3*P2 + P3) / 8
+    x, y = om.Cubic(0.5, 0, 0, 0, 80, 80, 80, 80, 0)
+    assert x == pytest.approx((0 + 0 + 240 + 80) / 8)
+    assert y == pytest.approx((0 + 240 + 240 + 0) / 8)

@@ -34,7 +34,7 @@ def test_burst_40_finishes_and_goes_idle(m2):
     active, in_use, created, ceiling = m2.info()
     assert active and in_use > 0
     assert m2.orbs.driver.scripts.OnUpdate is not None
-    m2.run(0.75 * 1.15 + 0.25 + 0.5)  # flight + stagger + flash
+    m2.run(0.75 * 1.15 + 0.15 + 0.12 + 0.5)  # flight + stagger + flash
     active, in_use, created, ceiling = m2.info()
     assert not active
     assert in_use == 0
@@ -59,7 +59,7 @@ def test_ten_bursts_never_exceed_ceiling(m2):
     for _ in range(10):
         m2.burst(x=300, y=600, n=40)
     _, in_use, created, ceiling = m2.info()
-    assert ceiling == 40 * 4 + 8
+    assert ceiling == 40 * 5 + 8  # cap * (1 + EXTRAS) + 8, EXTRAS = 4
     assert created <= ceiling
     assert m2.stub.allTextures() <= ceiling
     peak = 0
@@ -77,7 +77,7 @@ def test_ten_bursts_never_exceed_ceiling(m2):
 def test_trail_off_uses_fewer_textures(m2):
     m2.G.XPOrbsDB.trail = False
     m2.burst(x=300, y=600, n=10)
-    assert m2.info()[1] == 20
+    assert m2.info()[1] == 30  # underlay + orb + sparkle per orb
     m2.run(2)
     assert m2.info()[1] == 0
 
@@ -140,13 +140,13 @@ def test_destination_unreadable_geometry_falls_back(m2):
 
 
 def shown_orb_count(m2):
-    # each orb with trail on is orb+sparkle+2 ghosts = 4 textures
-    return m2.info()[1] // 4
+    # each orb with trail on is underlay+orb+sparkle+2 ghosts = 5 textures
+    return m2.info()[1] // 5
 
 
 @pytest.mark.parametrize(
     "arg,orbs",
-    [("", 5), ("10", 10), ("5 rested", 5), ("50", 40), ("rested", 5)],
+    [("", 14), ("10", 19), ("5 rested", 14), ("50", 38), ("1000", 40), ("rested", 14)],
 )
 def test_command_parsing(m2, arg, orbs):
     m2.slash("test " + arg)
@@ -159,7 +159,7 @@ def test_command_parsing(m2, arg, orbs):
 def test_command_rested_split_and_origin(m2):
     m2.stub.cursor.x, m2.stub.cursor.y = 200, 300
     m2.slash("test 10 rested")
-    assert "(5 purple)" in m2.stub.chat[len(m2.stub.chat)]
+    assert "(10 purple)" in m2.stub.chat[len(m2.stub.chat)]
     m2.stub.tick(0.5)  # positions are only set once an orb's stagger delay has elapsed
     xs = [f.points[1][4] for f in m2.stub.frames.values() if f.kind == "Texture" and len(f.points) > 0]
     assert xs and all(x < 960 for x in xs)  # started near the cursor at x=200, not screen centre
@@ -170,16 +170,16 @@ def test_command_uses_plates_target_entry(m2):
     plates = m2.lua.eval("function() return {TargetEntry = function() return {x = 123, y = 456} end} end")()
     ns.Plates = plates
     m2.slash("test 1")
-    m2.stub.tick(0.26)  # every stagger delay has passed; eased flight has barely started
+    m2.stub.tick(0.26)  # every stagger delay has passed; the pop is within ~220 px of the origin
     pts = [f.points[1] for f in m2.stub.frames.values() if f.kind == "Texture" and len(f.points) > 0]
-    assert pts and all(abs(p[4] - 123) < 150 and p[5] > 350 for p in pts)
+    assert pts and all(abs(p[4] - 123) < 260 and 456 - 110 < p[5] < 456 + 320 for p in pts)
 
 
 def test_command_survives_plates_error(m2):
     plates = m2.lua.eval("function() return {TargetEntry = function() error('boom') end} end")()
     m2.ns.Plates = plates
     m2.slash("test 1")
-    assert shown_orb_count(m2) == 1
+    assert shown_orb_count(m2) == 8
 
 
 def test_pick_stub_and_status(m2):
@@ -196,6 +196,37 @@ def test_status_before_any_burst_and_fallback(m2):
     m2.slash("status")
     lines = [m2.stub.chat[i] for i in range(1, len(m2.stub.chat) + 1)]
     assert any("fallback=yes" in ln and "dest=nil" in ln for ln in lines)
+
+
+def test_underlay_is_blend_below_orb_and_dark(m2):
+    m2.burst(x=300, y=600, n=1)
+    texs = [f for f in m2.stub.frames.values() if f.kind == "Texture" and f.calls and "SetDrawLayer" in f.calls]
+    under = [f for f in texs if f.calls["SetBlendMode"][1] == "BLEND"]
+    assert len(under) == 1
+    assert tuple(under[0].calls["SetVertexColor"].values()) == (0.02, 0.08, 0.30)
+    assert under[0].calls["SetDrawLayer"][2] == -1
+    layers = sorted(f.calls["SetDrawLayer"][2] for f in texs)
+    assert layers == [-1, 0, 0, 0, 1]  # underlay, orb + 2 ghosts, sparkle
+
+
+def _sparkle_widths(m2):
+    return [
+        f.width
+        for f in m2.stub.frames.values()
+        if f.kind == "Texture" and f.shown and f.calls and "sparkle" in f.calls["SetTexture"][1]
+    ]
+
+
+def test_rested_orbs_start_later_and_bigger(m2):
+    m2.burst(x=300, y=600, n=1, nPurple=1)
+    m2.run(0.11)  # RESTED_DELAY not yet elapsed
+    assert m2.stub.shownTextures() == 0
+    m2.run(0.3)
+    assert _sparkle_widths(m2) == [pytest.approx(14 * 1.15 * 1.9)]
+    m2.run(2)
+    m2.burst(x=300, y=600, n=1)
+    m2.run(0.35)
+    assert _sparkle_widths(m2) == [pytest.approx(14 * 1.9)]
 
 
 def test_arrival_flash_bumps_and_decays(m2):

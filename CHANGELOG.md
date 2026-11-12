@@ -1,6 +1,11 @@
 # Changelog
 
-## 0.5 (in progress)
+## 0.6 (in progress)
+- Visual pass from the design review: deeper blue {0.20,0.50,1.00}, magenta rested {1.0,0.30,0.85} arriving as a later, bigger second wave, dimmer sparkle, core+halo orb texture, dark BLEND underlay for bright zones, pop-then-home cubic path, connected tapered trail, rested-tinted arrival flash.
+- Orb count is now a compressed curve: n = (3 + 5*sqrt(% of level)) * multiplier; a normal kill shows ~7 orbs.
+- DB schema 2: old default colours migrate to the new ones; customised colours are kept.
+
+## 0.5
 - Probe findings (docs/probe-results.md): GUIDs readable, 6/6 kills tier 1, chat XP equals bar delta, but no plate position was ever sampled.
 - Plate sampling: re-fetch late plates, skip forbidden plates, fall back to a proxy frame anchored to the plate when the plate can't be measured, per-method failure counters (`geom:` status line, `GEOM`/`GEOM_ERR` log lines).
 

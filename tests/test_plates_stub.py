@@ -70,7 +70,7 @@ def test_tier2_plate_removed_dead_then_chat(env):
     assert g.stats()["tier2"] == 1 and g.stats()["tier1"] == 0
     (b,) = g.bursts()
     assert (b["x"], b["y"]) == (700, 400)
-    assert b["n"] == 5 and b["scale"] == 1 and b["nPurple"] == 0 and b["kind"] == "kill"
+    assert b["n"] == 14 and b["scale"] == 1 and b["nPurple"] == 0 and b["kind"] == "kill"
     assert g.has_log(
         "BURST tier=2 kind=kill amount=50 rested=nil hadXY=true origin=plate probe=false"
     )
@@ -268,7 +268,7 @@ def test_probe_off_calls_orbs_once_with_expected_n(env):
     g.stub.setXP(50)  # delta claims the kill: no extra "other" burst
     g.tick(0.5, 4)
     (b,) = g.bursts()
-    assert b["n"] == 5  # 50 / 1000 * density 100
+    assert b["n"] == 14  # 5% of a level -> (3 + 5 * sqrt(5)) at multiplier 100
     assert b["scale"] == 1 and b["nPurple"] == 0 and b["kind"] == "kill"
     assert (b["x"], b["y"]) == (300, 200)
 
@@ -282,7 +282,7 @@ def test_probe_off_rested_split(env):
     g.chat(CHAT_RESTED)
     g.tick(0.1)
     (b,) = g.bursts()
-    assert b["n"] == 5 and b["nPurple"] == 3  # floor(5 * 25 / 50 + 0.5)
+    assert b["n"] == 14 and b["nPurple"] == 7  # floor(14 * 25 / 50 + 0.5)
 
 
 def test_tier4_falls_back_to_target_then_screen_centre(env):

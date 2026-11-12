@@ -17,14 +17,23 @@ local TWO_PI = math.pi * 2
 local random = math.random
 local floor, min, sqrt, cos, sin = math.floor, math.min, math.sqrt, math.cos, math.sin
 
-local EXTRAS = 3 -- ceiling formula: cap * (1 + EXTRAS) + 8. Per orb: sparkle + 2 trail ghosts beyond the orb itself
-local GLOW = 1.8 -- the orb art fades to nothing at its rim, so draw it larger than db.size
-local SPARKLE = 2.4
-local STAGGER = 0.25 -- max start delay
-local START_RADIUS = 12
+-- Tunables (retune here).
+local EXTRAS = 4 -- ceiling formula: cap * (1 + EXTRAS) + 8. Per orb: underlay + sparkle + 2 trail ghosts
+local GLOW = 2.0 -- the orb art fades to nothing at its rim, so draw it larger than db.size
+local SPARKLE = 1.9
+local SPARKLE_ALPHA = 0.6
+local SPARKLE_WHITE = 0.25 -- sparkle tint = lerp(colour, white, this)
+local STAGGER = 0.15 -- max start delay
+local RESTED_DELAY = 0.12 -- extra start delay for rested orbs
+local RESTED_SIZE = 1.15
+local START_RADIUS = 6
 local SHRINK_FROM = 0.8 -- shrink to 60% over the last 20% of the flight
 local FADE_IN = 0.1
-local GHOST_STEP = 0.04
+local GHOST_STEP = 0.015 -- in p, before easing
+local GHOST1_ALPHA, GHOST1_SIZE = 0.55, 0.85
+local GHOST2_ALPHA, GHOST2_SIZE = 0.30, 0.70
+local UNDER_R, UNDER_G, UNDER_B = 0.02, 0.08, 0.30 -- dark underlay so bright orbs keep their hue
+local UNDER_ALPHA, UNDER_SIZE = 0.45, 1.25
 local FLASH_TIME = 0.3
 
 local overlay, driver, flash
@@ -32,7 +41,7 @@ local freeTex, texCreated, texInUse = {}, 0, 0
 local live, nLive = {}, 0
 local freeRec = {}
 local active = false
-local arrivedRecently, flashAge, flashOn = 0, 0, false
+local arrivedRecently, flashAge, flashOn, flashRested = 0, 0, false, false
 
 local function db()
     if not ns.db then
@@ -63,7 +72,7 @@ local function ensureFrames()
     texCreated = 1 -- the flash counts towards the ceiling
 end
 
-local function acquire(path, sub, r, g, b)
+local function acquire(path, sub, r, g, b, blend)
     local tex = freeTex[#freeTex]
     if tex then
         freeTex[#freeTex] = nil
@@ -74,6 +83,7 @@ local function acquire(path, sub, r, g, b)
     end
     texInUse = texInUse + 1
     tex:SetTexture(path)
+    tex:SetBlendMode(blend or "ADD")
     tex:SetDrawLayer("ARTWORK", sub)
     tex:SetVertexColor(r, g, b)
     tex:SetAlpha(0)
@@ -119,38 +129,42 @@ local function newRec()
 end
 
 local function freeOrb(o)
+    release(o.under)
     release(o.orb)
     release(o.spark)
     if o.g1 then
         release(o.g1)
         release(o.g2)
     end
-    o.orb, o.spark, o.g1, o.g2 = nil, nil, nil, nil
+    o.under, o.orb, o.spark, o.g1, o.g2 = nil, nil, nil, nil, nil
     freeRec[#freeRec + 1] = o
 end
 
 local function drawOrb(o, p, dx, dy)
-    local ex, ey = OrbMath.Bezier(OrbMath.EaseInOut(p), o.x0, o.y0, o.cx, o.cy, dx, dy)
+    local x0, y0, c1x, c1y = o.x0, o.y0, o.c1x, o.c1y
+    local c2x, c2y = OrbMath.HomeControl(c1x, c1y, dx, dy, o.dist0)
+    local ex, ey = OrbMath.Cubic(OrbMath.PopEase(p), x0, y0, c1x, c1y, c2x, c2y, dx, dy)
     local s = o.size
     if p > SHRINK_FROM then
         s = s * (1 - 0.4 * (p - SHRINK_FROM) / (1 - SHRINK_FROM))
     end
     local a = p < FADE_IN and p / FADE_IN or 1
+    place(o.under, ex, ey, s * GLOW * UNDER_SIZE, a * UNDER_ALPHA)
     place(o.orb, ex, ey, s * GLOW, a)
-    place(o.spark, ex, ey, s * SPARKLE, a * 0.8)
+    place(o.spark, ex, ey, s * SPARKLE, a * SPARKLE_ALPHA)
     o.spark:SetRotation(o.rot0 + TWO_PI * (o.el - o.delay))
     if o.g1 then
         local pk = p - GHOST_STEP
         if pk > 0 then
-            local gx, gy = OrbMath.Bezier(OrbMath.EaseInOut(pk), o.x0, o.y0, o.cx, o.cy, dx, dy)
-            place(o.g1, gx, gy, s * GLOW, a * 0.5)
+            local gx, gy = OrbMath.Cubic(OrbMath.PopEase(pk), x0, y0, c1x, c1y, c2x, c2y, dx, dy)
+            place(o.g1, gx, gy, s * GLOW * GHOST1_SIZE, a * GHOST1_ALPHA)
         else
             hideTex(o.g1)
         end
         pk = p - 2 * GHOST_STEP
         if pk > 0 then
-            local gx, gy = OrbMath.Bezier(OrbMath.EaseInOut(pk), o.x0, o.y0, o.cx, o.cy, dx, dy)
-            place(o.g2, gx, gy, s * GLOW, a * 0.25)
+            local gx, gy = OrbMath.Cubic(OrbMath.PopEase(pk), x0, y0, c1x, c1y, c2x, c2y, dx, dy)
+            place(o.g2, gx, gy, s * GLOW * GHOST2_SIZE, a * GHOST2_ALPHA)
         else
             hideTex(o.g2)
         end
@@ -170,7 +184,7 @@ local function onUpdate(self, dt)
             local p = t / o.dur
             if p >= 1 then
                 arrivedRecently = arrivedRecently + 1
-                flashAge, flashOn = 0, true
+                flashAge, flashOn, flashRested = 0, true, o.rested
                 freeOrb(o)
                 live[i] = live[nLive]
                 live[nLive] = nil
@@ -188,7 +202,7 @@ local function onUpdate(self, dt)
             flashOn, arrivedRecently = false, 0
             flash:Hide()
         else
-            local c = ns.db.color
+            local c = flashRested and ns.db.restedColor or ns.db.color
             local a = min(1, 0.35 + 0.05 * arrivedRecently) * (1 - flashAge / FLASH_TIME)
             local w = ns.db.size * 8
             flash:SetVertexColor(c[1], c[2], c[3])
@@ -207,7 +221,7 @@ local function onUpdate(self, dt)
 end
 
 local function lighten(c)
-    return c + (1 - c) * 0.5
+    return c + (1 - c) * SPARKLE_WHITE
 end
 
 -- Burst{ x=, y= (UIParent coords), n=, scale= (default 1), nPurple= (default 0), kind= }. n <= 0 is a no-op.
@@ -229,26 +243,31 @@ function Orbs:Burst(p)
     end
     local dx, dy = Target:GetDestination()
     local trail = d.trail
-    local need = trail and 1 + EXTRAS or 2 -- orb + sparkle (+ 2 ghosts)
+    local need = trail and 1 + EXTRAS or 3 -- orb + underlay + sparkle (+ 2 ghosts)
     local limit = ceiling() - 1 -- the arrival flash holds one slot
 
     for i = 1, n do
         if texInUse + need > limit then
             break
         end
-        local c = (i <= nPurple) and d.restedColor or d.color
+        local rested = i <= nPurple
+        local c = rested and d.restedColor or d.color
         local r, g, b = c[1], c[2], c[3]
         local o = newRec()
         local ang, rad = random() * TWO_PI, START_RADIUS * sqrt(random())
         o.x0, o.y0 = x + cos(ang) * rad, y + sin(ang) * rad
-        o.cx, o.cy = OrbMath.ControlPoint(o.x0, o.y0, dx, dy, random)
-        o.delay = random() * STAGGER
+        o.c1x, o.c1y = OrbMath.PopControl(i, n, o.x0, o.y0, random)
+        local ddx, ddy = dx - o.x0, dy - o.y0
+        o.dist0 = sqrt(ddx * ddx + ddy * ddy)
+        o.delay = random() * STAGGER + (rested and RESTED_DELAY or 0)
         o.dur = d.flightTime * (0.85 + random() * 0.3)
         o.el = 0
-        o.size = d.size * scale
+        o.rested = rested
+        o.size = d.size * scale * (rested and RESTED_SIZE or 1)
         o.rot0 = random() * TWO_PI
-        o.orb = acquire(ORB_TEX, 1, r, g, b)
-        o.spark = acquire(SPARKLE_TEX, 2, lighten(r), lighten(g), lighten(b))
+        o.under = acquire(ORB_TEX, -1, UNDER_R, UNDER_G, UNDER_B, "BLEND")
+        o.orb = acquire(ORB_TEX, 0, r, g, b)
+        o.spark = acquire(SPARKLE_TEX, 1, lighten(r), lighten(g), lighten(b))
         if trail then
             o.g1 = acquire(ORB_TEX, 0, r, g, b)
             o.g2 = acquire(ORB_TEX, 0, r, g, b)

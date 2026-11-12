@@ -2,13 +2,13 @@ local ADDON, ns = ...
 
 ns.defaults = {
     enabled = true,
-    density = 100,
+    density = 100, -- orb multiplier in % (100 = normal), see OrbMath.Count
     cap = 40,
     size = 14,
     flightTime = 0.75,
-    color = { 0.35, 0.65, 1.0 },
+    color = { 0.20, 0.50, 1.00 },
     restedTint = true,
-    restedColor = { 0.7, 0.45, 1.0 },
+    restedColor = { 1.0, 0.30, 0.85 },
     trail = true,
     questBursts = true,
     targetFrame = nil,
@@ -35,12 +35,42 @@ local function deepFill(dst, src)
     end
 end
 
+local SCHEMA = 2
+local OLD_COLOR, OLD_RESTED = { 0.35, 0.65, 1.0 }, { 0.7, 0.45, 1.0 }
+
+local function sameColour(c, ref)
+    if type(c) ~= "table" then
+        return false
+    end
+    for i = 1, 3 do
+        if type(c[i]) ~= "number" or math.abs(c[i] - ref[i]) > 0.005 then
+            return false
+        end
+    end
+    return true
+end
+
+-- v2: new default colours. Only colours still equal to the old defaults are replaced (deepFill re-adds them).
+local function migrate(db)
+    local v = db.version
+    if type(v) == "number" and v >= SCHEMA then
+        return
+    end
+    if sameColour(db.color, OLD_COLOR) then
+        db.color = nil
+    end
+    if sameColour(db.restedColor, OLD_RESTED) then
+        db.restedColor = nil
+    end
+end
+
 function ns:InitDB()
     if type(XPOrbsDB) ~= "table" then
         XPOrbsDB = {}
     end
+    migrate(XPOrbsDB)
     deepFill(XPOrbsDB, ns.defaults)
-    XPOrbsDB.version = 1
+    XPOrbsDB.version = SCHEMA
     ns.db = XPOrbsDB
 end
 

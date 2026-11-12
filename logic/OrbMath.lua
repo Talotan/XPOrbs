@@ -17,6 +17,7 @@ local function clamp(v, lo, hi)
 end
 
 -- Orb count and size scale for a gain. 0, 1 when there is nothing to show.
+-- density is an orb multiplier in percent (100 = normal). Square-root curve so small kills still read.
 function OrbMath.Count(gain, xpMax, density, cap)
     if type(gain) ~= "number" or type(xpMax) ~= "number" or type(density) ~= "number" or type(cap) ~= "number" then
         return 0, 1
@@ -24,11 +25,12 @@ function OrbMath.Count(gain, xpMax, density, cap)
     if gain <= 0 or xpMax <= 0 or cap < 1 then
         return 0, 1
     end
-    local raw = gain / xpMax * density
+    local pct = gain / xpMax * 100
+    local raw = (3 + 5 * sqrt(pct)) * density / 100
     local n = clamp(floor(raw + 0.5), 1, cap)
     local scale = 1
     if raw > cap then
-        scale = min(2, sqrt(raw / cap))
+        scale = min(1.5, sqrt(raw / cap))
     end
     return n, scale
 end
@@ -69,6 +71,32 @@ function OrbMath.ControlPoint(x0, y0, x1, y1, rand)
     end
     local off = (rand() - 0.5) * 0.6 * dist
     return mx + (-dy / dist) * off, my + (dx / dist) * off + 0.25 * dist
+end
+
+-- Pop control point for orb i of n: stratified angle, radius 45..100, pushed out 2.2x and biased upward (y is up).
+-- Returns c1x, c1y, R.
+function OrbMath.PopControl(i, n, x0, y0, rand)
+    local ang = ((i - 1) + rand() * 0.8) / n * 2 * math.pi
+    local r = 45 + rand() * 55
+    return x0 + math.cos(ang) * r * 2.2, y0 + (0.8 * math.sin(ang) + 0.35) * r * 2.2, r
+end
+
+-- Second control point of the pop-then-home curve: hugs the destination's x, sits 0.30 * dist0 above it.
+function OrbMath.HomeControl(c1x, c1y, dx, dy, dist0)
+    return dx + (c1x - dx) * 0.15, dy + 0.30 * dist0
+end
+
+-- Pop ease: fast start (ease-out half) blended with a slow-in finish (ease-in half). p clamped to [0, 1].
+function OrbMath.PopEase(p)
+    p = clamp(p, 0, 1)
+    return 0.5 * (1 - (1 - p) ^ 3) + 0.5 * p ^ 2.2
+end
+
+-- Cubic Bezier point at t.
+function OrbMath.Cubic(t, x0, y0, x1, y1, x2, y2, x3, y3)
+    local u = 1 - t
+    local a, b, c, d = u * u * u, 3 * u * u * t, 3 * u * t * t, t * t * t
+    return a * x0 + b * x1 + c * x2 + d * x3, a * y0 + b * y1 + c * y2 + d * y3
 end
 
 -- Screen-space point (frame effective scale) -> UIParent space.
