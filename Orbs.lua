@@ -35,26 +35,34 @@ local GHOST2_ALPHA, GHOST2_SIZE = 0.30, 0.70
 local UNDER_R, UNDER_G, UNDER_B = 0.02, 0.08, 0.30 -- dark underlay so bright orbs keep their hue
 local UNDER_ALPHA, UNDER_SIZE = 0.45, 1.25
 local FLASH_TIME = 0.3
--- Anchored mode (origin = a nameplate we may not measure): see HANDOFF "M2.2 anchored origin".
-local GHOSTS_ANCHORED = 1 -- trail ghosts per orb in anchored bursts (numeric bursts keep 2); each costs a chain
-local ASSUMED_MOB_Y = 0.55 -- assumed mob height as a fraction of screen height, used to size the home-curve lift
-local LIFT = 0.30 -- lift of the home control point, as a fraction of the assumed travel distance
-local MIN_TRAVEL = 150 -- px floor for that assumed distance
-local A_MIN = 0.002 -- below this plate weight the chain is skipped and textures anchor to UIParent directly
-local FADE_OUT = 0.15 -- seconds an orb fades when its plate is reused for another unit
-local R_CEIL = 16 -- anchored bursts alive at once
-local WHITE = "Interface\\Buttons\\WHITE8X8"
+-- Corpse pop (a burst of orbs at the dead mob's nameplate, drawn relative to a tiny frame anchored ONLY to the plate).
+local POP_MAX = 12 -- orbs per pop
+local POP_FRAMES = 8 -- concurrent pops (one pooled frame each)
+local POP_TIME = 0.45
+local POP_Y = 0 -- offset of the pop frame from the plate centre
+local POP_R_MIN, POP_R_MAX = 30, 70 -- final radius
+local POP_DRIFT = 40 -- extra upward drift, px
+local POP_SIZE = 1.1 -- start size multiplier
+local POP_SHRINK_FROM = 0.5 -- size shrinks to 0 over p in [0.5, 1]
+local POP_FADE_FROM = 0.6 -- alpha 1 -> 0 over p in [0.6, 1]
+local POP_FADE_OUT = 0.1 -- seconds a pop fades when its plate is reused for another unit
+local STREAM_DELAY = 0.12 -- extra start delay of the stream when a pop happened, so the pop reads first
+-- Crossfade style: orbs fly from an ESTIMATED mob position (plates can't be measured). Copy A is drawn relative to
+-- the plate (exact if the estimate is right), copy B in screen space; A fades out and B fades in over
+-- p in [XF_START, XF_END].
+local ASSUMED_MOB_Y = 0.58 -- estimated mob height as a fraction of screen height (target plates sat at 0.55-0.62)
+local XF_START, XF_END = 0.25, 0.60
 
 local overlay, driver, flash
 local freeTex, texCreated, texInUse = {}, 0, 0
 local live, nLive = {}, 0
 local freeRec = {}
 local active = false
-local freeChain, chainsCreated, chainsInUse = {}, 0, 0
-local freeR, rCreated, rInUse = {}, 0, 0
-local anchorSeen, anchorSeenN = {}, 0
-Orbs.lastAnchorErr = nil -- last anchored-path error message (first 120 chars)
 local arrivedRecently, flashAge, flashOn, flashRested = 0, 0, false, false
+local freePop, popsCreated = {}, 0
+local pops, nPops = {}, 0
+local popErrSeen = false
+local xfs, nXf = {}, 0 -- crossfade pop frames alive (their orbs are driven from the stream loop)
 
 local function db()
     if not ns.db then
@@ -69,22 +77,6 @@ end
 
 local function readable(v)
     return not issecretvalue or not issecretvalue(v)
-end
-
--- Records an anchored-path failure: no silent failures. Logs each distinct (where, message) pair once.
-local function noteAnchorErr(where, err)
-    local msg = string.gsub(string.sub(tostring(err), 1, 120), "[\r\n]+", " ")
-    Orbs.lastAnchorErr = msg
-    local key = where .. "|" .. msg
-    if not anchorSeen[key] and anchorSeenN < 50 then
-        anchorSeen[key] = true
-        anchorSeenN = anchorSeenN + 1
-        ns:Log("ANCHOR_ERR where=%s err=%s", where, msg)
-    end
-end
-
-local function chainCeiling()
-    return floor((ceiling() - 1) / (3 + GHOSTS_ANCHORED)) * (1 + GHOSTS_ANCHORED)
 end
 
 local function ensureFrames()
@@ -144,121 +136,23 @@ local function place(tex, x, y, size, alpha)
     tex:SetAlpha(alpha)
 end
 
+-- Pop textures are positioned relative to their pop frame only (never measured, never anchored to anything else).
+local function placeRel(tex, rel, x, y, size, alpha)
+    if not tex.xoShown then
+        tex:Show()
+        tex.xoShown = true
+    end
+    tex:ClearAllPoints()
+    tex:SetPoint("CENTER", rel, "CENTER", x, y)
+    tex:SetSize(size, size)
+    tex:SetAlpha(alpha)
+end
+
 local function hideTex(tex)
     if tex.xoShown then
         tex:Hide()
         tex.xoShown = false
     end
-end
-
-local function setupBar(bar, orientation)
-    bar:SetOrientation(orientation)
-    bar:SetMinMaxValues(0, 1)
-    bar:SetStatusBarTexture(WHITE)
-    bar:SetStatusBarColor(0, 0, 0, 0) -- invisible but still laid out
-    bar:SetValue(0)
-end
-
--- Chain of 3 regions whose hBar fill TOPRIGHT sits at (a*Px, a*Py) for the burst frame R spanning (0,0)-(Px,Py).
-local function acquireChain(R)
-    local ch = freeChain[#freeChain]
-    local reused = ch ~= nil
-    local ok, err = pcall(function()
-        if reused then
-            ch.v:SetParent(R)
-            ch.m:SetParent(R)
-            ch.h:SetParent(R)
-        else
-            local v = CreateFrame("StatusBar", nil, R)
-            local m = CreateFrame("Frame", nil, R)
-            local h = CreateFrame("StatusBar", nil, R)
-            setupBar(v, "VERTICAL")
-            setupBar(h, "HORIZONTAL")
-            ch = { v = v, m = m, h = h, vfill = v:GetStatusBarTexture(), fill = h:GetStatusBarTexture() }
-        end
-        ch.v:ClearAllPoints()
-        ch.v:SetAllPoints(R)
-        ch.m:ClearAllPoints()
-        ch.m:SetPoint("BOTTOMLEFT", R, "BOTTOMLEFT")
-        ch.m:SetPoint("TOPRIGHT", ch.vfill, "TOPRIGHT")
-        ch.h:ClearAllPoints()
-        ch.h:SetAllPoints(ch.m)
-        ch.v:Show()
-        ch.m:Show()
-        ch.h:Show()
-    end)
-    if not ok then
-        noteAnchorErr("chain", err)
-        return nil
-    end
-    if not ch or not ch.fill then
-        noteAnchorErr("chain", "no status bar fill texture")
-        return nil
-    end
-    if reused then
-        freeChain[#freeChain] = nil
-    else
-        chainsCreated = chainsCreated + 1
-    end
-    chainsInUse = chainsInUse + 1
-    return ch
-end
-
-local function releaseChain(ch)
-    pcall(function()
-        ch.v:Hide()
-        ch.m:Hide()
-        ch.h:Hide()
-        ch.m:ClearAllPoints()
-    end)
-    freeChain[#freeChain + 1] = ch
-    chainsInUse = chainsInUse - 1
-end
-
--- Burst record: R spans UIParent BOTTOMLEFT (0,0) to the plate centre P. Shared by the burst's orbs and ghosts.
-local function acquireBurst(plate)
-    local R = freeR[#freeR]
-    if not R and rCreated >= R_CEIL then
-        return nil
-    end
-    if R then
-        freeR[#freeR] = nil
-    else
-        local ok, f = pcall(CreateFrame, "Frame", nil, UIParent)
-        if not ok or not f then
-            return nil
-        end
-        R = f
-        rCreated = rCreated + 1
-    end
-    local ok, err = pcall(function()
-        R:ClearAllPoints()
-        R:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", 0, 0)
-        R:SetPoint("TOPRIGHT", plate, "CENTER", 0, 0)
-        R:Show()
-    end)
-    if not ok then
-        noteAnchorErr("R", err)
-        pcall(function()
-            R:Hide()
-            R:ClearAllPoints()
-        end)
-        freeR[#freeR + 1] = R
-        return nil
-    end
-    rInUse = rInUse + 1
-    return { R = R, plate = plate, n = 0 }
-end
-
-local function releaseBurst(b)
-    local R = b.R
-    b.R = nil
-    pcall(function()
-        R:Hide()
-        R:ClearAllPoints()
-    end)
-    freeR[#freeR + 1] = R
-    rInUse = rInUse - 1
 end
 
 local function newRec()
@@ -271,6 +165,8 @@ local function newRec()
     return {}
 end
 
+local releasePop, dropXf -- defined with the pop code below
+
 local function freeOrb(o)
     release(o.under)
     release(o.orb)
@@ -281,20 +177,57 @@ local function freeOrb(o)
     if o.g2 then
         release(o.g2)
     end
-    if o.anch then
-        releaseChain(o.ch)
-        if o.gch then
-            releaseChain(o.gch)
-        end
-        local b = o.burst
-        b.n = b.n - 1
-        if b.n <= 0 and b.R then
-            releaseBurst(b)
-        end
-        o.ch, o.gch, o.burst = nil, nil, nil
-    end
     o.under, o.orb, o.spark, o.g1, o.g2 = nil, nil, nil, nil, nil
+    if o.g then
+        local g = o.g
+        o.g = nil
+        for j = 1, 3 do
+            hideTex(g.tex[o.k + j])
+        end
+        g.refs = g.refs - 1
+        if g.refs <= 0 then
+            dropXf(g)
+            releasePop(g)
+        end
+    end
     freeRec[#freeRec + 1] = o
+end
+
+local function smoothstep(p)
+    local t = (p - XF_START) / (XF_END - XF_START)
+    if t <= 0 then
+        return 0
+    elseif t >= 1 then
+        return 1
+    end
+    return t * t * (3 - 2 * t)
+end
+
+-- Crossfade copy A: this orb's textures on the plate-anchored frame, offset by (B - P-hat). Under pcall.
+local function drawA(o, g, ex, ey, s, alpha)
+    local tex, k = g.tex, o.k
+    if alpha <= 0 then
+        hideTex(tex[k + 1])
+        hideTex(tex[k + 2])
+        hideTex(tex[k + 3])
+        return
+    end
+    local f, ox, oy = g.f, ex - o.px, ey - o.py
+    placeRel(tex[k + 1], f, ox, oy, s * GLOW * UNDER_SIZE, alpha * UNDER_ALPHA)
+    placeRel(tex[k + 2], f, ox, oy, s * GLOW, alpha)
+    local sp = tex[k + 3]
+    placeRel(sp, f, ox, oy, s * SPARKLE, alpha * SPARKLE_ALPHA)
+    sp:SetRotation(o.rot0 + TWO_PI * (o.el - o.delay))
+end
+
+local function hideB(o)
+    hideTex(o.under)
+    hideTex(o.orb)
+    hideTex(o.spark)
+    if o.g1 then
+        hideTex(o.g1)
+        hideTex(o.g2)
+    end
 end
 
 local function drawOrb(o, p, dx, dy)
@@ -306,6 +239,23 @@ local function drawOrb(o, p, dx, dy)
         s = s * (1 - 0.4 * (p - SHRINK_FROM) / (1 - SHRINK_FROM))
     end
     local a = p < FADE_IN and p / FADE_IN or 1
+    local g = o.g
+    if g then
+        local w = smoothstep(p) -- weight of the screen-space copy B
+        local ok, err = pcall(drawA, o, g, ex, ey, s, a * (1 - w) * g.fm)
+        if not ok then
+            g.fm = 0
+            if not popErrSeen then
+                popErrSeen = true
+                ns:Log("POP_ERR crossfade %s", string.sub(tostring(err), 1, 120))
+            end
+        end
+        if w <= 0 then
+            hideB(o)
+            return
+        end
+        a = a * w
+    end
     place(o.under, ex, ey, s * GLOW * UNDER_SIZE, a * UNDER_ALPHA)
     place(o.orb, ex, ey, s * GLOW, a)
     place(o.spark, ex, ey, s * SPARKLE, a * SPARKLE_ALPHA)
@@ -328,53 +278,266 @@ local function drawOrb(o, p, dx, dy)
     end
 end
 
-local function placeA(tex, fill, w, kx, ky, size, alpha)
-    if not tex.xoShown then
-        tex:Show()
-        tex.xoShown = true
-    end
-    tex:ClearAllPoints()
-    if w < A_MIN then
-        tex:SetPoint("CENTER", UIParent, "BOTTOMLEFT", kx, ky)
-    else
-        tex:SetPoint("CENTER", fill, "TOPRIGHT", kx, ky)
-    end
-    tex:SetSize(size, size)
-    tex:SetAlpha(alpha)
+-- ---------------------------------------------------------------- corpse pop
+
+-- A pooled pop: g.f is a 1x1 frame whose ONLY anchor is the nameplate; g.tex holds up to POP_MAX * 3 textures
+-- (underlay, orb, sparkle per orb) created lazily and parented to g.f; per-orb parameters live in g.dx/dy/size/rot.
+local function newPop()
+    local f = CreateFrame("Frame", nil, UIParent)
+    f:SetSize(1, 1)
+    f:SetFrameStrata("HIGH")
+    f:EnableMouse(false)
+    f:Hide()
+    return { f = f, tex = {}, dx = {}, dy = {}, drift = {}, size = {}, rot = {}, n = 0, used = 0 }
 end
 
--- Anchored orb: never measures anything; positions are weight * P (via the chain) + a known offset.
-local function drawOrbA(o, p, dx, dy)
-    local sx, sy, ox, oy, L = o.sx, o.sy, o.ox, o.oy, o.L
-    local w, kx, ky = OrbMath.AnchoredWeights(OrbMath.PopEase(p), sx, sy, ox, oy, dx, dy, L)
-    local ch = o.ch
-    ch.v:SetValue(w)
-    ch.h:SetValue(w)
-    local s = o.size
-    if p > SHRINK_FROM then
-        s = s * (1 - 0.4 * (p - SHRINK_FROM) / (1 - SHRINK_FROM))
+function releasePop(g)
+    local tex = g.tex
+    for i = 1, g.used do
+        local t = tex[i]
+        t:Hide()
+        t.xoShown = false
     end
-    local a = (p < FADE_IN and p / FADE_IN or 1) * o.fm
-    local fill = ch.fill
-    placeA(o.under, fill, w, kx, ky, s * GLOW * UNDER_SIZE, a * UNDER_ALPHA)
-    placeA(o.orb, fill, w, kx, ky, s * GLOW, a)
-    placeA(o.spark, fill, w, kx, ky, s * SPARKLE, a * SPARKLE_ALPHA)
-    o.spark:SetRotation(o.rot0 + TWO_PI * (o.el - o.delay))
-    if o.g1 then
-        local pk = p - GHOST_STEP
-        if pk > 0 then
-            local gch = o.gch
-            w, kx, ky = OrbMath.AnchoredWeights(OrbMath.PopEase(pk), sx, sy, ox, oy, dx, dy, L)
-            gch.v:SetValue(w)
-            gch.h:SetValue(w)
-            placeA(o.g1, gch.fill, w, kx, ky, s * GLOW * GHOST1_SIZE, a * GHOST1_ALPHA)
+    g.used, g.plate, g.xf, g.refs = 0, nil, false, 0
+    pcall(g.f.ClearAllPoints, g.f)
+    pcall(g.f.Hide, g.f)
+    freePop[#freePop + 1] = g
+end
+
+-- Fills g for m orbs (rested: the first nP). Anchors g.f to the plate with a single point. Errors propagate (pcall'd).
+local function setupPop(g, plate, m, scale, nP, rc, bc)
+    local d = ns.db
+    local f, tex = g.f, g.tex
+    f:ClearAllPoints()
+    f:SetPoint("CENTER", plate, "CENTER", 0, POP_Y)
+    f:Show()
+    for i = 1, m * 3 do
+        if not tex[i] then
+            tex[i] = f:CreateTexture(nil, "ARTWORK")
+        end
+    end
+    for i = 1, m do
+        local rested = i <= nP
+        local c = rested and rc or bc
+        local r, gg, b = c[1], c[2], c[3]
+        local k = (i - 1) * 3
+        local u, o, s = tex[k + 1], tex[k + 2], tex[k + 3]
+        u:SetTexture(ORB_TEX)
+        u:SetBlendMode("BLEND")
+        u:SetDrawLayer("ARTWORK", -1)
+        u:SetVertexColor(UNDER_R, UNDER_G, UNDER_B)
+        o:SetTexture(ORB_TEX)
+        o:SetBlendMode("ADD")
+        o:SetDrawLayer("ARTWORK", 0)
+        o:SetVertexColor(r, gg, b)
+        s:SetTexture(SPARKLE_TEX)
+        s:SetBlendMode("ADD")
+        s:SetDrawLayer("ARTWORK", 1)
+        s:SetVertexColor(r + (1 - r) * SPARKLE_WHITE, gg + (1 - gg) * SPARKLE_WHITE, b + (1 - b) * SPARKLE_WHITE)
+        for j = 1, 3 do
+            local t = tex[k + j]
+            t:SetAlpha(0)
+            t:Hide()
+            t.xoShown = false
+        end
+        local ang = ((i - 1) + random() * 0.8) / m * TWO_PI
+        local rad = POP_R_MIN + random() * (POP_R_MAX - POP_R_MIN)
+        g.dx[i], g.dy[i] = cos(ang) * rad, sin(ang) * rad
+        g.drift[i] = random() * POP_DRIFT
+        g.size[i] = d.size * scale * (rested and RESTED_SIZE or 1)
+        g.rot[i] = random() * TWO_PI
+    end
+    g.used = m * 3
+    g.n = m
+end
+
+-- Takes a pooled pop frame (or creates one under the POP_FRAMES cap). nil when none is free.
+local function takePopFrame()
+    local g = freePop[#freePop]
+    if g then
+        freePop[#freePop] = nil
+        return g
+    end
+    if popsCreated < POP_FRAMES then
+        local ok, ng = pcall(newPop)
+        if ok then
+            popsCreated = popsCreated + 1
+            return ng
+        end
+    end
+    return nil
+end
+
+-- Returns true when a pop was started. Never throws; every failure just means "no pop".
+local function startPop(plate, n, scale, nPurple)
+    if type(plate) ~= "table" or not readable(plate) then
+        return false
+    end
+    local g = takePopFrame()
+    if not g then
+        return false
+    end
+    local d = ns.db
+    local m = min(n, POP_MAX)
+    local nP = nPurple > 0 and floor(nPurple * m / n + 0.5) or 0
+    local ok, err = pcall(setupPop, g, plate, m, scale, nP, d.restedColor, d.color)
+    if not ok then
+        if not popErrSeen then
+            popErrSeen = true
+            ns:Log("POP_ERR setup %s", string.sub(tostring(err), 1, 120))
+        end
+        releasePop(g)
+        return false
+    end
+    g.plate, g.el, g.fading, g.fadeEl, g.xf = plate, 0, false, 0, false
+    nPops = nPops + 1
+    pops[nPops] = g
+    return true
+end
+
+-- Crossfade: a pop frame anchored to the plate that will carry copy A of every orb. Returns the frame or nil.
+local function startXf(plate)
+    if type(plate) ~= "table" or not readable(plate) then
+        return nil
+    end
+    local g = takePopFrame()
+    if not g then
+        return nil
+    end
+    local f = g.f
+    local ok, err = pcall(function()
+        f:ClearAllPoints()
+        f:SetPoint("CENTER", plate, "CENTER", 0, 0)
+        f:Show()
+    end)
+    if not ok then
+        if not popErrSeen then
+            popErrSeen = true
+            ns:Log("POP_ERR crossfade setup %s", string.sub(tostring(err), 1, 120))
+        end
+        releasePop(g)
+        return nil
+    end
+    g.plate, g.xf, g.refs, g.fm, g.fading, g.fadeEl = plate, true, 0, 1, false, 0
+    nXf = nXf + 1
+    xfs[nXf] = g
+    return g
+end
+
+function dropXf(g)
+    for i = 1, nXf do
+        if xfs[i] == g then
+            xfs[i] = xfs[nXf]
+            xfs[nXf] = nil
+            nXf = nXf - 1
+            break
+        end
+    end
+end
+
+-- Creates/configures the 3 textures of orb slot k+1..k+3 on the crossfade frame. Errors propagate (pcall'd).
+local function xfTextures(g, k, r, gg, b)
+    local tex, f = g.tex, g.f
+    for j = 1, 3 do
+        if not tex[k + j] then
+            tex[k + j] = f:CreateTexture(nil, "ARTWORK")
+        end
+    end
+    local u, o, s = tex[k + 1], tex[k + 2], tex[k + 3]
+    u:SetTexture(ORB_TEX)
+    u:SetBlendMode("BLEND")
+    u:SetDrawLayer("ARTWORK", -1)
+    u:SetVertexColor(UNDER_R, UNDER_G, UNDER_B)
+    o:SetTexture(ORB_TEX)
+    o:SetBlendMode("ADD")
+    o:SetDrawLayer("ARTWORK", 0)
+    o:SetVertexColor(r, gg, b)
+    s:SetTexture(SPARKLE_TEX)
+    s:SetBlendMode("ADD")
+    s:SetDrawLayer("ARTWORK", 1)
+    s:SetVertexColor(r + (1 - r) * SPARKLE_WHITE, gg + (1 - gg) * SPARKLE_WHITE, b + (1 - b) * SPARKLE_WHITE)
+    for j = 1, 3 do
+        local t = tex[k + j]
+        t:SetAlpha(0)
+        t:Hide()
+        t.xoShown = false
+    end
+    if k + 3 > g.used then
+        g.used = k + 3
+    end
+end
+
+-- Positions every pop orb. Called under pcall from the driver; allocates nothing.
+local function drawPop(g)
+    local p = g.el / POP_TIME
+    if p > 1 then
+        p = 1
+    end
+    local e = 1 - (1 - p) * (1 - p) * (1 - p)
+    local sc = p > POP_SHRINK_FROM and 1 - (p - POP_SHRINK_FROM) / (1 - POP_SHRINK_FROM) or 1
+    local a = p > POP_FADE_FROM and 1 - (p - POP_FADE_FROM) / (1 - POP_FADE_FROM) or 1
+    if g.fading then
+        a = a * (1 - g.fadeEl / POP_FADE_OUT)
+    end
+    local f, tex = g.f, g.tex
+    local spin = TWO_PI * g.el
+    for i = 1, g.n do
+        local ox, oy = g.dx[i] * e, g.dy[i] * e + g.drift[i] * e
+        local s = g.size[i] * GLOW * POP_SIZE * sc
+        local k = (i - 1) * 3
+        placeRel(tex[k + 1], f, ox, oy, s * UNDER_SIZE, a * UNDER_ALPHA)
+        placeRel(tex[k + 2], f, ox, oy, s, a)
+        local sp = tex[k + 3]
+        placeRel(sp, f, ox, oy, s * SPARKLE, a * SPARKLE_ALPHA)
+        sp:SetRotation(g.rot[i] + spin)
+    end
+end
+
+local function updatePops(dt)
+    local i = 1
+    while i <= nPops do
+        local g = pops[i]
+        g.el = g.el + dt
+        local drop = false
+        if g.fading then
+            g.fadeEl = g.fadeEl + dt
+            drop = g.fadeEl >= POP_FADE_OUT
+        end
+        if g.el >= POP_TIME then
+            drop = true
+        end
+        if not drop then
+            local ok, err = pcall(drawPop, g)
+            if not ok then
+                drop = true
+                if not popErrSeen then
+                    popErrSeen = true
+                    ns:Log("POP_ERR draw %s", string.sub(tostring(err), 1, 120))
+                end
+            end
+        end
+        if drop then
+            releasePop(g)
+            pops[i] = pops[nPops]
+            pops[nPops] = nil
+            nPops = nPops - 1
         else
-            hideTex(o.g1)
+            i = i + 1
         end
     end
 end
 
 local function onUpdate(self, dt)
+    if nPops > 0 then
+        updatePops(dt)
+    end
+    for i = 1, nXf do
+        local g = xfs[i]
+        if g.fading then
+            g.fadeEl = g.fadeEl + dt
+            g.fm = g.fadeEl >= POP_FADE_OUT and 0 or 1 - g.fadeEl / POP_FADE_OUT
+        end
+    end
     local dx, dy = Target:GetDestination()
     local i = 1
     while i <= nLive do
@@ -382,26 +545,12 @@ local function onUpdate(self, dt)
         o.el = o.el + dt
         local t = o.el - o.delay
         local drop = false
-        if o.fading then
-            o.fadeEl = o.fadeEl + dt
-            if t < 0 or o.fadeEl >= FADE_OUT then
-                drop = true
-            else
-                o.fm = 1 - o.fadeEl / FADE_OUT
-            end
-        end
-        if not drop and t >= 0 then
+        if t >= 0 then
             local p = t / o.dur
             if p >= 1 then
                 arrivedRecently = arrivedRecently + 1
                 flashAge, flashOn, flashRested = 0, true, o.rested
                 drop = true
-            elseif o.anch then
-                local ok, err = pcall(drawOrbA, o, p, dx, dy)
-                if not ok then
-                    drop = true
-                    noteAnchorErr("draw", err)
-                end
             else
                 drawOrb(o, p, dx, dy)
             end
@@ -434,7 +583,7 @@ local function onUpdate(self, dt)
         end
     end
 
-    if nLive == 0 and not flashOn then
+    if nLive == 0 and nPops == 0 and not flashOn then
         active = false
         self:SetScript("OnUpdate", nil)
     end
@@ -444,9 +593,16 @@ local function lighten(c)
     return c + (1 - c) * SPARKLE_WHITE
 end
 
--- Burst{ x=, y= (UIParent coords) | plate= (nameplate frame, anchored mode), n=, scale= (default 1),
--- nPurple= (default 0), kind= }. n <= 0 is a no-op (returns nothing).
--- Returns mode, err: "anchored" | "numeric" | "centre" (a plate was given but could not be anchored, err = why).
+local function styleOf(v)
+    if v == "crossfade" or v == "stream" or v == "popstream" then
+        return v
+    end
+    return "popstream"
+end
+
+-- Burst{ x=, y= (stream origin, UIParent coords; nil -> screen centre), n=, scale= (default 1), nPurple= (default 0),
+-- kind=, plate= (optional nameplate of the dead mob), style= (optional override of db.style) }. n < 1 is a no-op.
+-- Returns "pop+stream" | "crossfade" | "stream".
 function Orbs:Burst(p)
     if type(p) ~= "table" or type(p.n) ~= "number" or p.n < 1 then
         return
@@ -460,109 +616,101 @@ function Orbs:Burst(p)
         nPurple = 0
     end
     local x, y = p.x, p.y
-    local b, mode
-    if p.plate ~= nil then
-        b = acquireBurst(p.plate)
-        if not b then
-            x, y = nil, nil -- the plate can't be anchored to: fall back to the screen centre
-            mode = "centre"
-        end
+    local style = styleOf(p.style or d.style)
+    if p.kind == "other" then
+        x, y = nil, nil -- quest and other XP: always from the screen centre, no pop
+        style = "stream"
     end
-    if not b and (type(x) ~= "number" or type(y) ~= "number") then
+    if type(x) ~= "number" or type(y) ~= "number" then
         x, y = UIParent:GetWidth() / 2, UIParent:GetHeight() * 0.65
-        mode = mode or "centre"
     end
-    mode = mode or (b and "anchored" or "numeric")
+    local popped, xg = false, nil
+    if p.plate ~= nil and style == "popstream" then
+        popped = startPop(p.plate, n, scale, nPurple)
+    elseif p.plate ~= nil and style == "crossfade" then
+        xg = startXf(p.plate)
+    end
+    local px, py
+    if xg then
+        px, py = UIParent:GetWidth() * 0.5, UIParent:GetHeight() * ASSUMED_MOB_Y
+        x, y = px, py
+    end
     local dx, dy = Target:GetDestination()
     local trail = d.trail
-    local need, chainNeed -- orb + underlay + sparkle (+ ghosts)
-    if b then
-        need, chainNeed = trail and 3 + GHOSTS_ANCHORED or 3, trail and 1 + GHOSTS_ANCHORED or 1
-    else
-        need = trail and 1 + EXTRAS or 3
-    end
+    local need = trail and 1 + EXTRAS or 3 -- orb + underlay + sparkle (+ 2 ghosts)
     local limit = ceiling() - 1 -- the arrival flash holds one slot
-    local lift = LIFT * math.max(MIN_TRAVEL, UIParent:GetHeight() * ASSUMED_MOB_Y - dy)
+    local extra = popped and STREAM_DELAY or 0
+    local xfCount = 0
 
     for i = 1, n do
-        if texInUse + need > limit or (b and chainsInUse + chainNeed > chainCeiling()) then
+        if texInUse + need > limit then
             break
-        end
-        local ch, gch
-        if b then
-            ch = acquireChain(b.R)
-            if not ch then
-                break
-            end
-            if trail then
-                gch = acquireChain(b.R)
-                if not gch then
-                    releaseChain(ch)
-                    break
-                end
-            end
         end
         local rested = i <= nPurple
         local c = rested and d.restedColor or d.color
         local r, g, bl = c[1], c[2], c[3]
         local o = newRec()
         local ang, rad = random() * TWO_PI, START_RADIUS * sqrt(random())
-        o.anch, o.fading, o.fadeEl, o.fm = b ~= nil, false, 0, 1
-        if b then
-            o.sx, o.sy = cos(ang) * rad, sin(ang) * rad
-            o.ox, o.oy = OrbMath.PopControl(i, n, 0, 0, random) -- pop offset relative to the plate centre
-            o.L = lift
-            o.ch, o.gch, o.burst = ch, gch, b
-            b.n = b.n + 1
-        else
-            o.x0, o.y0 = x + cos(ang) * rad, y + sin(ang) * rad
-            o.c1x, o.c1y = OrbMath.PopControl(i, n, o.x0, o.y0, random)
-            local ddx, ddy = dx - o.x0, dy - o.y0
-            o.dist0 = sqrt(ddx * ddx + ddy * ddy)
-        end
-        o.delay = random() * STAGGER + (rested and RESTED_DELAY or 0)
+        o.x0, o.y0 = x + cos(ang) * rad, y + sin(ang) * rad
+        o.c1x, o.c1y = OrbMath.PopControl(i, n, o.x0, o.y0, random)
+        local ddx, ddy = dx - o.x0, dy - o.y0
+        o.dist0 = sqrt(ddx * ddx + ddy * ddy)
+        o.delay = random() * STAGGER + (rested and RESTED_DELAY or 0) + extra
         o.dur = d.flightTime * (0.85 + random() * 0.3)
         o.el = 0
         o.rested = rested
         o.size = d.size * scale * (rested and RESTED_SIZE or 1)
         o.rot0 = random() * TWO_PI
+        o.g = nil
+        if xg then
+            local k = xfCount * 3
+            if pcall(xfTextures, xg, k, r, g, bl) then
+                xfCount = xfCount + 1
+                o.g, o.k, o.px, o.py = xg, k, px, py
+                xg.refs = xg.refs + 1
+            end
+        end
         o.under = acquire(ORB_TEX, -1, UNDER_R, UNDER_G, UNDER_B, "BLEND")
         o.orb = acquire(ORB_TEX, 0, r, g, bl)
         o.spark = acquire(SPARKLE_TEX, 1, lighten(r), lighten(g), lighten(bl))
         if trail then
             o.g1 = acquire(ORB_TEX, 0, r, g, bl)
-            if not o.anch then
-                o.g2 = acquire(ORB_TEX, 0, r, g, bl)
-            end
+            o.g2 = acquire(ORB_TEX, 0, r, g, bl)
         end
         nLive = nLive + 1
         live[nLive] = o
     end
-    if b and b.n == 0 then
-        releaseBurst(b)
-        mode = "centre" -- no orb could be anchored (chain failure); nothing was drawn
+    if xg and xg.refs <= 0 then
+        -- no orb got a plate-space copy: give the frame back
+        dropXf(xg)
+        releasePop(xg)
+        xg = nil
     end
 
-    if nLive > 0 and not active then
+    if (nLive > 0 or nPops > 0) and not active then
         active = true
         driver:SetScript("OnUpdate", onUpdate)
     end
-    return mode, mode == "centre" and p.plate ~= nil and Orbs.lastAnchorErr or nil
+    if xg then
+        return "crossfade"
+    end
+    return popped and "pop+stream" or "stream"
 end
 
--- A plate frame we may be anchored to was assigned to a new unit: fade its orbs out (0.15 s) and release them.
+-- A plate frame we may be anchored to was assigned to a new unit: fade its pop out (0.1 s) and release it.
 function Orbs:PlateReused(plate)
-    for i = 1, nLive do
-        local o = live[i]
-        if o.anch and o.burst.plate == plate and not o.fading then
-            o.fading, o.fadeEl = true, 0
+    for i = 1, nPops do
+        local g = pops[i]
+        if g.plate == plate and not g.fading then
+            g.fading, g.fadeEl = true, 0
         end
     end
-end
-
--- chainsInUse, chainsCreated, chainCeiling, burstFramesInUse, burstFramesCreated
-function Orbs:AnchorInfo()
-    return chainsInUse, chainsCreated, chainCeiling(), rInUse, rCreated
+    for i = 1, nXf do
+        local g = xfs[i]
+        if g.plate == plate and not g.fading then
+            g.fading, g.fadeEl = true, 0
+        end
+    end
 end
 
 -- active, texturesInUse, texturesCreated, ceiling
@@ -570,60 +718,35 @@ function Orbs:Info()
     return active, texInUse, texCreated, ceiling()
 end
 
-local function targetPlate()
-    if not (C_NamePlate and C_NamePlate.GetNamePlateForUnit) then
-        return nil
-    end
-    local ok, p = pcall(C_NamePlate.GetNamePlateForUnit, "target")
-    if ok and p and readable(p) and type(p) == "table" then
-        return p
-    end
-    return nil
+-- popsInUse, popFramesCreated, popFrameCap
+function Orbs:PopInfo()
+    return nPops, popsCreated, POP_FRAMES
 end
 
--- Returns x, y, plate, label. force: nil (follow db.origin) | "frame" | "plate".
-local function testOrigin(force)
-    local frameFirst = force == "frame" or (force == nil and db().origin == "targetframe")
-    if frameFirst then
-        local fx, fy = Target:TargetFrameOrigin()
-        if fx then
-            return fx, fy, nil, "target frame"
-        end
-    end
-    local plate = targetPlate()
-    if plate then
-        return nil, nil, plate, "target plate"
-    end
-    local ok, e = pcall(function()
-        return ns.Plates and ns.Plates.TargetEntry and ns.Plates:TargetEntry()
-    end)
-    if ok and type(e) == "table" and type(e.x) == "number" and type(e.y) == "number" then
-        return e.x, e.y, nil, "target plate"
-    end
-    if not frameFirst and force == nil then
-        local fx, fy = Target:TargetFrameOrigin()
-        if fx then
-            return fx, fy, nil, "target frame"
-        end
+-- Stream origin for /xporbs test: target frame, else the cursor, else the screen centre. Returns x, y, label.
+local function testOrigin()
+    local fx, fy = Target:TargetFrameOrigin()
+    if fx then
+        return fx, fy, "targetframe"
     end
     local okc, cx, cy = pcall(GetCursorPosition)
     local oks, sc = pcall(UIParent.GetEffectiveScale, UIParent)
     if okc and oks and type(cx) == "number" and type(cy) == "number" and type(sc) == "number" and sc > 0 then
-        return cx / sc, cy / sc, nil, "cursor"
+        return cx / sc, cy / sc, "cursor"
     end
-    return UIParent:GetWidth() / 2, UIParent:GetHeight() / 2, nil, "cursor"
+    return UIParent:GetWidth() / 2, UIParent:GetHeight() / 2, "centre"
 end
 
--- /xporbs test [pct] [rested] [frame|plate]
+-- /xporbs test [pct] [rested] [popstream|crossfade|stream]  (the old "frame" / "plate" words are ignored)
 function ns.commands.test(arg)
     local d = db()
     local pct, rested, force = 5, false, nil
     for tok in string.gmatch(arg or "", "%S+") do
         if tok == "rested" then
             rested = true
-        elseif tok == "frame" or tok == "plate" then
+        elseif tok == "popstream" or tok == "crossfade" or tok == "stream" then
             force = tok
-        else
+        elseif tok ~= "frame" and tok ~= "plate" then
             local v = tonumber(tok)
             if v and v > 0 then
                 pct = min(v, 1000)
@@ -641,55 +764,63 @@ function ns.commands.test(arg)
         local _
         _, nPurple = OrbMath.RestedSplit(n, gain, gain / 2)
     end
-    local x, y, plate, label = testOrigin(force)
-    local mode, err = Orbs:Burst({
+    local x, y, label = testOrigin()
+    local mode = Orbs:Burst({
         x = x,
         y = y,
-        plate = plate,
+        plate = Target:TargetPlate(),
         n = n,
         scale = scale,
         nPurple = nPurple,
         kind = "test",
+        style = force,
     })
-    if plate then
-        if mode == "anchored" then
-            label = label .. " (anchored)"
-        else
-            label = "centre (anchor failed: " .. tostring(err or Orbs.lastAnchorErr or "unknown") .. ")"
-        end
+    local used = mode == "pop+stream" and "popstream" or mode
+    if mode == "crossfade" then
+        label = "estimated"
     end
-    ns.Print(string.format("test: %g%% of a level -> %d orbs (%d purple), scale %.2f, origin=%s", pct, n, nPurple,
-        scale, label))
+    ns.Print(string.format("test: %g%% of a level -> %d orbs (%d purple), scale %.2f, pop=%s stream=%s style=%s", pct,
+        n, nPurple, scale, mode == "pop+stream" and "yes" or "no", label, used))
 end
 
--- /xporbs origin plate|frame
-function ns.commands.origin(arg)
+-- /xporbs style popstream|crossfade|stream  (/xporbs pop on|off = alias for popstream|stream)
+function ns.commands.style(arg)
     local w = string.match(arg or "", "%S+")
-    if w == "plate" then
-        db().origin = "plate"
-    elseif w == "frame" or w == "targetframe" then
-        db().origin = "targetframe"
+    if w == "popstream" or w == "crossfade" or w == "stream" then
+        db().style = w
     elseif w ~= nil then
-        ns.Print("origin: use plate or frame")
+        ns.Print("style: use popstream, crossfade or stream")
         return
     end
-    ns.Print("origin: " .. (db().origin == "targetframe" and "frame (target unit frame)" or "plate (anchored)"))
+    ns.Print("kill style: " .. styleOf(db().style))
+end
+
+function ns.commands.pop(arg)
+    local w = string.match(arg or "", "%S+")
+    if w == "on" then
+        db().style = "popstream"
+    elseif w == "off" then
+        db().style = "stream"
+    elseif w ~= nil then
+        ns.Print("pop: use on or off")
+        return
+    end
+    ns.Print("kill style: " .. styleOf(db().style))
 end
 
 table.insert(ns.statusProviders, function()
     Target:GetDestination()
     return string.format(
-        "orbs: driver=%s, live textures=%d, pool=%d/%d, dest=%s, fallback=%s, origin=%s",
+        "orbs: driver=%s, live textures=%d, pool=%d/%d, dest=%s, fallback=%s, style=%s, pops=%d (frames %d/%d)",
         active and "active" or "idle",
         texInUse,
         texCreated,
         ceiling(),
         tostring(Target.lastName),
         Target.lastOk and "no" or "yes",
-        db().origin == "targetframe" and "targetframe" or "plate"
+        styleOf(db().style),
+        nPops,
+        popsCreated,
+        POP_FRAMES
     )
-end)
-table.insert(ns.statusProviders, function()
-    return string.format("anchor: chains=%d/%d (ceiling %d) burstFrames=%d/%d lastAnchorErr=%s", chainsInUse,
-        chainsCreated, chainCeiling(), rInUse, rCreated, tostring(Orbs.lastAnchorErr or "none"))
 end)

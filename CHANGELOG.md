@@ -1,6 +1,12 @@
 # Changelog
 
-## 0.8 (in progress)
+## 0.9 (in progress)
+- Kill styles (`db.style`, `/xporbs style popstream|crossfade|stream`): **popstream** (default) pops a few orbs at the dead mob's nameplate, then streams from the target frame to the bar; **crossfade** flies the orbs from an estimated mob position, drawing a plate-relative copy that fades into the normal screen-space copy; **stream** is the old behaviour. `/xporbs pop on|off` is an alias.
+- Plates are restricted regions: nothing is ever measured. Pop/crossfade frames have a single anchor (the plate) and everything else is positioned relative to them.
+- `/xporbs test [pct] [rested] [style]` follows the style, pops on the target's plate if there is one, and prints `pop= stream= style=`.
+- Stream origin is always target frame, then screen centre. Removed: `db.origin` and `/xporbs origin`, `/xporbs lab` (`Lab.lua`), the StatusBar anchored-flight path, `OrbMath.AnchoredWeights`. DB schema 4.
+
+## 0.8
 - Kills are live (M4): probe off by default, bursts gated by enabled / max level (showAtMax) / questBursts; quest bursts from screen centre. DB schema 3.
 - Target-frame origin is the default and works with a hidden frame (last good result cached).
 - Anchor errors are no longer swallowed: `ANCHOR_ERR` log lines, `lastAnchorErr` in `/xporbs status`, `/xporbs test` reports `anchor failed: <msg>`.

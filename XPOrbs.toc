@@ -1,7 +1,7 @@
 ## Interface: 16001
 ## Title: XPOrbs
 ## Notes: Blue orbs fly from a killed mob to your XP bar, scaled to the XP gained.
-## Version: 0.8
+## Version: 0.9
 ## SavedVariables: XPOrbsDB
 
 # Future load order (add as milestones land): Options.lua
@@ -12,5 +12,4 @@ logic\KillMatcher.lua
 Plates.lua
 Target.lua
 Orbs.lua
-Lab.lua
 Kills.lua

@@ -1,4 +1,4 @@
-"""DB schema v2 (colours) and v3 (probe off, targetframe origin) migrations."""
+"""DB schema migrations: v2 colours, v3 probe off, v4 origin dropped / kill style."""
 
 
 def load(env, db=None):
@@ -15,14 +15,14 @@ def rgb(c):
 
 def test_fresh_db_is_v3_with_new_colours(env):
     db = load(env)
-    assert db.version == 3
+    assert db.version == 4
     assert rgb(db.color) == (0.20, 0.50, 1.00)
     assert rgb(db.restedColor) == (1.0, 0.30, 0.85)
 
 
 def test_old_defaults_are_migrated(env):
     db = load(env, {"version": 1, "color": [0.35, 0.65, 1.0], "restedColor": [0.7, 0.45, 1.0], "cap": 25})
-    assert db.version == 3
+    assert db.version == 4
     assert rgb(db.color) == (0.20, 0.50, 1.00)
     assert rgb(db.restedColor) == (1.0, 0.30, 0.85)
     assert db.cap == 25
@@ -30,7 +30,7 @@ def test_old_defaults_are_migrated(env):
 
 def test_old_defaults_with_float_noise_and_nil_version(env):
     db = load(env, {"color": [0.3501, 0.6499, 1.0], "restedColor": [0.7, 0.4501, 0.9999]})
-    assert db.version == 3
+    assert db.version == 4
     assert rgb(db.color) == (0.20, 0.50, 1.00)
     assert rgb(db.restedColor) == (1.0, 0.30, 0.85)
 
@@ -49,24 +49,30 @@ def test_v2_db_is_not_migrated_again(env):
 
 def test_v2_db_gets_v3_migration_but_keeps_other_values(env):
     db = load(env, {"version": 2, "probe": True, "origin": "plate", "cap": 12, "color": [0.35, 0.65, 1.0]})
-    assert db.version == 3
-    assert db.probe is False and db.origin == "targetframe"
+    assert db.version == 4
+    assert db.probe is False and db.origin is None
     assert db.cap == 12
     assert rgb(db.color) == (0.35, 0.65, 1.0)  # schema-2 colour migration does not run again
 
 
 def test_v1_db_gets_both_migrations(env):
     db = load(env, {"version": 1, "probe": True, "origin": "plate", "color": [0.35, 0.65, 1.0]})
-    assert db.version == 3 and db.probe is False and db.origin == "targetframe"
+    assert db.version == 4 and db.probe is False and db.origin is None
     assert rgb(db.color) == (0.20, 0.50, 1.00)
 
 
-def test_v3_db_keeps_probe_and_origin(env):
-    db = load(env, {"version": 3, "probe": True, "origin": "plate"})
-    assert db.probe is True and db.origin == "plate"
+def test_v3_db_keeps_probe_drops_origin_and_gets_style(env):
+    db = load(env, {"version": 3, "probe": True, "origin": "plate", "corpsePop": True})
+    assert db.version == 4 and db.probe is True
+    assert db.origin is None and db.corpsePop is None and db.style == "popstream"
+
+
+def test_v4_db_keeps_its_style(env):
+    db = load(env, {"version": 4, "style": "crossfade"})
+    assert db.style == "crossfade" and db.version == 4
 
 
 def test_fresh_db_defaults(env):
     db = load(env)
-    assert db.probe is False and db.origin == "targetframe"
+    assert db.probe is False and db.origin is None
     assert db.enabled is True and db.questBursts is True and db.showAtMax is False

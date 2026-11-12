@@ -137,6 +137,18 @@ function Target:TargetFrameOrigin()
     return nil
 end
 
+-- The nameplate frame of the current target, or nil. Only ever used as an anchor, never measured.
+function Target:TargetPlate()
+    if not (C_NamePlate and C_NamePlate.GetNamePlateForUnit) then
+        return nil
+    end
+    local ok, p = pcall(C_NamePlate.GetNamePlateForUnit, "target")
+    if ok and p and readable(p) and type(p) == "table" then
+        return p
+    end
+    return nil
+end
+
 function ns.commands.pick()
     ns.Print("pick: coming in M5")
 end

@@ -165,16 +165,6 @@ def test_command_rested_split_and_origin(m2):
     assert xs and all(x < 960 for x in xs)  # started near the cursor at x=200, not screen centre
 
 
-def test_command_uses_plates_target_entry(m2):
-    ns = m2.ns
-    plates = m2.lua.eval("function() return {TargetEntry = function() return {x = 123, y = 456} end} end")()
-    ns.Plates = plates
-    m2.slash("test 1")
-    m2.stub.tick(0.26)  # every stagger delay has passed; the pop is within ~220 px of the origin
-    pts = [f.points[1] for f in m2.stub.frames.values() if f.kind == "Texture" and len(f.points) > 0]
-    assert pts and all(abs(p[4] - 123) < 260 and 456 - 110 < p[5] < 456 + 320 for p in pts)
-
-
 def test_command_survives_plates_error(m2):
     plates = m2.lua.eval("function() return {TargetEntry = function() error('boom') end} end")()
     m2.ns.Plates = plates

@@ -74,70 +74,33 @@ local function atMaxLevel()
     return false
 end
 
-local function targetPlate()
-    if not (C_NamePlate and C_NamePlate.GetNamePlateForUnit) then
-        return nil
-    end
-    local ok, p = pcall(C_NamePlate.GetNamePlateForUnit, "target")
-    if ok and p and readable(p) and type(p) == "table" then
-        return p
-    end
-    return nil
-end
-
--- Picks the burst origin. Returns x, y, plate, origin: numeric x/y, or a plate to anchor to, or neither (centre).
--- db.origin = "targetframe" (default): target frame (kept from its last good measurement), then any measured position,
--- then the screen centre. "plate" (experimental): the plate (anchored or measured), then the target frame, then centre.
-local function chooseOrigin(b, hadXY)
-    local mode = ns.db and ns.db.origin or "targetframe"
-    if b.kind ~= "kill" then
-        local cx, cy = screenCentre(0.55)
-        return cx, cy, nil, cx and "centre" or "none"
-    end
-    local frameMode = mode ~= "plate"
-    if frameMode then
+-- Stream origin: the target frame (kept from its last good measurement), else the screen centre. Non-kill XP (quests
+-- etc.) always streams from a little below the centre. Returns x, y, label.
+local function chooseOrigin(b)
+    if b.kind == "kill" then
         local fx, fy = ns.Target:TargetFrameOrigin()
         if fx then
-            return fx, fy, nil, "targetframe"
+            return fx, fy, "targetframe"
         end
+        local cx, cy = screenCentre()
+        return cx, cy, "centre"
     end
-    if hadXY then
-        return b.x, b.y, nil, "plate"
-    end
-    if not frameMode then
-        if b.plate then
-            return nil, nil, b.plate, "anchored"
-        end
-        local te = Plates:TargetEntry()
-        if te then
-            return te.x, te.y, nil, "target"
-        end
-        local tp = targetPlate()
-        if tp then
-            return nil, nil, tp, "anchored"
-        end
-        local fx, fy = ns.Target:TargetFrameOrigin()
-        if fx then
-            return fx, fy, nil, "targetframe"
-        end
-    else
-        local te = Plates:TargetEntry()
-        if te then
-            return te.x, te.y, nil, "target"
-        end
-    end
-    local cx, cy = screenCentre()
-    return cx, cy, nil, cx and "centre" or "none"
+    local cx, cy = screenCentre(0.55)
+    return cx, cy, "centre"
 end
 
 local function emitBurst(b)
     local hadXY = b.x ~= nil and b.y ~= nil
-    local x, y, plate, origin = chooseOrigin(b, hadXY)
+    local x, y, origin = chooseOrigin(b)
     local probe = isProbe()
-    ns:Log("BURST tier=%d kind=%s amount=%s rested=%s hadXY=%s origin=%s probe=%s", b.tier, tostring(b.kind),
-        tostring(b.amount), tostring(b.rested), tostring(hadXY), origin, tostring(probe))
     local db = ns.db
-    if probe or not db.enabled or (x == nil and plate == nil) then
+    local plate
+    if b.kind == "kill" and db.style ~= "stream" then
+        plate = b.plate or ns.Target:TargetPlate()
+    end
+    ns:Log("BURST tier=%d kind=%s amount=%s rested=%s hadXY=%s origin=%s pop=%s probe=%s", b.tier, tostring(b.kind),
+        tostring(b.amount), tostring(b.rested), tostring(hadXY), origin, plate and "yes" or "no", tostring(probe))
+    if probe or not db.enabled or x == nil then
         return
     end
     if b.kind ~= "kill" and not db.questBursts then
