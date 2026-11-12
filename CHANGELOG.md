@@ -1,6 +1,10 @@
 # Changelog
 
-## 0.4 (in progress)
+## 0.5 (in progress)
+- Probe findings (docs/probe-results.md): GUIDs readable, 6/6 kills tier 1, chat XP equals bar delta, but no plate position was ever sampled.
+- Plate sampling: re-fetch late plates, skip forbidden plates, fall back to a proxy frame anchored to the plate when the plate can't be measured, per-method failure counters (`geom:` status line, `GEOM`/`GEOM_ERR` log lines).
+
+## 0.4
 - M3: nameplate tracker with last-known screen position and a 2 s held list; kill pipeline (UNIT_DIED tier 1, plate-removed-while-dead tier 2, target/centre fallback) feeding KillMatcher; probe mode logs bursts instead of drawing; AMOUNTCHECK compares chat XP with the XP-bar delta.
 
 ## 0.3

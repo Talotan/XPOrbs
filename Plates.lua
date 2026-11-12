@@ -15,7 +15,21 @@ end
 
 local entries = {} -- unit token -> entry
 local held = {} -- array of removed entries, each with .expires
-local stats = { secretGeom = 0, okGeom = 0 }
+-- okGeom/secretGeom: samples stored / rejected as secret. The rest count why a sample failed, per method
+-- (A = the plate's own GetCenter, B = our proxy frame anchored to the plate).
+local stats = {
+    secretGeom = 0,
+    okGeom = 0,
+    okA = 0,
+    okB = 0,
+    noPlate = 0,
+    forbidden = 0,
+    errA = 0,
+    errB = 0,
+    nilA = 0,
+    nilB = 0,
+}
+local loggedErr = {} -- method -> true once its first error message has been logged
 local lastTarget -- { x, y, t }
 local targetUnit -- unit token of the plate that is our target (best effort)
 
@@ -36,33 +50,136 @@ local function readString(fn, unit)
     return nil
 end
 
+-- Pool of 1x1 proxy frames (children of UIParent) anchored to plates, read when the plate itself can't be measured.
+local proxyPool = {}
+
+local function acquireProxy(entry, plate)
+    if entry.proxy then
+        return entry.proxy
+    end
+    local f = table.remove(proxyPool)
+    if not f then
+        local ok, nf = pcall(CreateFrame, "Frame", nil, UIParent)
+        if not ok or not nf then
+            return nil
+        end
+        f = nf
+        pcall(f.SetSize, f, 1, 1)
+    end
+    local ok = pcall(function()
+        f:ClearAllPoints()
+        f:SetPoint("CENTER", plate, "CENTER", 0, 0)
+        f:Show()
+    end)
+    if not ok then
+        proxyPool[#proxyPool + 1] = f
+        return nil
+    end
+    entry.proxy = f
+    return f
+end
+
+local function releaseProxy(entry)
+    local f = entry.proxy
+    if not f then
+        return
+    end
+    entry.proxy = nil
+    pcall(function()
+        f:ClearAllPoints()
+        f:Hide()
+    end)
+    proxyPool[#proxyPool + 1] = f
+end
+
+local function noteErr(method, err)
+    stats["err" .. method] = stats["err" .. method] + 1
+    if not loggedErr[method] then
+        loggedErr[method] = true
+        ns:Log("GEOM_ERR method=%s err=%s", method, tostring(err))
+    end
+end
+
+-- Measures one region: returns x, y in UIParent space, or nil plus a reason ("err", "secret", "nil").
+local function measure(region, method)
+    local ok, cx, cy = pcall(region.GetCenter, region)
+    if not ok then
+        noteErr(method, cx)
+        return nil, "err"
+    end
+    if not readable(cx) or not readable(cy) then
+        return nil, "secret"
+    end
+    if type(cx) ~= "number" or type(cy) ~= "number" then
+        stats["nil" .. method] = stats["nil" .. method] + 1
+        return nil, "nil"
+    end
+    local ok2, scale = pcall(region.GetEffectiveScale, region)
+    local ok3, pscale = pcall(UIParent.GetEffectiveScale, UIParent)
+    if not (ok2 and ok3) then
+        noteErr(method, ok2 and pscale or scale)
+        return nil, "err"
+    end
+    if not readable(scale) or not readable(pscale) then
+        return nil, "secret"
+    end
+    if type(scale) ~= "number" or type(pscale) ~= "number" or pscale == 0 then
+        stats["nil" .. method] = stats["nil" .. method] + 1
+        return nil, "nil"
+    end
+    local x, y = ns.OrbMath.ToUIParent(cx, cy, scale, pscale)
+    return x, y
+end
+
+local function isForbidden(plate)
+    if not plate.IsForbidden then
+        return false
+    end
+    local ok, forbidden = pcall(plate.IsForbidden, plate)
+    return not ok or (readable(forbidden) and forbidden == true)
+end
+
 -- Reads the plate centre into entry.x/y (UIParent space). Returns true when a readable sample was stored.
 local function sample(entry)
     local plate = entry.plate
+    if not plate and entry.unit and not entry.held and C_NamePlate and C_NamePlate.GetNamePlateForUnit then
+        local ok, p = pcall(C_NamePlate.GetNamePlateForUnit, entry.unit) -- the plate can arrive late
+        if ok and p and readable(p) then
+            plate = p
+            entry.plate = p
+        end
+    end
     if not plate then
+        stats.noPlate = stats.noPlate + 1
         return false
     end
-    local ok, cx, cy = pcall(plate.GetCenter, plate)
-    if not ok then
+    if isForbidden(plate) then
+        stats.forbidden = stats.forbidden + 1
         return false
     end
-    if not readable(cx) or not readable(cy) then
-        stats.secretGeom = stats.secretGeom + 1
+    local x, y = measure(plate, "A")
+    local why = y
+    if x then
+        stats.okA = stats.okA + 1
+    elseif why ~= "secret" then
+        -- The proxy dodges measurement restrictions; a secret plate position would propagate to it anyway.
+        local proxy = acquireProxy(entry, plate)
+        if proxy then
+            x, y = measure(proxy, "B")
+            if x then
+                stats.okB = stats.okB + 1
+            elseif y == "secret" then
+                why = "secret"
+            end
+        end
+    end
+    if not x then
+        if why == "secret" then
+            stats.secretGeom = stats.secretGeom + 1
+        end
         return false
     end
-    if type(cx) ~= "number" or type(cy) ~= "number" then
-        return false
-    end
-    local ok2, scale = pcall(plate.GetEffectiveScale, plate)
-    local ok3, pscale = pcall(UIParent.GetEffectiveScale, UIParent)
-    if not (ok2 and ok3) or not readable(scale) or not readable(pscale) then
-        stats.secretGeom = stats.secretGeom + 1
-        return false
-    end
-    if type(scale) ~= "number" or type(pscale) ~= "number" or pscale == 0 then
-        return false
-    end
-    entry.x, entry.y = ns.OrbMath.ToUIParent(cx, cy, scale, pscale)
+    entry.x, entry.y = x, y
     entry.t = GetTime()
     stats.okGeom = stats.okGeom + 1
     if entry.unit == targetUnit then
@@ -183,6 +300,7 @@ local function onRemoved(unit)
     end
     entries[unit] = nil
     sample(entry) -- final sample; the plate may already be invalid, which is fine
+    releaseProxy(entry)
     local dead, deadKnown = false, false
     local ok1, isDead = pcall(UnitIsDead, unit)
     if ok1 and readable(isDead) and type(isDead) == "boolean" then
@@ -207,6 +325,8 @@ local function onRemoved(unit)
     ns:Log("PLATE_REMOVED deadReadable=%s deadAtRemoval=%s hadPos=%s hostile=%s geomOK=%d geomSecret=%d",
         tostring(deadKnown), tostring(dead), tostring(entry.x ~= nil), tostring(entry.hostile), stats.okGeom,
         stats.secretGeom)
+    ns:Log("GEOM okA=%d okB=%d noPlate=%d forbidden=%d errA=%d errB=%d nilA=%d nilB=%d", stats.okA, stats.okB,
+        stats.noPlate, stats.forbidden, stats.errA, stats.errB, stats.nilA, stats.nilB)
     prune()
     updateSampler()
     if Plates.onRemoved then
@@ -296,4 +416,8 @@ end)
 table.insert(ns.statusProviders, function()
     return string.format("plates: tracked=%d held=%d secretGeom=%d okGeom=%d sampler=%s", Plates:TrackedCount(),
         Plates:HeldCount(), stats.secretGeom, stats.okGeom, Plates:SamplerActive() and "active" or "idle")
+end)
+table.insert(ns.statusProviders, function()
+    return string.format("geom: okA=%d okB=%d noPlate=%d forbidden=%d errA=%d errB=%d nilA=%d nilB=%d", stats.okA,
+        stats.okB, stats.noPlate, stats.forbidden, stats.errA, stats.errB, stats.nilA, stats.nilB)
 end)
