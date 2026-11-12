@@ -92,6 +92,43 @@ function Target:GetDestination()
     return (okw and num(w) and w / 2 or 0), FALLBACK_Y, false
 end
 
+local function portraitOf(f)
+    local c = f.TargetFrameContainer
+    return type(c) == "table" and c.Portrait or nil
+end
+
+-- Centre of a frame in UIParent space, or nil when hidden / unreadable.
+local function frameCentre(f)
+    if type(f) ~= "table" or not isVisible(f) then
+        return nil
+    end
+    local cx, cy = f:GetCenter()
+    local fs, ps = f:GetEffectiveScale(), UIParent:GetEffectiveScale()
+    if not (num(cx) and num(cy) and num(fs) and num(ps)) or ps == 0 then
+        return nil
+    end
+    return OrbMath.ToUIParent(cx, cy, fs, ps)
+end
+
+-- Centre of the Blizzard target unit frame (portrait first) in UIParent space, or nil. Never throws.
+function Target:TargetFrameOrigin()
+    local tf = _G.TargetFrame
+    local okTf, port = pcall(function()
+        return type(tf) == "table" and portraitOf(tf) or nil
+    end)
+    local cands = { okTf and port or nil, _G.TargetFramePortrait, tf }
+    for i = 1, 3 do
+        local f = cands[i]
+        if f then
+            local ok, x, y = pcall(frameCentre, f)
+            if ok and num(x) and num(y) then
+                return x, y
+            end
+        end
+    end
+    return nil
+end
+
 function ns.commands.pick()
     ns.Print("pick: coming in M5")
 end

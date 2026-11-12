@@ -64,27 +64,61 @@ local function screenCentre()
     return nil, nil
 end
 
-local function emitBurst(b)
-    local x, y = b.x, b.y
-    local hadXY = x ~= nil and y ~= nil
-    local origin = "plate"
-    if not hadXY then
-        x, y, origin = nil, nil, "none"
-        if b.kind == "kill" then
-            local te = Plates:TargetEntry()
-            if te then
-                x, y, origin = te.x, te.y, "target"
-            end
-        end
-        if x == nil then
-            x, y = screenCentre()
-            origin = x and "centre" or "none"
+local function targetPlate()
+    if not (C_NamePlate and C_NamePlate.GetNamePlateForUnit) then
+        return nil
+    end
+    local ok, p = pcall(C_NamePlate.GetNamePlateForUnit, "target")
+    if ok and p and readable(p) and type(p) == "table" then
+        return p
+    end
+    return nil
+end
+
+-- Picks the burst origin. Returns x, y, plate, origin: numeric x/y, or a plate to anchor to, or neither (centre).
+-- db.origin = "targetframe": target frame first. "plate": the plate (anchored or measured), then the target frame.
+local function chooseOrigin(b, hadXY)
+    local mode = ns.db and ns.db.origin or "plate"
+    local isKill = b.kind == "kill"
+    if mode == "targetframe" and isKill then
+        local fx, fy = ns.Target:TargetFrameOrigin()
+        if fx then
+            return fx, fy, nil, "targetframe"
         end
     end
+    if hadXY then
+        return b.x, b.y, nil, "plate"
+    end
+    if b.plate then
+        return nil, nil, b.plate, "anchored"
+    end
+    if isKill then
+        local te = Plates:TargetEntry()
+        if te then
+            return te.x, te.y, nil, "target"
+        end
+        local tp = targetPlate()
+        if tp then
+            return nil, nil, tp, "anchored"
+        end
+        if mode ~= "targetframe" then
+            local fx, fy = ns.Target:TargetFrameOrigin()
+            if fx then
+                return fx, fy, nil, "targetframe"
+            end
+        end
+    end
+    local cx, cy = screenCentre()
+    return cx, cy, nil, cx and "centre" or "none"
+end
+
+local function emitBurst(b)
+    local hadXY = b.x ~= nil and b.y ~= nil
+    local x, y, plate, origin = chooseOrigin(b, hadXY)
     local probe = isProbe()
     ns:Log("BURST tier=%d kind=%s amount=%s rested=%s hadXY=%s origin=%s probe=%s", b.tier, tostring(b.kind),
         tostring(b.amount), tostring(b.rested), tostring(hadXY), origin, tostring(probe))
-    if probe or x == nil then
+    if probe or (x == nil and plate == nil) then
         return
     end
     local orbs = ns.Orbs
@@ -101,7 +135,15 @@ local function emitBurst(b)
         local _, p = OrbMath.RestedSplit(n, b.amount, b.rested)
         nPurple = p
     end
-    local ok, err = pcall(orbs.Burst, orbs, { x = x, y = y, n = n, scale = scale, nPurple = nPurple, kind = b.kind })
+    local ok, err = pcall(orbs.Burst, orbs, {
+        x = x,
+        y = y,
+        plate = plate,
+        n = n,
+        scale = scale,
+        nPurple = nPurple,
+        kind = b.kind,
+    })
     if not ok then
         ns:Log("Orbs:Burst error %s", tostring(err))
     end
@@ -141,7 +183,13 @@ end
 local function addDeath(entry, tier)
     entry.deathAdded = true
     local hasPos = type(entry.x) == "number" and type(entry.y) == "number"
-    matcher:AddDeath({ x = hasPos and entry.x or nil, y = hasPos and entry.y or nil, tier = tier, name = entry.name })
+    matcher:AddDeath({
+        x = hasPos and entry.x or nil,
+        y = hasPos and entry.y or nil,
+        tier = tier,
+        name = entry.name,
+        plate = entry.plate,
+    })
     ensurePoll()
 end
 

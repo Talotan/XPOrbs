@@ -18,6 +18,8 @@ local held = {} -- array of removed entries, each with .expires
 -- okGeom/secretGeom: samples stored / rejected as secret. The rest count why a sample failed, per method
 -- (A = the plate's own GetCenter, B = our proxy frame anchored to the plate).
 local stats = {
+    lastErr = nil, -- last error message from a failed measurement (string)
+    bothErrRun = 0, -- consecutive samples where both methods errored
     secretGeom = 0,
     okGeom = 0,
     okA = 0,
@@ -31,6 +33,7 @@ local stats = {
 }
 local loggedErr = {} -- method -> true once its first error message has been logged
 local lastTarget -- { x, y, t }
+Plates.measurable = true -- false once the plates have proven unmeasurable (anchored origin is used instead)
 local targetUnit -- unit token of the plate that is our target (best effort)
 
 Plates.stats = stats
@@ -94,6 +97,7 @@ end
 
 local function noteErr(method, err)
     stats["err" .. method] = stats["err" .. method] + 1
+    stats.lastErr = tostring(err)
     if not loggedErr[method] then
         loggedErr[method] = true
         ns:Log("GEOM_ERR method=%s err=%s", method, tostring(err))
@@ -131,6 +135,16 @@ local function measure(region, method)
     return x, y
 end
 
+local ERR_RUN_LIMIT = 20 -- consecutive double-error samples (with nothing ever measured) before giving up
+
+local function disableMeasuring()
+    Plates.measurable = false
+    ns:Log("GEOM disabled: plates can't be measured (last error: %s)", tostring(stats.lastErr))
+    for _, e in pairs(entries) do
+        releaseProxy(e)
+    end
+end
+
 local function isForbidden(plate)
     if not plate.IsForbidden then
         return false
@@ -153,12 +167,16 @@ local function sample(entry)
         stats.noPlate = stats.noPlate + 1
         return false
     end
+    if not Plates.measurable then
+        return false
+    end
     if isForbidden(plate) then
         stats.forbidden = stats.forbidden + 1
         return false
     end
     local x, y = measure(plate, "A")
     local why = y
+    local whyB
     if x then
         stats.okA = stats.okA + 1
     elseif why ~= "secret" then
@@ -168,10 +186,23 @@ local function sample(entry)
             x, y = measure(proxy, "B")
             if x then
                 stats.okB = stats.okB + 1
-            elseif y == "secret" then
-                why = "secret"
+            else
+                whyB = y
+                if y == "secret" then
+                    why = "secret"
+                end
             end
         end
+    end
+    if x then
+        stats.bothErrRun = 0
+    elseif why == "err" and whyB == "err" then
+        stats.bothErrRun = stats.bothErrRun + 1
+        if stats.bothErrRun >= ERR_RUN_LIMIT and stats.okA + stats.okB == 0 then
+            disableMeasuring()
+        end
+    else
+        stats.bothErrRun = 0
     end
     if not x then
         if why == "secret" then
@@ -186,16 +217,6 @@ local function sample(entry)
         lastTarget = { x = entry.x, y = entry.y, t = entry.t }
     end
     return true
-end
-
-local function hostileCount()
-    local n = 0
-    for _, e in pairs(entries) do
-        if e.hostile then
-            n = n + 1
-        end
-    end
-    return n
 end
 
 local function prune()
@@ -214,7 +235,19 @@ local sampler = CreateFrame("Frame")
 Plates.samplerFrame = sampler
 local acc = 0
 
-local function onSample(_, elapsed)
+local onSample
+
+-- Does anything still need the sampler? Measuring (while possible) or a GUID retry for a hostile plate.
+local function needsSampler()
+    for _, e in pairs(entries) do
+        if e.hostile and (Plates.measurable or e.guid == nil) then
+            return true
+        end
+    end
+    return false
+end
+
+function onSample(_, elapsed)
     acc = acc + (elapsed or 0)
     if acc < SAMPLE_INTERVAL then
         return
@@ -228,10 +261,13 @@ local function onSample(_, elapsed)
             end
         end
     end
+    if not Plates.measurable then
+        sampler:SetScript("OnUpdate", needsSampler() and onSample or nil)
+    end
 end
 
 local function updateSampler()
-    if hostileCount() > 0 then
+    if needsSampler() then
         if not sampler:GetScript("OnUpdate") then
             acc = 0
             sampler:SetScript("OnUpdate", onSample)
@@ -277,6 +313,12 @@ local function onAdded(unit)
     local okH, canAttack = pcall(UnitCanAttack, "player", unit)
     if okH and readable(canAttack) then
         hostile = canAttack and true or false
+    end
+    if plate and ns.Orbs and ns.Orbs.PlateReused then
+        local okR, errR = pcall(ns.Orbs.PlateReused, ns.Orbs, plate)
+        if not okR then
+            ns:Log("PlateReused error %s", tostring(errR))
+        end
     end
     local entry = {
         unit = unit,
@@ -418,6 +460,7 @@ table.insert(ns.statusProviders, function()
         Plates:HeldCount(), stats.secretGeom, stats.okGeom, Plates:SamplerActive() and "active" or "idle")
 end)
 table.insert(ns.statusProviders, function()
-    return string.format("geom: okA=%d okB=%d noPlate=%d forbidden=%d errA=%d errB=%d nilA=%d nilB=%d", stats.okA,
-        stats.okB, stats.noPlate, stats.forbidden, stats.errA, stats.errB, stats.nilA, stats.nilB)
+    return string.format("geom: okA=%d okB=%d noPlate=%d forbidden=%d errA=%d errB=%d nilA=%d nilB=%d measurable=%s"
+        .. " lastErr=%s", stats.okA, stats.okB, stats.noPlate, stats.forbidden, stats.errA, stats.errB, stats.nilA,
+        stats.nilB, Plates.measurable and "yes" or "no", string.sub(tostring(stats.lastErr or "-"), 1, 80))
 end)

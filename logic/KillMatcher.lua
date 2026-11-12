@@ -25,9 +25,16 @@ function KillMatcher.New(cfg)
     return self
 end
 
--- d = { x, y, tier, name|nil }
+-- d = { x, y, tier, name|nil, plate|nil }
 function KillMatcher:AddDeath(d)
-    self.deaths[#self.deaths + 1] = { x = d.x, y = d.y, tier = d.tier or 1, name = d.name, t = self.cfg.now() }
+    self.deaths[#self.deaths + 1] = {
+        x = d.x,
+        y = d.y,
+        tier = d.tier or 1,
+        name = d.name,
+        plate = d.plate,
+        t = self.cfg.now(),
+    }
 end
 
 -- k = { amount, mob|nil, rested|nil }; from chat, kind="kill" only.
@@ -106,7 +113,15 @@ function KillMatcher:Poll()
         local burst
         if di then
             local d = table.remove(self.deaths, di)
-            burst = { x = d.x, y = d.y, amount = k.amount, rested = k.rested, tier = d.tier, kind = "kill" }
+            burst = {
+                x = d.x,
+                y = d.y,
+                plate = d.plate,
+                amount = k.amount,
+                rested = k.rested,
+                tier = d.tier,
+                kind = "kill",
+            }
         elseif now - k.t >= cfg.chatWait then
             burst = { x = nil, y = nil, amount = k.amount, rested = k.rested, tier = 4, kind = "kill" }
         end

@@ -1,6 +1,12 @@
 # Changelog
 
-## 0.6 (in progress)
+## 0.7 (in progress)
+- Re-probe: nameplates can't be measured on Forever (plate and proxy GetCenter both error every time). Measuring now switches itself off after 20 failures; `geom:` shows `measurable=` and the last error.
+- Anchored origin: orbs start at the mob's plate without measuring it. The path is rewritten as weight*P + known offset, and two invisible StatusBars spanning UIParent's corner to the plate produce the weighted anchor point.
+- Target-frame origin (Talotan's idea): fallback when there is no plate, and selectable with `/xporbs origin plate|frame`; `/xporbs test [pct] [rested] [frame|plate]`.
+- PlateReused: orbs anchored to a plate that gets reassigned fade out.
+
+## 0.6
 - Visual pass from the design review: deeper blue {0.20,0.50,1.00}, magenta rested {1.0,0.30,0.85} arriving as a later, bigger second wave, dimmer sparkle, core+halo orb texture, dark BLEND underlay for bright zones, pop-then-home cubic path, connected tapered trail, rested-tinted arrival flash.
 - Orb count is now a compressed curve: n = (3 + 5*sqrt(% of level)) * multiplier; a normal kill shows ~7 orbs.
 - DB schema 2: old default colours migrate to the new ones; customised colours are kept.

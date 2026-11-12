@@ -92,6 +92,18 @@ function OrbMath.PopEase(p)
     return 0.5 * (1 - (1 - p) ^ 3) + 0.5 * p ^ 2.2
 end
 
+-- Anchored flight: the plate centre P is unknown (anchor-only), so write the cubic Bezier as B = a * P + k where
+-- P0 = P + s, C1 = P + o, C2 = D + 0.15 * (C1 - D) + (0, L) and e is the eased parameter. Scalars in and out so the
+-- hot loop allocates nothing. Returns a, kx, ky.
+local HOME_PULL = 0.15
+function OrbMath.AnchoredWeights(e, sx, sy, ox, oy, dx, dy, L)
+    local u = 1 - e
+    local b0, b1, b2, b3 = u * u * u, 3 * u * u * e, 3 * u * e * e, e * e * e
+    local hx = (1 - HOME_PULL) * dx + HOME_PULL * ox
+    local hy = (1 - HOME_PULL) * dy + HOME_PULL * oy + L
+    return b0 + b1 + b2 * HOME_PULL, b0 * sx + b1 * ox + b2 * hx + b3 * dx, b0 * sy + b1 * oy + b2 * hy + b3 * dy
+end
+
 -- Cubic Bezier point at t.
 function OrbMath.Cubic(t, x0, y0, x1, y1, x2, y2, x3, y3)
     local u = 1 - t

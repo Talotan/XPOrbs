@@ -14,6 +14,7 @@ ns.defaults = {
     targetFrame = nil,
     showAtMax = false,
     debug = false,
+    origin = "plate", -- kill burst origin: "plate" (anchored to the nameplate) or "targetframe"
     probe = true, -- M3: log kill bursts instead of drawing them; M4 flips this to false
 }
 
@@ -112,7 +113,8 @@ function commands.help()
     say("/xporbs help - this list")
     say("/xporbs debug on|off - toggle debug logging")
     say("/xporbs status - show addon state")
-    say("/xporbs test [pct] - fire a test burst")
+    say("/xporbs test [pct] [rested] [frame|plate] - fire a test burst")
+    say("/xporbs origin plate|frame - where kill orbs start")
     say("/xporbs pick - pick the XP bar frame")
     say("/xporbs reset - restore default settings")
     say("/xporbs options - open the settings panel")
