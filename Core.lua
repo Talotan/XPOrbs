@@ -96,7 +96,15 @@ end
 
 function commands.status()
     local db = ns.db
-    say("version " .. tostring(db.version) .. ", enabled=" .. tostring(db.enabled) .. ", debug=" .. tostring(db.debug))
+    local ver = "?"
+    if C_AddOns and C_AddOns.GetAddOnMetadata then
+        local ok, v = pcall(C_AddOns.GetAddOnMetadata, ADDON, "Version")
+        if ok and v then
+            ver = v
+        end
+    end
+    say("XPOrbs " .. ver .. " (db schema " .. tostring(db.version) .. "), enabled=" .. tostring(db.enabled)
+        .. ", debug=" .. tostring(db.debug))
     local n = type(ns.db.log) == "table" and #ns.db.log or 0
     say("log entries: " .. n)
 end
