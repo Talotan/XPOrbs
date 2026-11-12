@@ -1,0 +1,3 @@
+local ADDON, ns = ...
+
+-- Placeholder: filled in by milestone M3.

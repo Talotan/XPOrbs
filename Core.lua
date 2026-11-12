@@ -14,7 +14,11 @@ ns.defaults = {
     targetFrame = nil,
     showAtMax = false,
     debug = false,
+    probe = true, -- M3: log kill bursts instead of drawing them; M4 flips this to false
 }
+
+-- Modules add lines to /xporbs status by appending functions that return a string (or nil).
+ns.statusProviders = {}
 
 local LOG_MAX = 500
 
@@ -69,7 +73,9 @@ local function notYet(name)
     say(name .. ": not yet implemented")
 end
 
+-- Modules replace entries here (e.g. ns.commands.test = function(arg) ... end) instead of editing Core.lua.
 local commands = {}
+ns.commands = commands
 
 function commands.help()
     say("commands:")
@@ -107,6 +113,14 @@ function commands.status()
         .. ", debug=" .. tostring(db.debug))
     local n = type(ns.db.log) == "table" and #ns.db.log or 0
     say("log entries: " .. n)
+    for _, provider in ipairs(ns.statusProviders) do
+        local ok, line = pcall(provider)
+        if ok and line then
+            say(line)
+        elseif not ok then
+            say("status error: " .. tostring(line))
+        end
+    end
 end
 
 function commands.test()

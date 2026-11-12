@@ -32,6 +32,7 @@ def toc_files():
 def make_runtime():
     lua = lupa_rt.LuaRuntime(unpack_returned_tuples=True)
     ns = lua.table()
+    ns["fixtureDir"] = str(TESTS / "fixtures").replace("\\", "/")
     loader = lua.eval("function(src, name) return loadstring(src, name) end")
 
     def load_chunk(path: Path, chunkname: str):
@@ -62,3 +63,17 @@ def env():
 
     e.load_addon = load_addon
     return e
+
+
+@pytest.fixture
+def xpgain(env):
+    """The real enUS XP-gain globals (tests/fixtures/xpgain_enUS.lua) as a plain Lua table."""
+    fn = env.load_chunk(TESTS / "fixtures" / "xpgain_enUS.lua", "xpgain_enUS.lua")
+    t = env.lua.table()
+    env.lua.eval("function(fn, t) setfenv(fn, t); fn() end")(fn, t)
+    return t
+
+
+def lua_list(t):
+    """Lua array table -> Python list."""
+    return [t[i] for i in range(1, len(t) + 1)]

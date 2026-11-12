@@ -90,10 +90,13 @@ DEFAULT_CHAT_FRAME = {
     end,
 }
 
-COMBATLOG_XPGAIN_FIRSTPERSON = "%s dies, you gain %d experience."
-COMBATLOG_XPGAIN_FIRSTPERSON_GROUP = "%s dies, you gain %d experience. (+%d group bonus)"
-COMBATLOG_XPGAIN_EXHAUSTION1 = "%s dies, you gain %d experience. (%s exp %s bonus)"
-COMBATLOG_XPGAIN_EXHAUSTION1_GROUP = "%s dies, you gain %d experience. (%s exp %s bonus, +%d group bonus)"
+-- Real Blizzard enUS XP-gain globals (authoritative; shared with the tests). ns.fixtureDir is set by conftest.
+do
+    local f = assert(io.open(ns.fixtureDir .. "/xpgain_enUS.lua", "r"))
+    local src = f:read("*a")
+    f:close()
+    assert(loadstring(src, "@xpgain_enUS.lua"))()
+end
 
 -- Dispatch an event to every frame that registered it and has an OnEvent script.
 function ns.fire(event, ...)
