@@ -14,7 +14,7 @@ local floor = math.floor
 local HEADER_X, LABEL_X, CTRL_X, VALUE_X, RESET_X = 16, 32, 260, 472, 548
 local SLIDER_W = 200
 local RULE_W = 552
-local CONTENT_W, CONTENT_H = 584, 894 -- |last y| + 16
+local CONTENT_W, CONTENT_H = 584, 1070 -- |last y| + 16
 local DIM = 0.4
 local SWATCH_OFF_ALPHA = 0.35
 local GREY = 0.70
@@ -33,7 +33,11 @@ local STYLE_DESC = {
 }
 local SHAPES = { "bar", "round" }
 local SHAPE_NAME = { bar = "Horizontal", round = "Circular" }
-local SHAPE_DESC = "Horizontal suits a bar. Circular suits a round target such as a portrait; orbs aim at its centre."
+local SHAPE_DESC = "Horizontal: orbs land on the bar's fill edge. Circular: orbs land on the centre of a round frame "
+    .. "such as a portrait."
+local OFFSET_DESC = "Moves where orbs land and the glow appears (pixels)."
+local PICK_HINT = "Use this if another addon replaces the default XP bar, or to send the orbs somewhere else, such as "
+    .. "your portrait with the Circular shape."
 
 local refreshers, postRefresh, resets = {}, {}, {}
 local refreshing = false
@@ -137,12 +141,14 @@ local function text(parent, template, str, x, y, width)
     return fs
 end
 
+-- Draws a section header at y and returns the y of its first row.
 local function header(str, y)
     text(child, "GameFontNormal", str, HEADER_X, -y)
     local rule = child:CreateTexture(nil, "ARTWORK")
     rule:SetPoint("TOPLEFT", child, "TOPLEFT", HEADER_X, -(y + 18))
     rule:SetSize(RULE_W, 1)
     rule:SetColorTexture(1, 1, 1, 0.15)
+    return y + 26
 end
 
 -- A full-width row frame of height h at y. Its label, control and reset button anchor LEFT to it, so they share its
@@ -205,16 +211,30 @@ local function newCheck(row, x)
     return cb
 end
 
--- A radio button; falls back to a check button when the template is missing.
-local function newRadio(row, x)
+local RADIO = 20
+
+-- A radio button that owns its label (a row FontString at x + 24). The hit rect extends over the label so clicking the
+-- label selects it. Falls back to a check button when the template is missing.
+local function newRadio(row, x, labelStr)
     local ok, rb = pcall(CreateFrame, "CheckButton", nil, row, "UIRadioButtonTemplate")
     if ok and rb then
-        rb:SetSize(16, 16)
-        rb:SetPoint("LEFT", row, "LEFT", x, 0)
+        rb:SetSize(RADIO, RADIO)
+        rb:SetPoint("LEFT", row, "LEFT", x - 2, 0)
         hideTemplateText(rb)
-        return rb
+    else
+        rb = newCheck(row, x - 4)
     end
-    return newCheck(row, x - 4)
+    local fs = label(row, labelStr, x + 24)
+    local okW, w = pcall(function()
+        return fs:GetStringWidth()
+    end)
+    if not (okW and type(w) == "number") then
+        w = 100
+    end
+    if rb.SetHitRectInsets then
+        pcall(rb.SetHitRectInsets, rb, 0, -(w + 8), -4, -4)
+    end
+    return rb
 end
 
 -- The small revert button in the gutter. keys: db keys it resets (a colour row has two). describe() -> default text.
@@ -564,6 +584,11 @@ local function build()
     local panel = CreateFrame("Frame")
     Options.panel = panel
     text(panel, "GameFontNormalLarge", "XPOrbs", 16, -16)
+    local top = panel:CreateTexture(nil, "ARTWORK")
+    top:SetPoint("TOPLEFT", panel, "TOPLEFT", HEADER_X, -38)
+    top:SetSize(RULE_W, 1)
+    top:SetColorTexture(1, 1, 1, 0.15)
+    Options.topRule = top
 
     local scroll, tpl = newScroll(panel)
     Options.scroll, Options.scrollTemplate = scroll, tpl
@@ -574,20 +599,30 @@ local function build()
     scroll:SetScrollChild(child)
     Options.child = child
 
-    header("General", 8)
-    checkbox(34, "enabled", "Enabled")
-    checkbox(62, "trail", "Trail")
-    checkbox(90, "questBursts", "Quest bursts")
-    checkbox(118, "showAtMax", "Show at max level")
+    local y = header("General", 8)
+    for _, c in ipairs({
+        { "enabled", "Enabled" },
+        { "trail", "Trail" },
+        { "questBursts", "Quest bursts" },
+        { "showAtMax", "Show at max level" },
+    }) do
+        checkbox(y, c[1], c[2])
+        y = y + 28
+    end
 
-    header("Look", 160)
-    slider(186, "density", "Orb quantity multiplier", 25, 400, 25, "%d%%", "%")
-    slider(218, "cap", "Max orbs per burst", 5, 80, 1, "%d", "")
-    slider(250, "size", "Orb size", 8, 32, 1, "%d", "")
-    slider(282, "flightTime", "Flight time", 0.4, 1.5, 0.05, "%.2f s", " s")
+    y = header("Look", y + 14)
+    for _, c in ipairs({
+        { "density", "Orb quantity multiplier", 25, 400, 25, "%d%%", "%" },
+        { "cap", "Max orbs per burst", 5, 80, 1, "%d", "" },
+        { "size", "Orb size", 8, 32, 1, "%d", "" },
+        { "flightTime", "Flight time", 0.4, 1.5, 0.05, "%.2f s", " s" },
+    }) do
+        slider(y, c[1], c[2], c[3], c[4], c[5], c[6], c[7])
+        y = y + 32
+    end
 
     -- Orb colour: swatch + "Class colour" checkbox; one reset button resets both
-    local crow = newRow(314, 28)
+    local crow = newRow(y, 28)
     Options.rows.color = crow
     local clabel = label(crow, "Orb colour", LABEL_X)
     local sw = swatch(crow, "color", CTRL_X)
@@ -613,8 +648,10 @@ local function build()
         clabel:Hide() -- no colour picker on this client: the colour can't be edited, class colour still works
     end
 
-    checkbox(342, "restedTint", "Rested tint")
-    local rrow = newRow(370, 28)
+    y = y + 28
+    checkbox(y, "restedTint", "Rested tint")
+    y = y + 28
+    local rrow = newRow(y, 28)
     Options.rows.restedColor = rrow
     local rlabel = label(rrow, "Rested colour", 48)
     local rsw = swatch(rrow, "restedColor", CTRL_X)
@@ -628,16 +665,18 @@ local function build()
         setDim(rrow, { rsw }, D().restedTint)
     end
 
-    header("Arrival glow", 412)
-    checkbox(438, "glow", "Show glow")
-    local shrow = newRow(466, 24)
+    y = y + 28
+    -- "Arrival": the shape and offsets decide where orbs land even with the glow off
+    y = header("Arrival", y + 14)
+    checkbox(y, "glow", "Show glow")
+    y = y + 28
+    local shrow = newRow(y, 24)
     Options.rows.glowShape = shrow
     label(shrow, "Shape", LABEL_X)
     local shapeBtns = {}
     for i, sh in ipairs(SHAPES) do
         local x = CTRL_X + (i - 1) * 130
-        local rb = newRadio(shrow, x)
-        label(shrow, SHAPE_NAME[sh], x + 22)
+        local rb = newRadio(shrow, x, SHAPE_NAME[sh])
         rb:SetScript("OnClick", function()
             radioClick("glowShape", sh)
         end)
@@ -653,36 +692,48 @@ local function build()
     addReset(shrow, "glowShape", { "glowShape" }, function()
         return SHAPE_NAME[ns.defaults.glowShape] or tostring(ns.defaults.glowShape)
     end)
-    local sdrow = newRow(492, 42)
+    y = y + 26
+    local sdrow = newRow(y, 56)
     Options.rows.glowShapeDesc = sdrow
     local sd = sdrow:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
     sd:SetPoint("TOPLEFT", sdrow, "TOPLEFT", CTRL_X, 0)
-    sd:SetWidth(300)
+    sd:SetWidth(280)
+    pcall(sd.SetSpacing, sd, 2)
     sd:SetJustifyH("LEFT")
     sd:SetWordWrap(true)
     sd:SetTextColor(GREY, GREY, GREY)
     sd:SetText(SHAPE_DESC)
     Options.shapeDesc = sd
-    postRefresh[#postRefresh + 1] = function()
-        local on = D().glow ~= false
-        setDim(shrow, shapeBtns, on)
-        sdrow:SetAlpha(on and 1 or DIM)
-    end
 
-    header("Style", 540)
+    -- the shape and offsets describe the target frame, so they stay live with Show glow off; only the intensity dims
+    y = y + 62
+    slider(y, "glowIntensity", "Glow intensity", 25, 200, 5, "%d%%", "%")
+    postRefresh[#postRefresh + 1] = function()
+        setDim(Options.rows.glowIntensity, { Options.controls.glowIntensity }, D().glow ~= false)
+    end
+y = y + 32
+    slider(y, "glowOffsetX", "Offset X", -100, 100, 1, "%d px", " px")
+    y = y + 32
+    slider(y, "glowOffsetY", "Offset Y", -100, 100, 1, "%d px", " px")
+    y = y + 36
+    local od = text(child, "GameFontHighlight", OFFSET_DESC, LABEL_X, -y, 490)
+    od:SetTextColor(GREY, GREY, GREY)
+    Options.offsetDesc = od
+    y = y + 16
+
+    y = header("Style", y + 14)
     local radios = {}
     for i, st in ipairs(STYLES) do
-        local y = 566 + (i - 1) * 46
-        local row = newRow(y, 24)
-        local rb = newRadio(row, LABEL_X)
-        label(row, STYLE_NAME[st], LABEL_X + 22)
+        local ry = y + (i - 1) * 46
+        local row = newRow(ry, 24)
+        local rb = newRadio(row, LABEL_X, STYLE_NAME[st])
         rb:SetScript("OnClick", function()
             radioClick("style", st)
         end)
         radios[st] = rb
         Options.controls["style_" .. st] = rb
         Options.rows["style_" .. st] = row
-        local desc = text(child, "GameFontHighlight", STYLE_DESC[st], LABEL_X + 22, -(y + 24), 490)
+        local desc = text(child, "GameFontHighlight", STYLE_DESC[st], LABEL_X + 24, -(ry + 24), 490)
         desc:SetTextColor(GREY, GREY, GREY)
         Options.descs[st] = desc
         if i == 1 then
@@ -698,8 +749,8 @@ local function build()
         end
     end
 
-    header("XP bar", 718)
-    local drow = newRow(744, 36)
+    y = header("XP bar", y + 3 * 46 + 14)
+    local drow = newRow(y, 36)
     Options.rows.targetFrame = drow
     label(drow, "XP bar frame", LABEL_X)
     local dest = drow:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
@@ -713,19 +764,29 @@ local function build()
     addReset(drow, "targetFrame", { "targetFrame" }, function()
         return "auto-detect"
     end)
-    local prow = newRow(780, 30)
+    y = y + 36
+    local prow = newRow(y, 30)
     button(prow, "Pick XP bar frame", CTRL_X, 150, function()
         ns.commands.pick("")
     end)
 
-    header("Advanced", 824)
-    checkbox(850, "debug", "Debug log")
+    local ph = text(child, "GameFontHighlight", PICK_HINT, LABEL_X, -(y + 34), 520)
+    ph:SetWordWrap(true)
+    ph:SetTextColor(GREY, GREY, GREY)
+    Options.pickHint = ph
+
+    y = header("Advanced", y + 34 + 28 + 14)
+    checkbox(y, "debug", "Debug log")
+    y = y + 28
+    CONTENT_H = y + 16
+    Options.CONTENT_H = CONTENT_H
+    child:SetSize(CONTENT_W, CONTENT_H)
 
     -- fixed footer
     local rule = panel:CreateTexture(nil, "ARTWORK")
-    rule:SetPoint("BOTTOMLEFT", panel, "BOTTOMLEFT", 16, 44)
-    rule:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -16, 44)
-    rule:SetHeight(1)
+    rule:SetPoint("BOTTOMLEFT", panel, "BOTTOMLEFT", HEADER_X, 44)
+    rule:SetSize(RULE_W, 1)
+    Options.footerRule = rule
     rule:SetColorTexture(1, 1, 1, 0.15)
     local test = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
     test:SetSize(110, 22)
@@ -737,7 +798,7 @@ local function build()
     end)
     local resetAll = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
     resetAll:SetSize(160, 22)
-    resetAll:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -72, 11)
+    resetAll:SetPoint("BOTTOMLEFT", panel, "BOTTOMLEFT", HEADER_X + RULE_W - 160, 11)
     resetAll:SetText("Reset all to default")
     resetAll:SetScript("OnClick", confirmReset)
     Options.resetAll = resetAll

@@ -168,12 +168,12 @@ function OrbMath.Snap(v, lo, hi, step)
     return clamp(v, lo, hi)
 end
 
--- Text typed into a value box -> number, or nil. Tolerates spaces and a trailing % or "s" unit.
+-- Text typed into a value box -> number, or nil. Tolerates spaces and a trailing %, "px" or "s" unit.
 function OrbMath.ParseNumber(s)
     if type(s) ~= "string" then
         return nil
     end
-    s = s:gsub("%s+", ""):gsub("[%%s]+$", "")
+    s = s:gsub("%s+", ""):gsub("px$", ""):gsub("[%%s]+$", "")
     return tonumber(s)
 end
 
@@ -205,4 +205,25 @@ function OrbMath.GlowDiameter(w, h, orbSize)
         return clamp(min(w, h) * 1.3, 32, 160)
     end
     return (type(orbSize) == "number" and orbSize or 14) * 6
+end
+
+-- Arrival glow intensity. percent (25-200, default 100) -> alpha multiplier k = percent / 100 and size multiplier
+-- 0.8 + 0.2k. Anything that is not a finite number counts as 100%; the percent is clamped to [25, 200].
+function OrbMath.GlowIntensity(percent)
+    local k = 1
+    if type(percent) == "number" and percent == percent and percent ~= math.huge and percent ~= -math.huge then
+        k = clamp(percent, 25, 200) / 100
+    end
+    return k, 0.8 + 0.2 * k
+end
+
+-- Landing point plus the user's offset (UIParent px). Non-numeric offsets count as 0.
+function OrbMath.ApplyOffset(x, y, ox, oy)
+    local function n(v)
+        if type(v) == "number" and v == v and v ~= math.huge and v ~= -math.huge then
+            return v
+        end
+        return 0
+    end
+    return x + n(ox), y + n(oy)
 end

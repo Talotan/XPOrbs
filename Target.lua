@@ -70,6 +70,8 @@ end
 -- Target.lastW / lastH are the destination frame's size in UIParent units (nil on the fallback).
 -- centre = true aims at the middle of the frame instead of the XP fill edge (a round target such as a portrait has
 -- no fill edge).
+-- db.glowOffsetX / glowOffsetY (UIParent px) are added to every result, the fallback included: the offset is the
+-- user's "land here" nudge, so it moves the landing point wherever it would otherwise be. lastW / lastH are unaffected.
 function Target:GetDestination(centre)
     local okxp, xp = pcall(UnitXP, "player")
     local okmax, xpMax = pcall(UnitXPMax, "player")
@@ -93,11 +95,14 @@ function Target:GetDestination(centre)
     end
     if x then
         self.lastName, self.lastOk, self.lastW, self.lastH = name, true, fw, fh
+        x, y = OrbMath.ApplyOffset(x, y, ns.db and ns.db.glowOffsetX, ns.db and ns.db.glowOffsetY)
         return x, y, true
     end
     local okw, w = pcall(UIParent.GetWidth, UIParent)
     self.lastName, self.lastOk, self.lastW, self.lastH = nil, false, nil, nil
-    return (okw and num(w) and w / 2 or 0), FALLBACK_Y, false
+    local fx, fy = OrbMath.ApplyOffset(okw and num(w) and w / 2 or 0, FALLBACK_Y, ns.db and ns.db.glowOffsetX,
+        ns.db and ns.db.glowOffsetY)
+    return fx, fy, false
 end
 
 local function portraitOf(f)

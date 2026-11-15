@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.14
+- **Glow intensity** (`db.glowIntensity`, percent 25-200, step 5, default 100), in Arrival glow after Shape. With k = percent / 100 the flash alpha is multiplied by k (clamped to 1) and its size by 0.8 + 0.2k, for both shapes (`OrbMath.GlowIntensity`). Dimmed while Show glow is off.
+- **Circular shape aims at the frame centre whatever Show glow says.** The shape now describes the target frame (bar or round), so `aimCentre` only looks at `db.glowShape`. The Shape row and its description no longer dim when Show glow is off. New description: "Horizontal: orbs land on the bar's fill edge. Circular: orbs land on the centre of a round frame such as a portrait."
+- **Offset X / Offset Y** (`db.glowOffsetX/Y`, -100..100 px, step 1, default 0, UIParent units) shift the landing point for both shapes. Applied inside `Target:GetDestination` (`OrbMath.ApplyOffset`), so kills, `/xporbs test` and the flash agree; the bottom-centre fallback is shifted too.
+- A sentence under the XP bar picker says why you would use it.
+- Typed values may end in `px`. The panel content grows to 1070 px; the Style, XP bar and Advanced sections moved down.
+- Design re-review fixes: top rule under the title, footer rule and Reset all share the right edge (x 568), 20 px radios whose label is clickable, shape description width 280, a y cursor replaces literal row positions, section "Arrival glow" renamed "Arrival".
+- DB schema unchanged (4): `deepFill` adds the three new keys.
+- Tests: `tests/test_v014.py`.
+
 ## 0.13
 - **Options panel rework** (layout from `docs/review-v012/review.md`). Fixed title and footer, a scrolling body (`ScrollFrameTemplate`, falling back to `UIPanelScrollFrameTemplate`, then a bare scroll frame with mouse-wheel scrolling) holding one column of rows: a label column at x 32 and a control column at x 260, slider value at 472 and a reset gutter at 548. Sections: General, Look, Arrival glow, Style, XP bar, Advanced. Every label is `GameFontHighlight`; no `GameFontHighlightSmall` anywhere. Rested tint moved next to Rested colour, Debug log moved to Advanced.
 - **Style radios** (`UIRadioButtonTemplate`, falling back to a check button) each with their own grey description line underneath.

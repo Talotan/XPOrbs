@@ -18,6 +18,9 @@ ns.defaults = {
     style = "popstream", -- kill style: "popstream" (pop at the nameplate, then stream), "crossfade" or "stream"
     glow = true, -- arrival flash on/off
     glowShape = "bar", -- "bar" (horizontal flash on the fill edge) or "round" (circular glow at the frame centre)
+    glowIntensity = 100, -- arrival flash strength in percent (25-200): scales its alpha and, a little, its size
+    glowOffsetX = 0, -- UIParent px added to the landing point (where orbs aim and the glow is drawn)
+    glowOffsetY = 0,
     probe = false, -- true: log kill bursts instead of drawing them
 }
 
@@ -57,8 +60,9 @@ end
 -- v2: new default colours. Only colours still equal to the old defaults are replaced (deepFill re-adds them).
 -- v3: kills go live (probe off).
 -- v4: the stream origin is always the target frame (then the screen centre); the origin option is gone.
--- v0.13 added classColor / glow / glowShape: no schema bump, deepFill adds the missing keys (a stored false or an
--- existing value is never overwritten, a missing key gets the default).
+-- v0.13 added classColor / glow / glowShape and v0.14 added glowIntensity / glowOffsetX / glowOffsetY: no schema bump,
+-- deepFill adds the missing keys (a stored false or an existing value is never overwritten, a missing key gets the
+-- default).
 local function migrate(db)
     local v = type(db.version) == "number" and db.version or 0
     if v < 2 then

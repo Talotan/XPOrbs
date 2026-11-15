@@ -256,7 +256,7 @@ def test_scroll_frame_exists_with_the_specified_anchors_and_content_height(m):
     ]
     assert pts[0][0] == "TOPLEFT" and (pts[0][3], pts[0][4]) == (0, -40)
     assert pts[1][0] == "BOTTOMRIGHT" and (pts[1][3], pts[1][4]) == (-28, 44)
-    assert o.child.width == 584 and o.child.height == pytest.approx(894, abs=2)
+    assert o.child.width == 584 and o.child.height == pytest.approx(1070, abs=2)  # v0.14: 894 + 176
 
 
 def test_scroll_template_falls_back(env):
@@ -293,11 +293,11 @@ def test_scroll_frame_without_any_template_still_scrolls(env):
         ("restedColor", 370),
         ("glow", 438),
         ("glowShape", 466),
-        ("style_popstream", 566),
-        ("style_crossfade", 612),
-        ("style_stream", 658),
-        ("targetFrame", 744),
-        ("debug", 850),
+        ("style_popstream", 710),
+        ("style_crossfade", 756),
+        ("style_stream", 802),
+        ("targetFrame", 888),
+        ("debug", 1026),
     ],
 )
 def test_row_positions_follow_the_spec(m, key, y):
@@ -398,7 +398,7 @@ def test_style_radios_use_the_radio_template_and_each_has_a_description(m):
     )
     for st in descs:
         assert ctl(m, "style_" + st).template == "UIRadioButtonTemplate"
-        assert (ctl(m, "style_" + st).width, ctl(m, "style_" + st).height) == (16, 16)
+        assert (ctl(m, "style_" + st).width, ctl(m, "style_" + st).height) == (20, 20)  # v0.14 review: 20 px radios
     # the old run-together hint line is gone
     assert not any("popstream: a burst" in t for t in panel_texts(m))
 
@@ -406,12 +406,12 @@ def test_style_radios_use_the_radio_template_and_each_has_a_description(m):
 def test_style_description_positions(m):
     d = m.opt.descs
     for st, y in (
-        ("popstream", 566 + 24),
-        ("crossfade", 612 + 24),
-        ("stream", 658 + 24),
+        ("popstream", 710 + 24),
+        ("crossfade", 756 + 24),
+        ("stream", 802 + 24),
     ):
         pt = d[st].points[1]
-        assert (pt[4], pt[5]) == (54, -y) and d[st].width == 490
+        assert (pt[4], pt[5]) == (56, -y) and d[st].width == 490  # flush with the label (x + 24)
         assert [d[st].textColor[i] for i in (1, 2, 3)] == pytest.approx([0.7, 0.7, 0.7])
 
 
@@ -437,9 +437,7 @@ def test_glow_shape_radios(m):
         ctl(m, "glowShape_round")
     )  # clicking the selected one keeps it selected
     assert ctl(m, "glowShape_round").checked
-    assert m.opt.shapeDesc.text.startswith(
-        "Horizontal suits a bar. Circular suits a round target"
-    )
+    assert m.opt.shapeDesc.text.startswith("Horizontal: orbs land on the bar's fill edge.")  # v0.14 wording
 
 
 # ---------------------------------------------------------------- dimming
@@ -456,24 +454,22 @@ def test_rested_colour_dims_with_rested_tint(m):
     assert row.alpha == 1 and sw.IsEnabled(sw)
 
 
-def test_glow_shape_dims_with_show_glow(m):
+def test_glow_shape_does_not_dim_with_show_glow(m):
+    # v0.14: the shape describes the target frame, so only the glow intensity dims (see test_v014.py)
     show(m)
     row, desc = m.opt.rows["glowShape"], m.opt.rows["glowShapeDesc"]
     rb = [ctl(m, "glowShape_bar"), ctl(m, "glowShape_round")]
-    assert row.alpha == 1 and all(r.IsEnabled(r) for r in rb)
     m.stub.click(ctl(m, "glow"))
     assert m.db.glow is False
-    assert row.alpha == pytest.approx(0.4) and desc.alpha == pytest.approx(0.4)
-    assert not any(r.IsEnabled(r) for r in rb)
-    m.stub.click(ctl(m, "glow"))
-    assert row.alpha == 1 and desc.alpha == 1 and all(r.IsEnabled(r) for r in rb)
+    assert row.alpha in (None, 1) and desc.alpha in (None, 1)
+    assert all(r.IsEnabled(r) for r in rb)
 
 
 def test_dimming_follows_slash_and_db_changes_on_show(m):
     m.db.glow = False
     m.db.restedTint = False
     show(m)
-    assert m.opt.rows["glowShape"].alpha == pytest.approx(0.4)
+    assert m.opt.rows["glowIntensity"].alpha == pytest.approx(0.4)
     assert m.opt.rows["restedColor"].alpha == pytest.approx(0.4)
 
 
@@ -1277,14 +1273,17 @@ def test_bar_shape_still_aims_at_the_fill_edge(m):
     )
 
 
-def test_glow_shape_aim_needs_the_glow_on(m):
-    # decision: the shape only matters while Show glow is ticked (the shape row is dimmed otherwise)
+def test_glow_shape_aim_with_the_glow_off(m):
+    # v0.14 reverses the v0.13 decision: the shape aims the orbs at the centre even with Show glow off (no flash drawn)
+    m.stub.makeBar("Portrait", 100, 700, 90, 90, True)
+    m.G.Portrait.name = "Portrait"
+    m.db.targetFrame = "Portrait"
     m.db.glowShape, m.db.glow = "round", False
-    tg = m.ns.Target
-    m.stub.xp, m.stub.xpMax = 250, 1000
+    m.stub.xp, m.stub.xpMax = 900, 1000
     m.slash("test 5")
     m.run(2)
-    assert tg.lastName == "MainStatusTrackingBarContainer"
+    tg = m.ns.Target
+    assert tg.lastName == "Portrait" and (tg.lastW, tg.lastH) == (90, 90)
     assert not flash_tex(m).shown
 
 

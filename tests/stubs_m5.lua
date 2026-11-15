@@ -55,7 +55,7 @@ end
 
 -- no-op recorders for the cosmetic calls the panel makes
 for _, name in ipairs({
-    "SetJustifyH", "SetWordWrap", "SetColorTexture", "SetFontObject", "SetOrientation", "SetThumbTexture",
+    "SetJustifyH", "SetWordWrap", "SetHitRectInsets", "SetSpacing", "SetColorTexture", "SetFontObject", "SetOrientation", "SetThumbTexture",
     "SetObeyStepOnDrag",
 }) do
     fm[name] = function(self, ...)
@@ -70,6 +70,10 @@ function fm:CreateFontString()
 end
 function fm:SetText(t)
     self.text = t
+end
+-- v0.14: a fixed 7 px per character stands in for font metrics
+function fm:GetStringWidth()
+    return #(self.text or "") * 7
 end
 function fm:GetText()
     return self.text

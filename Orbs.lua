@@ -141,9 +141,10 @@ local function resolveNormal(d)
     return normalC
 end
 
--- Round glow = the destination is a round frame (a portrait): the orbs aim at its centre, not the XP fill edge.
+-- Circular shape = the destination is a round frame (a portrait): the orbs aim at its centre, not the XP fill edge.
+-- Independent of Show glow (v0.14): the shape describes the target frame, not just the flash.
 local function aimCentre(d)
-    return d.glow ~= false and d.glowShape == "round"
+    return d.glowShape == "round"
 end
 
 local function ensureFrames()
@@ -676,7 +677,8 @@ local function onUpdate(self, dt)
             flash:Hide()
         else
             local c = flashRested and ns.db.restedColor or normalC
-            local a = min(1, FLASH_ALPHA + FLASH_STEP * arrivedRecently) * (1 - flashAge / FLASH_TIME)
+            local kA, kS = OrbMath.GlowIntensity(ns.db.glowIntensity)
+            local a = min(1, min(1, FLASH_ALPHA + FLASH_STEP * arrivedRecently) * (1 - flashAge / FLASH_TIME) * kA)
             local shape = ns.db.glowShape == "round" and "round" or "bar"
             if shape ~= flashShape then
                 flashShape = shape
@@ -688,9 +690,9 @@ local function onUpdate(self, dt)
             flash:SetPoint("CENTER", overlay, "BOTTOMLEFT", dx, dy)
             if shape == "round" then
                 local dia = OrbMath.GlowDiameter(Target.lastW, Target.lastH, ns.db.size)
-                flash:SetSize(dia, dia)
+                flash:SetSize(dia * kS, dia * kS)
             else
-                local w = ns.db.size * FLASH_W
+                local w = ns.db.size * FLASH_W * kS
                 flash:SetSize(w, w / FLASH_ASPECT)
             end
             flash:SetAlpha(a)
