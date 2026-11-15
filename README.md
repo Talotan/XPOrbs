@@ -9,8 +9,7 @@ Status: M0 scaffold only (slash command skeleton, saved variables). See `docs/RO
 Junction this folder into `_forever_\Interface\AddOns\XPOrbs` (not yet created).
 
 ## Commands
-`/xporbs help | debug on|off | status | test [pct] | pick | reset | options`
-(`test`, `pick`, `reset`, `options` are stubs until later milestones.)
+`/xporbs help | debug on|off | status | test [pct] [rested] [style] | style <name> | pick [clear] | reset | options`
 
 ## Dev
 `uv run pytest -q` runs the Lua 5.1 test harness (lupa).

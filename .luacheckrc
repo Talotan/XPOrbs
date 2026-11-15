@@ -11,6 +11,7 @@ read_globals = {
     "C_NamePlate",
     "C_AddOns",
     "Settings",
+    "ColorPickerFrame",
     "CreateFrame",
     "UIParent",
     "GetTime",

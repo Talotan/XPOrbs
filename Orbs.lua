@@ -106,6 +106,7 @@ local function ensureFrames()
     overlay:SetFrameStrata("HIGH")
     overlay:EnableMouse(false)
     overlay:Show()
+    Orbs.overlay = overlay
     driver = CreateFrame("Frame")
     Orbs.driver = driver
     flash = overlay:CreateTexture(nil, "OVERLAY")

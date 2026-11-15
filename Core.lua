@@ -125,7 +125,7 @@ function commands.help()
     say("/xporbs test [pct] [rested] [style] - fire a test burst on your target")
     say("/xporbs style popstream|crossfade|stream - kill burst style")
     say("/xporbs pop on|off - alias: popstream / stream")
-    say("/xporbs pick - pick the XP bar frame")
+    say("/xporbs pick [clear] - click to pick the XP bar frame (clear = auto-detect)")
     say("/xporbs reset - restore default settings")
     say("/xporbs options - open the settings panel")
 end
@@ -169,16 +169,21 @@ function commands.test()
     notYet("test")
 end
 
-function commands.pick()
-    notYet("pick")
-end
+-- /xporbs pick and /xporbs options are defined by Target.lua and Options.lua.
 
+-- Restore every setting to its default. The schema version, the debug flag and the log are kept.
 function commands.reset()
-    notYet("reset")
-end
-
-function commands.options()
-    notYet("options")
+    local db = ns.db
+    for k in pairs(db) do
+        if k ~= "version" and k ~= "log" and k ~= "debug" then
+            db[k] = nil
+        end
+    end
+    deepFill(db, ns.defaults)
+    if ns.Options and ns.Options.Refresh then
+        ns.Options:Refresh()
+    end
+    say("settings reset to defaults")
 end
 
 SLASH_XPORBS1 = "/xporbs"

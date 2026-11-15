@@ -172,9 +172,9 @@ def test_command_survives_plates_error(m2):
     assert shown_orb_count(m2) == 8
 
 
-def test_pick_stub_and_status(m2):
+def test_pick_prompt_and_status(m2):
     m2.slash("pick")
-    assert "coming in M5" in m2.stub.chat[len(m2.stub.chat)]
+    assert "Click the XP bar" in m2.stub.chat[len(m2.stub.chat)]
     m2.slash("status")
     lines = [m2.stub.chat[i] for i in range(1, len(m2.stub.chat) + 1)]
     orbs_line = [ln for ln in lines if "orbs: driver=idle" in ln]
@@ -209,7 +209,8 @@ def _sparkle_widths(m2):
 
 def test_rested_orbs_start_later_and_bigger(m2):
     m2.burst(x=300, y=600, n=1, nPurple=1)
-    m2.run(0.11)  # RESTED_DELAY not yet elapsed
+    # (C rand() is shared by every Lua state in the process, so the stagger varies with test order: delay >= 0.12 s)
+    m2.run(0.05)  # two 0.05 s ticks: RESTED_DELAY not yet elapsed
     assert m2.stub.shownTextures() == 0
     m2.run(0.3)
     assert _sparkle_widths(m2) == [pytest.approx(14 * 1.15 * 1.9)]

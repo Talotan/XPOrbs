@@ -75,5 +75,5 @@ def test_slash_commands(env):
     assert env.G.XPOrbsDB.debug is True
     slash("debug off")
     assert env.G.XPOrbsDB.debug is False
-    slash("options")  # still a stub until M5
-    assert "not yet implemented" in env.ns.stub.chat[len(env.ns.stub.chat)]
+    slash("options")  # no Settings API in the bare stub: a fallback message, no error
+    assert "isn't available" in env.ns.stub.chat[len(env.ns.stub.chat)]
