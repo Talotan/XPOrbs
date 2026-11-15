@@ -81,8 +81,8 @@ function stub.clearTargetFrame()
     _G.TargetFrame = nil
 end
 
--- Like stub.addPlate, but the plate is a restricted region from the start. Friendly plates (canAttack=false) never
--- start the sampler, so tests can count measuring calls from our own frames.
+-- Like stub.addPlate, but the plate is a restricted region from the start: any measuring call on it (or on a frame
+-- anchored to it) raises and bumps stub.restrictedHits, which tests assert stays 0.
 function stub.addRestrictedPlate(unit, opts)
     opts = opts or {}
     local plate = CreateFrame("Frame")
@@ -98,7 +98,6 @@ function stub.addRestrictedPlate(unit, opts)
         isTarget = opts.isTarget or false,
     }
     ns.fire("NAME_PLATE_UNIT_ADDED", unit)
-    stub.restrictedHits = 0
     return plate
 end
 

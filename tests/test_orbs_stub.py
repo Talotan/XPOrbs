@@ -165,13 +165,6 @@ def test_command_rested_split_and_origin(m2):
     assert xs and all(x < 960 for x in xs)  # started near the cursor at x=200, not screen centre
 
 
-def test_command_survives_plates_error(m2):
-    plates = m2.lua.eval("function() return {TargetEntry = function() error('boom') end} end")()
-    m2.ns.Plates = plates
-    m2.slash("test 1")
-    assert shown_orb_count(m2) == 8
-
-
 def test_pick_prompt_and_status(m2):
     m2.slash("pick")
     assert "Click the XP bar" in m2.stub.chat[len(m2.stub.chat)]

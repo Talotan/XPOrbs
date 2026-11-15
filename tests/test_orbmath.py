@@ -68,37 +68,6 @@ def test_rested_split_clamped(om):
     assert tuple(om.RestedSplit(10, 0, 50)) == (10, 0)
 
 
-def test_bezier_endpoints(om):
-    assert tuple(om.Bezier(0, 1, 2, 5, 9, 10, 4)) == (1, 2)
-    assert tuple(om.Bezier(1, 1, 2, 5, 9, 10, 4)) == (10, 4)
-
-
-def test_bezier_midpoint(om):
-    # 0.25*P0 + 0.5*C + 0.25*P1
-    x, y = om.Bezier(0.5, 0, 0, 10, 20, 20, 0)
-    assert (x, y) == (10, 10)
-
-
-def test_ease_in_out_monotonic_and_clamped(om):
-    ys = [om.EaseInOut(i / 10) for i in range(11)]
-    assert ys[0] == 0 and ys[-1] == 1
-    assert all(b >= a for a, b in zip(ys, ys[1:]))
-    assert om.EaseInOut(-1) == 0 and om.EaseInOut(2) == 1
-    assert om.EaseInOut(0.5) == pytest.approx(0.5)
-
-
-def test_control_point_lift_and_perpendicular(om):
-    # rand() = 0.5 -> no perpendicular offset; straight right, so lift is 0.25 * dist upward
-    assert tuple(om.ControlPoint(0, 0, 100, 0, lambda: 0.5)) == (50, 25)
-    # rand() = 1.0 -> offset +0.3 * dist along (-dy, dx)/dist = (0, 1)
-    x, y = om.ControlPoint(0, 0, 100, 0, lambda: 1.0)
-    assert x == pytest.approx(50) and y == pytest.approx(25 + 30)
-
-
-def test_control_point_zero_distance(om):
-    assert tuple(om.ControlPoint(5, 5, 5, 5, lambda: 0.9)) == (5, 5)
-
-
 def test_to_uiparent(om):
     assert tuple(om.ToUIParent(100, 50, 0.8, 0.4)) == (200, 100)
 

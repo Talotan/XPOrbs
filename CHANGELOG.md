@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.17
+Release candidate (M6). 1.0.0 comes after Talotan's final in-game sign-off.
+- **Plate geometry removed entirely.** Nameplates are restricted regions on Forever, and the old one-time `GetCenter` attempt on a plate put `Lua Taint: XPOrbs` in the error text before it disabled itself. Nothing measures a plate any more. Gone from `Plates.lua`: the position sampler, the A/B measuring methods, the proxy frames, position caching (`entry.x/y/t`), `Plates:Sample`, `Plates:TargetEntry`, `Plates.measurable`, `Plates.stats` and the `PLAYER_TARGET_CHANGED` hook. Kept: tracking by unit (GUID, name, hostile), `deadAtRemoval` for tier-2 deaths, the held list, `FindByGUID`, and the plate frame as the single-anchor parent of the pop and crossfade frames. A small retry (every 0.25 s, only while a hostile plate has no readable GUID) replaces the 30 Hz sampler.
+- Deaths never carry x/y; `KillMatcher` still accepts them (nil is fine).
+- **Log and status lines changed.** Removed `hadPos` (PLATE_ADDED, PLATE_REMOVED, DEATH), `geomOK` / `geomSecret`, `GEOM_ERR`, `GEOM disabled`, `hadXY` and `probe` (BURST). `/xporbs status` loses the `geom:` line; `plates:` now reads `tracked= held= retry=active|idle` and `kills:` no longer shows `probe=`.
+- **Dead code removed:** the `probe` mode (`db.probe`, `isProbe`; a stored `probe` key is dropped on load), `OrbMath.ControlPoint`, `OrbMath.Bezier`, `OrbMath.EaseInOut` (all unused by the addon), and the "not yet implemented" `/xporbs test` stub in `Core.lua`. `UnitIsUnit` left the luacheck globals.
+- **Rested confirmed in game:** rested kills pay 200% (the XP bar tooltip says so) and the pool drains by the full gain, so the v0.16 halving is correct.
+- **Hardening tests** (`tests/test_m6.py`): a seeded soak of 1000 random bursts (every style, with and without a plate, up to the cap and past it, rested splits, kinds kill/other/test, plate reuse, cap/size/glow/trail changes, random tick steps) ending with 0 live textures, every pop/crossfade frame back in its pool, no driver OnUpdate and no logged error; and an idle test that scans every frame the stub created and asserts none has an OnUpdate after load, world entry and a finished burst. New `Orbs:PoolInfo()` reports the pop-frame pool state.
+- **README rewritten** as a plain description of what the addon does, how, and where it falls short.
+- DB schema unchanged (4). Tests: 554 (deleted `test_plates_geom.py` and the geometry, probe and removed-function tests; see HANDOFF).
+
 ## 0.16
 - **Rested split halved.** The v0.15 debug log showed Forever never prints a rested bonus in kill messages (`tail=""` on every CHAT line) and drains the rested pool by the **whole** kill gain (`exhDrop == delta` on all seven kills, e.g. 246 and 282), while quest XP leaves it alone. The `pool` branch therefore reported the entire gain as rested (100% magenta) and the `estimate` branch half, so the same 246 XP kill rendered either way depending on event timing.
 - Rested kills pay double, so the bonus is half of the XP the pool covered. `OrbMath.RestedFallback`: `pool` = `floor(min(drop, amount) / 2 + 0.5)`; `estimate` = `floor(min(amount, pool now) / 2 + 0.5)` (the cap is now on the covered XP, not the bonus). Both sources agree for the same kill. Chat still wins; `restedSrc` values unchanged.

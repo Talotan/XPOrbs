@@ -29,7 +29,6 @@ read_globals = {
     "UnitCanAttack",
     "UnitExists",
     "UnitLevel",
-    "UnitIsUnit",
     "UnitXP",
     "UnitXPMax",
     "GetXPExhaustion",

@@ -348,47 +348,6 @@ def test_old_commands_are_gone(env):
     assert "/xporbs pop on|off" in helptext
 
 
-# ---------------------------------------------------------------- Plates: measuring shutdown
-
-
-def test_plates_stop_measuring_after_20_double_errors(env):
-    g = make(env, probe=True)
-    restricted_plate(g, hostile=True, guid="G1", name="Boar", cx=700, cy=400)
-    plates = g.ns.Plates
-    assert plates.measurable
-    for _ in range(40):
-        g.stub.tick(0.05)
-    assert plates.measurable is False
-    assert g.has_log("GEOM disabled: plates can't be measured (last error: ")
-    assert sum("GEOM disabled" in line for line in g.log()) == 1
-    err_a = plates.stats.errA
-    for _ in range(10):
-        g.stub.tick(0.05)
-    assert plates.stats.errA == err_a
-    assert not plates.SamplerActive()
-
-
-def test_sampler_keeps_running_only_for_unreadable_guids(env):
-    g = make(env, probe=True)
-    restricted_plate(g, hostile=True, name="Boar", cx=700, cy=400)
-    for _ in range(40):
-        g.stub.tick(0.05)
-    assert g.ns.Plates.measurable is False
-    assert g.ns.Plates.SamplerActive()
-    g.stub.units["nameplate1"].guid = "G9"
-    g.stub.tick(0.05)
-    g.stub.tick(0.05)
-    assert not g.ns.Plates.SamplerActive()
-
-
-def test_measurable_plates_never_disabled(env):
-    g = make(env, probe=True)
-    g.plate(guid="G1", cx=700, cy=400)
-    for _ in range(60):
-        g.stub.tick(0.05)
-    assert g.ns.Plates.measurable is True
-
-
 # ---------------------------------------------------------------- Kills end to end
 
 
@@ -412,7 +371,7 @@ def test_tier1_kill_with_plate_hidden_target_frame_uses_estimate(env):
     assert (b["x"], b["y"]) == (pytest.approx(960), pytest.approx(1080 * 0.58))
     assert (b["ex"], b["ey"]) == (b["x"], b["y"]) and OWN(g, b["plate"], plate)
     assert b["n"] == 14 and b["kind"] == "kill" and b["nPurple"] == 0
-    assert g.has_log("origin=estimate plate=yes probe=false est=default w=0.00")
+    assert g.has_log("origin=estimate plate=yes est=default w=0.00")
 
 
 def test_tier1_kill_with_plate_visible_target_frame_still_uses_estimate(env):
@@ -422,7 +381,7 @@ def test_tier1_kill_with_plate_visible_target_frame_still_uses_estimate(env):
     plate = kill_with_secret_pos_plate(g)
     (b,) = g.bursts()
     assert (b["x"], b["y"]) == (pytest.approx(960), pytest.approx(1080 * 0.58)) and OWN(g, b["plate"], plate)
-    assert g.has_log("origin=estimate plate=yes probe=false est=default w=0.00")
+    assert g.has_log("origin=estimate plate=yes est=default w=0.00")
 
 
 def test_kill_real_orbs_pop_and_stream_end_to_end(env):
@@ -477,13 +436,6 @@ def test_corpse_pop_off_passes_no_plate(env):
     kill_with_secret_pos_plate(g)
     (b,) = g.bursts()
     assert b["plate"] is None and g.has_log("plate=no")
-
-
-def test_probe_mode_logs_only(env):
-    g = make(env, probe=True)
-    g.fake_orbs_on()
-    kill_with_secret_pos_plate(g)
-    assert g.bursts() == [] and g.has_log("plate=yes probe=true")
 
 
 def test_disabled_suppresses_bursts(env):
@@ -752,7 +704,7 @@ def test_crossfade_style_from_db_and_kills_pass_plate(env):
     g.stub.setTargetFrame(250, 900)
     kill_with_secret_pos_plate(g)
     assert len(pop_frames(g)) == 1
-    assert g.has_log("plate=yes probe=false")
+    assert g.has_log("plate=yes")
     assert g.has_log("origin=estimate plate=yes")  # v0.11: crossfade flies from P-hat, so the log says so
     for _ in range(60):
         g.tick(0.05)

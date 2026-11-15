@@ -862,6 +862,12 @@ function Orbs:PopInfo()
     return nPops, popsCreated, POP_FRAMES
 end
 
+-- freePop, popFramesCreated, popsAlive, crossfadeFramesAlive: pool bookkeeping (idle = freePop == popFramesCreated and
+-- the other two 0; a released frame always has refs 0).
+function Orbs:PoolInfo()
+    return #freePop, popsCreated, nPops, nXf
+end
+
 -- Stream origin for /xporbs test. popstream follows the kill rule (Target:StreamOrigin: the estimate P-hat, the
 -- portrait only without one); otherwise target frame, else the cursor, else the screen centre. Returns x, y, label.
 local function testOrigin(popstream, ex, ey)

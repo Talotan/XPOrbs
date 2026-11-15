@@ -1,7 +1,7 @@
 local ADDON, ns = ...
 
 -- Kill pipeline: wires UNIT_DIED / plate removal / chat XP / XP deltas into one KillMatcher and turns its bursts into
--- ns.Orbs:Burst calls. With db.probe on bursts are only logged (default off since M4). Never throws.
+-- ns.Orbs:Burst calls. Deaths carry no position (plates can't be measured); the origin is estimated. Never throws.
 
 local Kills = {}
 ns.Kills = Kills
@@ -39,11 +39,6 @@ local lastOtherChat -- { amount, rested, t } most recent non-kill chat XP with a
 
 local function log(...)
     ns:Log(...)
-end
-
-local function isProbe()
-    local db = ns.db
-    return db == nil or db.probe
 end
 
 local function num(v)
@@ -167,7 +162,6 @@ local function chooseOrigin(b, ex, ey)
 end
 
 local function emitBurst(b)
-    local hadXY = b.x ~= nil and b.y ~= nil
     local db = ns.db
     local ex, ey, est, wm
     if b.kind == "kill" then
@@ -189,16 +183,14 @@ local function emitBurst(b)
     end
     b.rested = restedAmt
     local x, y, origin = chooseOrigin(b, ex, ey)
-    local probe = isProbe()
     local plate
     if b.kind == "kill" and db.style ~= "stream" then
         plate = b.plate or ns.Target:TargetPlate()
     end
-    ns:Log("BURST tier=%d kind=%s amount=%s rested=%s hadXY=%s origin=%s plate=%s probe=%s est=%s w=%.2f restedSrc=%s",
-        b.tier,
-        tostring(b.kind), tostring(b.amount), tostring(b.rested), tostring(hadXY), origin, plate and "yes" or "no",
-        tostring(probe), est or "none", wm or 0, restedSrc)
-    if probe or not db.enabled or x == nil then
+    ns:Log("BURST tier=%d kind=%s amount=%s rested=%s origin=%s plate=%s est=%s w=%.2f restedSrc=%s", b.tier,
+        tostring(b.kind), tostring(b.amount), tostring(b.rested), origin, plate and "yes" or "no", est or "none",
+        wm or 0, restedSrc)
+    if not db.enabled or x == nil then
         return
     end
     if b.kind ~= "kill" and not db.questBursts then
@@ -271,10 +263,7 @@ end
 
 local function addDeath(entry, tier, guid)
     entry.deathAdded = true
-    local hasPos = type(entry.x) == "number" and type(entry.y) == "number"
     matcher:AddDeath({
-        x = hasPos and entry.x or nil,
-        y = hasPos and entry.y or nil,
         tier = tier,
         name = entry.name,
         plate = entry.plate,
@@ -324,9 +313,6 @@ function handlers.UNIT_DIED(guid)
     if entry.deathAdded then
         ns:Log("UNIT_DIED duplicate for an entry that already has a death; ignored")
         return
-    end
-    if not entry.held then
-        Plates:Sample(entry)
     end
     addDeath(entry, 1, guid)
 end
@@ -440,7 +426,7 @@ Plates.onRemoved = function(entry)
     end
     if entry.deadAtRemoval and not entry.deathAdded then
         addDeath(entry, 2)
-        ns:Log("DEATH tier=2 hadPos=%s", tostring(type(entry.x) == "number"))
+        ns:Log("DEATH tier=2")
     end
 end
 
@@ -469,7 +455,7 @@ exhCur = select(2, readExh())
 
 table.insert(ns.statusProviders, function()
     local s = matcher:Stats()
-    return string.format("kills: tier1=%d tier2=%d tier3=%d tier4=%d dropped=%d other=%d probe=%s UNIT_DIED=%s poll=%s",
-        s.tier1, s.tier2, s.tier3, s.tier4, s.dropped, s.other, isProbe() and "on" or "off",
-        unitDiedRegistered and "yes" or "no", Kills:PollActive() and "active" or "idle")
+    return string.format("kills: tier1=%d tier2=%d tier3=%d tier4=%d dropped=%d other=%d UNIT_DIED=%s poll=%s",
+        s.tier1, s.tier2, s.tier3, s.tier4, s.dropped, s.other, unitDiedRegistered and "yes" or "no",
+        Kills:PollActive() and "active" or "idle")
 end)

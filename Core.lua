@@ -21,7 +21,6 @@ ns.defaults = {
     glowIntensity = 100, -- arrival flash strength in percent (25-200): scales its alpha and, a little, its size
     glowOffsetX = 0, -- UIParent px added to the landing point (where orbs aim and the glow is drawn)
     glowOffsetY = 0,
-    probe = false, -- true: log kill bursts instead of drawing them
 }
 
 -- Modules add lines to /xporbs status by appending functions that return a string (or nil).
@@ -58,7 +57,7 @@ local function sameColour(c, ref)
 end
 
 -- v2: new default colours. Only colours still equal to the old defaults are replaced (deepFill re-adds them).
--- v3: kills go live (probe off).
+-- v3: kills go live; the probe-only mode is gone (v0.17 also drops a stored `probe` key at every load).
 -- v4: the stream origin is always the target frame (then the screen centre); the origin option is gone.
 -- v0.13 added classColor / glow / glowShape and v0.14 added glowIntensity / glowOffsetX / glowOffsetY: no schema bump,
 -- deepFill adds the missing keys (a stored false or an existing value is never overwritten, a missing key gets the
@@ -73,9 +72,7 @@ local function migrate(db)
             db.restedColor = nil
         end
     end
-    if v < 3 then
-        db.probe = false
-    end
+    db.probe = nil -- removed in v0.17; harmless if left behind, but there is nothing to read it
     if v < 4 then
         db.origin = nil
         db.corpsePop = nil
@@ -117,10 +114,6 @@ local function say(msg)
     DEFAULT_CHAT_FRAME:AddMessage("|cff59a6ffXPOrbs|r: " .. msg)
 end
 ns.Print = say
-
-local function notYet(name)
-    say(name .. ": not yet implemented")
-end
 
 -- Modules replace entries here (e.g. ns.commands.test = function(arg) ... end) instead of editing Core.lua.
 local commands = {}
@@ -177,11 +170,7 @@ function commands.status()
     end
 end
 
-function commands.test()
-    notYet("test")
-end
-
--- /xporbs pick and /xporbs options are defined by Target.lua and Options.lua.
+-- /xporbs test, style, pop, pick and options are defined by Orbs.lua, Target.lua and Options.lua.
 
 -- Restore every setting to its default. The schema version, the debug flag and the log are kept.
 function commands.reset()

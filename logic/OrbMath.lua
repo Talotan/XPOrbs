@@ -67,35 +67,6 @@ function OrbMath.RestedFallback(amount, chatRested, exhDrop, exhNow)
     return nil, "none"
 end
 
--- Quadratic Bezier point at t.
-function OrbMath.Bezier(t, x0, y0, cx, cy, x1, y1)
-    local u = 1 - t
-    local a, b, c = u * u, 2 * u * t, t * t
-    return a * x0 + b * cx + c * x1, a * y0 + b * cy + c * y1
-end
-
--- Cubic ease in/out, t clamped to [0, 1].
-function OrbMath.EaseInOut(t)
-    t = clamp(t, 0, 1)
-    if t < 0.5 then
-        return 4 * t * t * t
-    end
-    local v = -2 * t + 2
-    return 1 - v * v * v / 2
-end
-
--- Control point: midpoint + perpendicular jitter ((rand() - 0.5) * 0.6 * dist) + upward lift (0.25 * dist).
-function OrbMath.ControlPoint(x0, y0, x1, y1, rand)
-    local mx, my = (x0 + x1) / 2, (y0 + y1) / 2
-    local dx, dy = x1 - x0, y1 - y0
-    local dist = sqrt(dx * dx + dy * dy)
-    if dist == 0 then
-        return mx, my
-    end
-    local off = (rand() - 0.5) * 0.6 * dist
-    return mx + (-dy / dist) * off, my + (dx / dist) * off + 0.25 * dist
-end
-
 -- Pop control point for orb i of n: stratified angle, radius 45..100, pushed out 2.2x and biased upward (y is up).
 -- Optional spread scales the radius (default 1) and lift is the upward bias (default 0.35); the stream that follows a
 -- corpse pop uses a tight spread and little lift. Returns c1x, c1y, R.

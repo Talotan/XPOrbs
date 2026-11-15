@@ -301,7 +301,7 @@ def test_kill_uses_estimate_when_mouseover_confident(env):
         and b["est"] == "mouseover"
         and b["estW"] == 1
     )
-    assert g.has_log("origin=estimate plate=yes probe=false est=mouseover w=1.00")
+    assert g.has_log("origin=estimate plate=yes est=mouseover w=1.00")
 
 
 def test_kill_uses_estimate_even_when_not_confident_and_frame_visible(env):
@@ -312,7 +312,7 @@ def test_kill_uses_estimate_even_when_not_confident_and_frame_visible(env):
     (b,) = g.bursts()
     assert (b["x"], b["y"]) == (b["ex"], b["ey"]) and b["x"] != 250
     assert b["estW"] == pytest.approx(0.5)
-    assert g.has_log("origin=estimate plate=yes probe=false est=mouseover w=0.50")
+    assert g.has_log("origin=estimate plate=yes est=mouseover w=0.50")
 
 
 def test_kill_uses_estimate_when_target_frame_hidden(env):
@@ -322,7 +322,7 @@ def test_kill_uses_estimate_when_target_frame_hidden(env):
     kill_after_hover(g, 1.85)  # w_m = 0.5
     (b,) = g.bursts()
     assert (b["x"], b["y"]) == (b["ex"], b["ey"]) and b["x"] != 250
-    assert g.has_log("origin=estimate plate=yes probe=false est=mouseover w=0.50")
+    assert g.has_log("origin=estimate plate=yes est=mouseover w=0.50")
 
 
 def test_other_xp_keeps_centre_origin_and_no_estimate(env):

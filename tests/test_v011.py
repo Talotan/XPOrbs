@@ -56,7 +56,7 @@ def test_popstream_uses_estimate_even_with_target_frame_visible(env):
     kill_with_secret_pos_plate(g)
     (b,) = g.bursts()
     assert (b["x"], b["y"]) == (pytest.approx(DEF_X), pytest.approx(DEF_Y))
-    assert g.has_log("origin=estimate plate=yes probe=false est=default w=0.00")
+    assert g.has_log("origin=estimate plate=yes est=default w=0.00")
 
 
 def test_popstream_real_stream_starts_at_the_estimate_not_the_portrait(env):
@@ -307,23 +307,6 @@ def test_arrival_flash_is_tinted_towards_white(env):
 
 
 # ---------------------------------------------------------------- logs
-
-
-def test_plate_removal_logs_no_geom_line(env):
-    g = make(env)
-    g.fake_orbs_on()
-    g.plate(guid="G1", name="Boar", cx=700, cy=400)
-    g.tick(0.05)
-    g.stub.removePlate("nameplate1", True)
-    g.tick(0.1)
-    assert g.has_log("PLATE_REMOVED")
-    assert not [line for line in g.log() if "GEOM okA=" in line]
-
-
-def test_geom_counters_still_feed_status(env):
-    g = make(env)
-    g.slash("status")
-    assert any("geom: okA=" in line for line in chat_lines(g))
 
 
 def test_burst_log_says_plate_not_pop(env):
