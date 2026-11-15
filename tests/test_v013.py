@@ -353,7 +353,7 @@ def test_the_title_is_fixed_and_the_footer_buttons_are_on_the_panel(m):
         160,
         22,
     )
-    assert "XPOrbs" in panel_texts(m)
+    assert "XP Orbs" in panel_texts(m)
 
 
 def test_label_rename(m):

@@ -584,7 +584,7 @@ end
 local function build()
     local panel = CreateFrame("Frame")
     Options.panel = panel
-    text(panel, "GameFontNormalLarge", "XPOrbs", 16, -16)
+    text(panel, "GameFontNormalLarge", "XP Orbs", 16, -16)
     local top = panel:CreateTexture(nil, "ARTWORK")
     top:SetPoint("TOPLEFT", panel, "TOPLEFT", HEADER_X, -38)
     top:SetSize(RULE_W, 1)
@@ -816,7 +816,7 @@ Options.POPUP = POPUP
 if Settings and Settings.RegisterCanvasLayoutCategory and Settings.RegisterAddOnCategory then
     local ok, err = pcall(function()
         local panel = build()
-        Options.category = Settings.RegisterCanvasLayoutCategory(panel, "XPOrbs")
+        Options.category = Settings.RegisterCanvasLayoutCategory(panel, "XP Orbs")
         Settings.RegisterAddOnCategory(Options.category)
     end)
     if not ok then
@@ -834,7 +834,7 @@ function ns.commands.options()
         Settings.OpenToCategory(Options.category:GetID())
     end)
     if not ok then
-        ns.Print("options: couldn't open the settings panel; try Esc > Options > AddOns > XPOrbs")
+        ns.Print("options: couldn't open the settings panel; try Esc > Options > AddOns > XP Orbs")
     end
 end
 

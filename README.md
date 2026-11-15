@@ -1,4 +1,4 @@
-# XPOrbs
+# XP Orbs
 
 [![License](https://img.shields.io/github/license/Talotan/XPOrbs)](LICENSE)
 [![Latest release](https://img.shields.io/github/v/release/Talotan/XPOrbs)](https://github.com/Talotan/XPOrbs/releases)
@@ -6,8 +6,7 @@
 A World of Warcraft addon for the Forever client. When you gain experience, a burst of orbs flies to your XP bar. For a
 kill the burst starts at the mob, and rested experience is drawn in a second colour.
 
-![Orbs flying from a kill to the XP bar](docs/images/hero.gif)
-<!-- TODO: capture in game -->
+<!-- hero: ![Orbs flying from a kill to the XP bar](docs/images/hero.gif) (add once captured) -->
 
 The number of orbs grows with the share of the current level that the gain gave, so a big kill looks bigger than a
 trivial one.
@@ -23,13 +22,13 @@ trivial one.
 
 ### CurseForge
 
-Open the CurseForge app, choose the WoW Forever flavor (instance), and search for XPOrbs. Some users had to reinstall
+Open the CurseForge app, choose the WoW Forever flavor (instance), and search for XP Orbs. Some users had to reinstall
 the CurseForge app before the Forever flavor appeared.
 <!-- TODO: link to CurseForge page -->
 
 ### Wago
 
-Open the Wago app, choose WoW Forever, and search for XPOrbs.
+Open the Wago app, choose WoW Forever, and search for XP Orbs.
 <!-- TODO: link to Wago page -->
 
 ### Manual
@@ -41,11 +40,10 @@ Open the Wago app, choose WoW Forever, and search for XPOrbs.
 
 ## Usage
 
-Settings are saved per account in `XPOrbsDB`. The options panel is under Esc > Options > AddOns > XPOrbs, or
+Settings are saved per account in `XPOrbsDB`. The options panel is under Esc > Options > AddOns > XP Orbs, or
 `/xporbs options`.
 
-![Options panel](docs/images/options.png)
-<!-- TODO: capture in game -->
+![The XP Orbs options panel](docs/images/options.png)
 
 | Command | What it does |
 |---|---|
@@ -100,7 +98,7 @@ orbs = round((3 + 5 * sqrt(pct)) * quantity / 100), clamped to 1 .. maximum
 ### Where orbs start
 
 Nameplates are restricted regions on this client. An addon cannot read their position or size, and a frame anchored
-to a plate cannot also be anchored to anything else. XPOrbs therefore never measures a plate, and it works around the
+to a plate cannot also be anchored to anything else. XP Orbs therefore never measures a plate, and it works around the
 restriction in two ways.
 
 - It draws a short burst on a tiny frame that is anchored to the plate and nothing else. Because the frame follows the
@@ -228,5 +226,5 @@ New-Item -ItemType Junction -Path "<WoW>\_forever_\Interface\AddOns\XPOrbs" -Tar
 
 ## License
 
-Copyright (C) 2026 Talotan. XPOrbs is free software under the GNU General Public License v3.0 or later; see
+Copyright (C) 2026 Talotan. XP Orbs is free software under the GNU General Public License v3.0 or later; see
 [LICENSE](LICENSE).

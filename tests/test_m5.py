@@ -79,7 +79,7 @@ def panel_texts(m5):
 def test_panel_registers_a_canvas_category(m5):
     reg, added = m5.stub.settings.registered, m5.stub.settings.added
     assert len(reg) == 1 and len(added) == 1
-    assert reg[1].name == "XPOrbs" and m5.lua.eval("rawequal")(added[1], reg[1])
+    assert reg[1].name == "XP Orbs" and m5.lua.eval("rawequal")(added[1], reg[1])
     assert m5.lua.eval("rawequal")(m5.opt.panel, reg[1].frame)
     for key in ("enabled", "restedTint", "trail", "questBursts", "showAtMax", "debug"):
         assert ctl(m5, key).template == "UICheckButtonTemplate"

@@ -1,5 +1,5 @@
 ## Interface: 16001
-## Title: XPOrbs
+## Title: XP Orbs
 ## Notes: Blue orbs fly from a killed mob to your XP bar, scaled to the XP gained.
 ## Author: Talotan
 ## X-License: GPL-3.0-or-later
