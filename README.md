@@ -6,7 +6,7 @@
 A World of Warcraft addon for the Forever client. When you gain experience, a burst of orbs flies to your XP bar. For a
 kill the burst starts at the mob, and rested experience is drawn in a second colour.
 
-<!-- hero: ![Orbs flying from a kill to the XP bar](docs/images/hero.gif) (add once captured) -->
+![Orbs flying from a killed mob to the XP bar](docs/images/hero.gif)
 
 The number of orbs grows with the share of the current level that the gain gave, so a big kill looks bigger than a
 trivial one.
