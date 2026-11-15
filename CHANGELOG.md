@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.10
+- **Cursor-informed mob estimate.** New `logic/MobEstimate.lua` (pure) and `Mouseover.lua` (sampler). While you hover a hostile unit (`UPDATE_MOUSEOVER_UNIT`, plus a 10 Hz poll only while a unit is moused over) the cursor position is remembered per GUID (cap 20, pruned after 5 s). When a mob dies its estimated screen point P-hat blends a fresh sample (+40 px head offset; full weight up to 1 s, linear to 0 at 3 s) with 0.35 cursor + 0.65 default (screen centre x, 0.58 H). No GUID or name is ever logged.
+- **popstream:** pop and stream now read as one effect. Pop 0.55 s, less upward drift (12), ring 30-55 px around a plate anchor 20 px lower, orbs gather then launch (exit phase from p=0.45, 140 px) along the direction from P-hat to the stream origin, stream delay 0.30 s. The stream after a pop is tighter (stagger 0.08, spread x0.45, lift 0.10, fade-in 0.15). Stream origin: P-hat when mouseover confidence is at least 0.7; else the target-frame portrait while that frame is visible; else P-hat (the frame hides on death).
+- **crossfade:** copy A is anchored to the plate BOTTOM; the curve starts at P-hat; the fade window is 0.12-0.30 (was 0.25-0.60).
+- Arrival flash is bigger and brighter (alpha 0.6 + 0.08/arrival, 12x size wide, aspect 7, 0.4 s). Pop orbs slightly bigger (1.2) with a lighter underlay (0.35).
+- `BURST` log line ends with `est=mouseover|cursor|default|none w=0.00`; `/xporbs test` prints `est= w=` and uses its target's estimate. `/xporbs status` has a `mouseover:` line.
+- DB schema unchanged (4).
+- In-game check list: see HANDOFF "NEXT SESSION".
+
 ## 0.9 (in progress)
 - Kill styles (`db.style`, `/xporbs style popstream|crossfade|stream`): **popstream** (default) pops a few orbs at the dead mob's nameplate, then streams from the target frame to the bar; **crossfade** flies the orbs from an estimated mob position, drawing a plate-relative copy that fades into the normal screen-space copy; **stream** is the old behaviour. `/xporbs pop on|off` is an alias.
 - Plates are restricted regions: nothing is ever measured. Pop/crossfade frames have a single anchor (the plate) and everything else is positioned relative to them.

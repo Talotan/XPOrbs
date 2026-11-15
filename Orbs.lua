@@ -24,34 +24,44 @@ local SPARKLE = 1.9
 local SPARKLE_ALPHA = 0.6
 local SPARKLE_WHITE = 0.25 -- sparkle tint = lerp(colour, white, this)
 local STAGGER = 0.15 -- max start delay
+local STAGGER_POP = 0.08 -- ... when the stream follows a corpse pop (it reads as one continuous effect)
 local RESTED_DELAY = 0.12 -- extra start delay for rested orbs
 local RESTED_SIZE = 1.15
 local START_RADIUS = 6
 local SHRINK_FROM = 0.8 -- shrink to 60% over the last 20% of the flight
 local FADE_IN = 0.1
+local FADE_IN_POP = 0.15 -- ... after a pop
+-- PopControl radius multiplier / upward bias for the stream after a pop (defaults 1 / 0.35)
+local POP_STREAM_SPREAD, POP_STREAM_LIFT = 0.45, 0.10
 local GHOST_STEP = 0.015 -- in p, before easing
 local GHOST1_ALPHA, GHOST1_SIZE = 0.55, 0.85
 local GHOST2_ALPHA, GHOST2_SIZE = 0.30, 0.70
 local UNDER_R, UNDER_G, UNDER_B = 0.02, 0.08, 0.30 -- dark underlay so bright orbs keep their hue
 local UNDER_ALPHA, UNDER_SIZE = 0.45, 1.25
-local FLASH_TIME = 0.3
+local FLASH_TIME = 0.4
+local FLASH_ALPHA, FLASH_STEP = 0.6, 0.08 -- arrival flash base alpha, added per recent arrival
+local FLASH_W, FLASH_ASPECT = 12, 7 -- width = size * FLASH_W, height = width / FLASH_ASPECT
 -- Corpse pop (a burst of orbs at the dead mob's nameplate, drawn relative to a tiny frame anchored ONLY to the plate).
 local POP_MAX = 12 -- orbs per pop
 local POP_FRAMES = 8 -- concurrent pops (one pooled frame each)
-local POP_TIME = 0.45
-local POP_Y = 0 -- offset of the pop frame from the plate centre
-local POP_R_MIN, POP_R_MAX = 30, 70 -- final radius
-local POP_DRIFT = 40 -- extra upward drift, px
-local POP_SIZE = 1.1 -- start size multiplier
-local POP_SHRINK_FROM = 0.5 -- size shrinks to 0 over p in [0.5, 1]
-local POP_FADE_FROM = 0.6 -- alpha 1 -> 0 over p in [0.6, 1]
+local POP_TIME = 0.55
+local POP_Y = -20 -- offset of the pop frame from the plate centre (between the name and the head)
+local POP_R_MIN, POP_R_MAX = 30, 55 -- final radius
+local POP_DRIFT = 12 -- extra upward drift, px
+local POP_SIZE = 1.2 -- start size multiplier
+local POP_UNDER_ALPHA = 0.35 -- underlay alpha of pop orbs (smudges on mid-tone grass at 0.45)
+local POP_SHRINK_FROM = 0.75 -- size shrinks to 0 over p in [0.75, 1]
+local POP_FADE_FROM = 0.7 -- alpha 1 -> 0 over p in [0.7, 1]
+local POP_EXIT_FROM = 0.45 -- from here the pop orbs launch along the exit vector towards the stream
+local POP_EXIT_DIST = 140 -- px travelled at p = 1 (grows with q^2)
+local POP_GATHER = 0.5 -- the radial offset shrinks by this fraction at p = 1 (gather, then launch)
 local POP_FADE_OUT = 0.1 -- seconds a pop fades when its plate is reused for another unit
-local STREAM_DELAY = 0.12 -- extra start delay of the stream when a pop happened, so the pop reads first
--- Crossfade style: orbs fly from an ESTIMATED mob position (plates can't be measured). Copy A is drawn relative to
--- the plate (exact if the estimate is right), copy B in screen space; A fades out and B fades in over
+local STREAM_DELAY = 0.30 -- extra start delay of the stream when a pop happened, so the pop reads first
+-- Crossfade style: orbs fly from an ESTIMATED mob position P-hat (plates can't be measured; see logic/MobEstimate.lua,
+-- which owns the default point). Copy A is drawn relative to the plate's BOTTOM (exact if the estimate is right),
+-- copy B in screen space; A fades out and B fades in over
 -- p in [XF_START, XF_END].
-local ASSUMED_MOB_Y = 0.58 -- estimated mob height as a fraction of screen height (target plates sat at 0.55-0.62)
-local XF_START, XF_END = 0.25, 0.60
+local XF_START, XF_END = 0.12, 0.30
 
 local overlay, driver, flash
 local freeTex, texCreated, texInUse = {}, 0, 0
@@ -238,7 +248,8 @@ local function drawOrb(o, p, dx, dy)
     if p > SHRINK_FROM then
         s = s * (1 - 0.4 * (p - SHRINK_FROM) / (1 - SHRINK_FROM))
     end
-    local a = p < FADE_IN and p / FADE_IN or 1
+    local fi = o.fadeIn
+    local a = p < fi and p / fi or 1
     local g = o.g
     if g then
         local w = smoothstep(p) -- weight of the screen-space copy B
@@ -305,7 +316,7 @@ function releasePop(g)
 end
 
 -- Fills g for m orbs (rested: the first nP). Anchors g.f to the plate with a single point. Errors propagate (pcall'd).
-local function setupPop(g, plate, m, scale, nP, rc, bc)
+local function setupPop(g, plate, m, scale, nP, rc, bc, ux, uy)
     local d = ns.db
     local f, tex = g.f, g.tex
     f:ClearAllPoints()
@@ -349,6 +360,7 @@ local function setupPop(g, plate, m, scale, nP, rc, bc)
     end
     g.used = m * 3
     g.n = m
+    g.ux, g.uy = ux, uy
 end
 
 -- Takes a pooled pop frame (or creates one under the POP_FRAMES cap). nil when none is free.
@@ -369,7 +381,7 @@ local function takePopFrame()
 end
 
 -- Returns true when a pop was started. Never throws; every failure just means "no pop".
-local function startPop(plate, n, scale, nPurple)
+local function startPop(plate, n, scale, nPurple, ux, uy)
     if type(plate) ~= "table" or not readable(plate) then
         return false
     end
@@ -380,7 +392,7 @@ local function startPop(plate, n, scale, nPurple)
     local d = ns.db
     local m = min(n, POP_MAX)
     local nP = nPurple > 0 and floor(nPurple * m / n + 0.5) or 0
-    local ok, err = pcall(setupPop, g, plate, m, scale, nP, d.restedColor, d.color)
+    local ok, err = pcall(setupPop, g, plate, m, scale, nP, d.restedColor, d.color, ux, uy)
     if not ok then
         if not popErrSeen then
             popErrSeen = true
@@ -395,7 +407,7 @@ local function startPop(plate, n, scale, nPurple)
     return true
 end
 
--- Crossfade: a pop frame anchored to the plate that will carry copy A of every orb. Returns the frame or nil.
+-- Crossfade: a pop frame anchored to the plate's BOTTOM that will carry copy A of every orb. Returns the frame or nil.
 local function startXf(plate)
     if type(plate) ~= "table" or not readable(plate) then
         return nil
@@ -407,7 +419,7 @@ local function startXf(plate)
     local f = g.f
     local ok, err = pcall(function()
         f:ClearAllPoints()
-        f:SetPoint("CENTER", plate, "CENTER", 0, 0)
+        f:SetPoint("CENTER", plate, "BOTTOM", 0, 0)
         f:Show()
     end)
     if not ok then
@@ -479,13 +491,18 @@ local function drawPop(g)
     if g.fading then
         a = a * (1 - g.fadeEl / POP_FADE_OUT)
     end
+    local q = p > POP_EXIT_FROM and (p - POP_EXIT_FROM) / (1 - POP_EXIT_FROM) or 0
+    local gather = 1 - POP_GATHER * q
+    local exit = POP_EXIT_DIST * q * q
+    local exx, exy = g.ux * exit, g.uy * exit
     local f, tex = g.f, g.tex
     local spin = TWO_PI * g.el
     for i = 1, g.n do
-        local ox, oy = g.dx[i] * e, g.dy[i] * e + g.drift[i] * e
+        local ox = g.dx[i] * e * gather + exx
+        local oy = (g.dy[i] + g.drift[i]) * e * gather + exy
         local s = g.size[i] * GLOW * POP_SIZE * sc
         local k = (i - 1) * 3
-        placeRel(tex[k + 1], f, ox, oy, s * UNDER_SIZE, a * UNDER_ALPHA)
+        placeRel(tex[k + 1], f, ox, oy, s * UNDER_SIZE, a * POP_UNDER_ALPHA)
         placeRel(tex[k + 2], f, ox, oy, s, a)
         local sp = tex[k + 3]
         placeRel(sp, f, ox, oy, s * SPARKLE, a * SPARKLE_ALPHA)
@@ -572,12 +589,12 @@ local function onUpdate(self, dt)
             flash:Hide()
         else
             local c = flashRested and ns.db.restedColor or ns.db.color
-            local a = min(1, 0.35 + 0.05 * arrivedRecently) * (1 - flashAge / FLASH_TIME)
-            local w = ns.db.size * 8
+            local a = min(1, FLASH_ALPHA + FLASH_STEP * arrivedRecently) * (1 - flashAge / FLASH_TIME)
+            local w = ns.db.size * FLASH_W
             flash:SetVertexColor(c[1], c[2], c[3])
             flash:ClearAllPoints()
             flash:SetPoint("CENTER", overlay, "BOTTOMLEFT", dx, dy)
-            flash:SetSize(w, w / 4)
+            flash:SetSize(w, w / FLASH_ASPECT)
             flash:SetAlpha(a)
             flash:Show()
         end
@@ -601,7 +618,9 @@ local function styleOf(v)
 end
 
 -- Burst{ x=, y= (stream origin, UIParent coords; nil -> screen centre), n=, scale= (default 1), nPurple= (default 0),
--- kind=, plate= (optional nameplate of the dead mob), style= (optional override of db.style) }. n < 1 is a no-op.
+-- kind=, plate= (optional nameplate of the dead mob), style= (optional override of db.style),
+-- ex=, ey= (P-hat, the estimated mob position in UIParent coords; default = MobEstimate.Default), est=, estW= (source
+-- label and mouseover weight, informational) }. n < 1 is a no-op.
 -- Returns "pop+stream" | "crossfade" | "stream".
 function Orbs:Burst(p)
     if type(p) ~= "table" or type(p.n) ~= "number" or p.n < 1 then
@@ -624,22 +643,32 @@ function Orbs:Burst(p)
     if type(x) ~= "number" or type(y) ~= "number" then
         x, y = UIParent:GetWidth() / 2, UIParent:GetHeight() * 0.65
     end
+    local dx, dy = Target:GetDestination()
+    -- P-hat: our best guess of where the mob is on screen (Kills passes the mouseover/cursor estimate)
+    local px, py = p.ex, p.ey
+    if type(px) ~= "number" or type(py) ~= "number" then
+        px, py = ns.MobEstimate.Default(UIParent:GetWidth(), UIParent:GetHeight())
+    end
     local popped, xg = false, nil
     if p.plate ~= nil and style == "popstream" then
-        popped = startPop(p.plate, n, scale, nPurple)
+        local ux, uy = OrbMath.ExitVector(x, y, px, py, dx, dy)
+        popped = startPop(p.plate, n, scale, nPurple, ux, uy)
     elseif p.plate ~= nil and style == "crossfade" then
         xg = startXf(p.plate)
     end
-    local px, py
     if xg then
-        px, py = UIParent:GetWidth() * 0.5, UIParent:GetHeight() * ASSUMED_MOB_Y
         x, y = px, py
     end
-    local dx, dy = Target:GetDestination()
     local trail = d.trail
     local need = trail and 1 + EXTRAS or 3 -- orb + underlay + sparkle (+ 2 ghosts)
     local limit = ceiling() - 1 -- the arrival flash holds one slot
     local extra = popped and STREAM_DELAY or 0
+    local stagger = popped and STAGGER_POP or STAGGER
+    local spread, lift = nil, nil -- PopControl defaults
+    if popped then
+        spread, lift = POP_STREAM_SPREAD, POP_STREAM_LIFT
+    end
+    local fadeIn = popped and FADE_IN_POP or FADE_IN
     local xfCount = 0
 
     for i = 1, n do
@@ -652,12 +681,13 @@ function Orbs:Burst(p)
         local o = newRec()
         local ang, rad = random() * TWO_PI, START_RADIUS * sqrt(random())
         o.x0, o.y0 = x + cos(ang) * rad, y + sin(ang) * rad
-        o.c1x, o.c1y = OrbMath.PopControl(i, n, o.x0, o.y0, random)
+        o.c1x, o.c1y = OrbMath.PopControl(i, n, o.x0, o.y0, random, spread, lift)
         local ddx, ddy = dx - o.x0, dy - o.y0
         o.dist0 = sqrt(ddx * ddx + ddy * ddy)
-        o.delay = random() * STAGGER + (rested and RESTED_DELAY or 0) + extra
+        o.delay = random() * stagger + (rested and RESTED_DELAY or 0) + extra
         o.dur = d.flightTime * (0.85 + random() * 0.3)
         o.el = 0
+        o.fadeIn = fadeIn
         o.rested = rested
         o.size = d.size * scale * (rested and RESTED_SIZE or 1)
         o.rot0 = random() * TWO_PI
@@ -723,8 +753,15 @@ function Orbs:PopInfo()
     return nPops, popsCreated, POP_FRAMES
 end
 
--- Stream origin for /xporbs test: target frame, else the cursor, else the screen centre. Returns x, y, label.
-local function testOrigin()
+-- Stream origin for /xporbs test. popstream follows the kill rule (Target:StreamOrigin, so a hovered target starts the
+-- stream at the estimate); otherwise target frame, else the cursor, else the screen centre. Returns x, y, label.
+local function testOrigin(popstream, wm, ex, ey)
+    if popstream then
+        local sx, sy, sl = Target:StreamOrigin(wm, ex, ey)
+        if sx then
+            return sx, sy, sl
+        end
+    end
     local fx, fy = Target:TargetFrameOrigin()
     if fx then
         return fx, fy, "targetframe"
@@ -764,7 +801,14 @@ function ns.commands.test(arg)
         local _
         _, nPurple = OrbMath.RestedSplit(n, gain, gain / 2)
     end
-    local x, y, label = testOrigin()
+    -- the target's estimate (its GUID, when readable, finds a mouseover sample); no target = a keyboard-style estimate
+    local guid
+    local okg, tg = pcall(UnitGUID, "target")
+    if okg and readable(tg) and type(tg) == "string" then
+        guid = tg
+    end
+    local ex, ey, est, estW = ns.Mouseover:Estimate(guid)
+    local x, y, label = testOrigin(styleOf(force or d.style) == "popstream", estW, ex, ey)
     local mode = Orbs:Burst({
         x = x,
         y = y,
@@ -774,13 +818,18 @@ function ns.commands.test(arg)
         nPurple = nPurple,
         kind = "test",
         style = force,
+        ex = ex,
+        ey = ey,
+        est = est,
+        estW = estW,
     })
     local used = mode == "pop+stream" and "popstream" or mode
     if mode == "crossfade" then
         label = "estimated"
     end
-    ns.Print(string.format("test: %g%% of a level -> %d orbs (%d purple), scale %.2f, pop=%s stream=%s style=%s", pct,
-        n, nPurple, scale, mode == "pop+stream" and "yes" or "no", label, used))
+    ns.Print(string.format("test: %g%% of a level -> %d orbs (%d purple), scale %.2f, est=%s w=%.2f pop=%s stream=%s"
+        .. " style=%s", pct, n, nPurple, scale, est or "none", estW or 0, mode == "pop+stream" and "yes" or "no",
+        label, used))
 end
 
 -- /xporbs style popstream|crossfade|stream  (/xporbs pop on|off = alias for popstream|stream)

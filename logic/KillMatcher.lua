@@ -25,7 +25,7 @@ function KillMatcher.New(cfg)
     return self
 end
 
--- d = { x, y, tier, name|nil, plate|nil }
+-- d = { x, y, tier, name|nil, plate|nil, guid|nil }; guid is opaque (passed through to the burst, never logged)
 function KillMatcher:AddDeath(d)
     self.deaths[#self.deaths + 1] = {
         x = d.x,
@@ -33,6 +33,7 @@ function KillMatcher:AddDeath(d)
         tier = d.tier or 1,
         name = d.name,
         plate = d.plate,
+        guid = d.guid,
         t = self.cfg.now(),
     }
 end
@@ -101,7 +102,7 @@ local function findDeath(deaths, mob)
     return nil
 end
 
--- Returns a list of bursts { x|nil, y|nil, amount, rested, tier, kind = "kill"|"other" }.
+-- Returns a list of bursts { x|nil, y|nil, plate|nil, guid|nil, amount, rested, tier, kind = "kill"|"other" }.
 function KillMatcher:Poll()
     local cfg, now, out = self.cfg, self.cfg.now(), {}
     self:_claim()
@@ -117,6 +118,7 @@ function KillMatcher:Poll()
                 x = d.x,
                 y = d.y,
                 plate = d.plate,
+                guid = d.guid,
                 amount = k.amount,
                 rested = k.rested,
                 tier = d.tier,

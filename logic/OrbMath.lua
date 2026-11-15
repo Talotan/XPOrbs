@@ -74,11 +74,32 @@ function OrbMath.ControlPoint(x0, y0, x1, y1, rand)
 end
 
 -- Pop control point for orb i of n: stratified angle, radius 45..100, pushed out 2.2x and biased upward (y is up).
--- Returns c1x, c1y, R.
-function OrbMath.PopControl(i, n, x0, y0, rand)
+-- Optional spread scales the radius (default 1) and lift is the upward bias (default 0.35); the stream that follows a
+-- corpse pop uses a tight spread and little lift. Returns c1x, c1y, R.
+function OrbMath.PopControl(i, n, x0, y0, rand, spread, lift)
+    spread = spread or 1
+    lift = lift or 0.35
     local ang = ((i - 1) + rand() * 0.8) / n * 2 * math.pi
-    local r = 45 + rand() * 55
-    return x0 + math.cos(ang) * r * 2.2, y0 + (0.8 * math.sin(ang) + 0.35) * r * 2.2, r
+    local r = (45 + rand() * 55) * spread
+    return x0 + math.cos(ang) * r * 2.2, y0 + (0.8 * math.sin(ang) + lift) * r * 2.2, r
+end
+
+-- Unit direction the pop orbs exit along: from the estimated pop point (px, py) towards the stream origin (sx, sy).
+-- When those are closer than minDist (default 20) the stream starts at the pop, so use the direction from the pop
+-- towards the destination (tx, ty). Fully degenerate -> straight up (0, 1).
+function OrbMath.ExitVector(sx, sy, px, py, tx, ty, minDist)
+    minDist = minDist or 20
+    local vx, vy = sx - px, sy - py
+    local d = sqrt(vx * vx + vy * vy)
+    if d >= minDist and d > 0 then
+        return vx / d, vy / d
+    end
+    vx, vy = tx - px, ty - py
+    d = sqrt(vx * vx + vy * vy)
+    if d > 1e-6 then
+        return vx / d, vy / d
+    end
+    return 0, 1
 end
 
 -- Second control point of the pop-then-home curve: hugs the destination's x, sits 0.30 * dist0 above it.

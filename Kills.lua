@@ -74,13 +74,22 @@ local function atMaxLevel()
     return false
 end
 
--- Stream origin: the target frame (kept from its last good measurement), else the screen centre. Non-kill XP (quests
--- etc.) always streams from a little below the centre. Returns x, y, label.
-local function chooseOrigin(b)
+-- Stream origin. Non-kill XP (quests etc.) always streams from a little below the centre. Kills: popstream follows
+-- Target:StreamOrigin (the estimate when mouseover-confident or when the target frame is hidden, else the portrait);
+-- the other styles use the target frame (kept from its last good measurement). Fallback: the screen centre.
+-- (ex, ey, wm) = the kill's estimate. Returns x, y, label.
+local function chooseOrigin(b, ex, ey, wm)
     if b.kind == "kill" then
-        local fx, fy = ns.Target:TargetFrameOrigin()
-        if fx then
-            return fx, fy, "targetframe"
+        if ns.db.style == "popstream" then
+            local x, y, label = ns.Target:StreamOrigin(wm, ex, ey)
+            if x then
+                return x, y, label
+            end
+        else
+            local fx, fy = ns.Target:TargetFrameOrigin()
+            if fx then
+                return fx, fy, "targetframe"
+            end
         end
         local cx, cy = screenCentre()
         return cx, cy, "centre"
@@ -91,15 +100,20 @@ end
 
 local function emitBurst(b)
     local hadXY = b.x ~= nil and b.y ~= nil
-    local x, y, origin = chooseOrigin(b)
-    local probe = isProbe()
     local db = ns.db
+    local ex, ey, est, wm
+    if b.kind == "kill" then
+        ex, ey, est, wm = ns.Mouseover:Estimate(b.guid) -- once per burst; b.guid is never logged
+    end
+    local x, y, origin = chooseOrigin(b, ex, ey, wm or 0)
+    local probe = isProbe()
     local plate
     if b.kind == "kill" and db.style ~= "stream" then
         plate = b.plate or ns.Target:TargetPlate()
     end
-    ns:Log("BURST tier=%d kind=%s amount=%s rested=%s hadXY=%s origin=%s pop=%s probe=%s", b.tier, tostring(b.kind),
-        tostring(b.amount), tostring(b.rested), tostring(hadXY), origin, plate and "yes" or "no", tostring(probe))
+    ns:Log("BURST tier=%d kind=%s amount=%s rested=%s hadXY=%s origin=%s pop=%s probe=%s est=%s w=%.2f", b.tier,
+        tostring(b.kind), tostring(b.amount), tostring(b.rested), tostring(hadXY), origin, plate and "yes" or "no",
+        tostring(probe), est or "none", wm or 0)
     if probe or not db.enabled or x == nil then
         return
     end
@@ -130,6 +144,10 @@ local function emitBurst(b)
         scale = scale,
         nPurple = nPurple,
         kind = b.kind,
+        ex = ex,
+        ey = ey,
+        est = est,
+        estW = wm,
     })
     if not ok then
         ns:Log("Orbs:Burst error %s", tostring(err))
@@ -167,7 +185,7 @@ function Kills:PollActive()
     return poller:GetScript("OnUpdate") ~= nil
 end
 
-local function addDeath(entry, tier)
+local function addDeath(entry, tier, guid)
     entry.deathAdded = true
     local hasPos = type(entry.x) == "number" and type(entry.y) == "number"
     matcher:AddDeath({
@@ -176,6 +194,7 @@ local function addDeath(entry, tier)
         tier = tier,
         name = entry.name,
         plate = entry.plate,
+        guid = guid or entry.guid, -- opaque: only used to look up the mouseover estimate, never logged
     })
     ensurePoll()
 end
@@ -225,7 +244,7 @@ function handlers.UNIT_DIED(guid)
     if not entry.held then
         Plates:Sample(entry)
     end
-    addDeath(entry, 1)
+    addDeath(entry, 1, guid)
 end
 
 function handlers.CHAT_MSG_COMBAT_XP_GAIN(msg)

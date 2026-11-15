@@ -63,7 +63,8 @@ function fm:SetParent(p)
 end
 -- Textures made through frame:CreateTexture remember their parent frame (stubs_m2 sets parentFrame).
 
--- A target unit frame whose portrait is centred at (cx, cy). Returns the portrait.
+-- A target unit frame whose portrait is centred at (cx, cy); visible=false hides the frame and its portrait.
+-- Returns the portrait.
 function stub.setTargetFrame(cx, cy, visible)
     local tf = CreateFrame("Frame")
     local portrait = CreateFrame("Frame")
@@ -71,6 +72,7 @@ function stub.setTargetFrame(cx, cy, visible)
     portrait.shown = visible ~= false
     tf.TargetFrameContainer = { Portrait = portrait }
     tf.cx, tf.cy = cx, cy
+    tf.shown = visible ~= false -- TargetFrame:IsVisible() follows the flag (hidden on death)
     _G.TargetFrame = tf
     return portrait
 end
