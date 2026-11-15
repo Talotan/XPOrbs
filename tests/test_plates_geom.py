@@ -101,7 +101,7 @@ def test_kill_from_unmeasurable_plate_gets_proxy_origin(env):
     g.chat()
     g.tick(0.1)
     (b,) = g.bursts()
-    assert (b["x"], b["y"]) == (960, 702)  # plate proxies no longer feed the stream origin
+    assert (b["x"], b["y"]) == (960, 626.4)  # plate proxies no longer feed the stream origin
 
 
 def test_geom_status_line(env):

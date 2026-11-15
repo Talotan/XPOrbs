@@ -74,17 +74,20 @@ local function atMaxLevel()
     return false
 end
 
--- Stream origin. Non-kill XP (quests etc.) always streams from a little below the centre. Kills: popstream follows
--- Target:StreamOrigin (the estimate when mouseover-confident or when the target frame is hidden, else the portrait);
--- the other styles use the target frame (kept from its last good measurement). Fallback: the screen centre.
--- (ex, ey, wm) = the kill's estimate. Returns x, y, label.
-local function chooseOrigin(b, ex, ey, wm)
+-- Stream origin. Non-kill XP (quests etc.) always streams from a little below the centre. Kills: popstream and
+-- crossfade start at the estimate P-hat when there is one (crossfade flies from P-hat, so the label says so); popstream
+-- falls back to the portrait without one; the stream style uses the target frame (kept from its last good
+-- measurement). Fallback: the screen centre. (ex, ey) = the kill's estimate. Returns x, y, label.
+local function chooseOrigin(b, ex, ey)
     if b.kind == "kill" then
-        if ns.db.style == "popstream" then
-            local x, y, label = ns.Target:StreamOrigin(wm, ex, ey)
+        local style = ns.db.style
+        if style == "popstream" then
+            local x, y, label = ns.Target:StreamOrigin(ex, ey)
             if x then
                 return x, y, label
             end
+        elseif style == "crossfade" and type(ex) == "number" and type(ey) == "number" then
+            return ex, ey, "estimate"
         else
             local fx, fy = ns.Target:TargetFrameOrigin()
             if fx then
@@ -105,13 +108,13 @@ local function emitBurst(b)
     if b.kind == "kill" then
         ex, ey, est, wm = ns.Mouseover:Estimate(b.guid) -- once per burst; b.guid is never logged
     end
-    local x, y, origin = chooseOrigin(b, ex, ey, wm or 0)
+    local x, y, origin = chooseOrigin(b, ex, ey)
     local probe = isProbe()
     local plate
     if b.kind == "kill" and db.style ~= "stream" then
         plate = b.plate or ns.Target:TargetPlate()
     end
-    ns:Log("BURST tier=%d kind=%s amount=%s rested=%s hadXY=%s origin=%s pop=%s probe=%s est=%s w=%.2f", b.tier,
+    ns:Log("BURST tier=%d kind=%s amount=%s rested=%s hadXY=%s origin=%s plate=%s probe=%s est=%s w=%.2f", b.tier,
         tostring(b.kind), tostring(b.amount), tostring(b.rested), tostring(hadXY), origin, plate and "yes" or "no",
         tostring(probe), est or "none", wm or 0)
     if probe or not db.enabled or x == nil then

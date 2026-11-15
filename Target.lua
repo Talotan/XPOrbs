@@ -137,22 +137,14 @@ function Target:TargetFrameOrigin()
     return nil
 end
 
--- Is the Blizzard target frame on screen right now? False when it is missing, hidden, unreadable or errors.
-function Target:TargetFrameVisible()
-    local tf = _G.TargetFrame
-    if type(tf) ~= "table" then
-        return false
+-- Where the popstream stream starts for a kill: the estimate (ex, ey) whenever there is one, else the target frame
+-- portrait (only when there is no estimate). Returns x, y, "estimate"|"targetframe", or nil when neither applies.
+function Target:StreamOrigin(ex, ey)
+    local fx, fy
+    if type(ex) ~= "number" or type(ey) ~= "number" then
+        fx, fy = self:TargetFrameOrigin()
     end
-    local ok, v = pcall(tf.IsVisible, tf)
-    return ok and readable(v) and v == true
-end
-
--- Where the popstream stream starts for a kill: the estimate when the mouseover weight is high, the target frame
--- portrait while that frame is visible, the estimate when it is hidden (it hides on death). (ex, ey, wm) = the
--- kill's estimate. Returns x, y, "estimate"|"targetframe", or nil when neither applies.
-function Target:StreamOrigin(wm, ex, ey)
-    local fx, fy = self:TargetFrameOrigin()
-    return ns.MobEstimate.PickOrigin(wm, ex, ey, fx, fy, self:TargetFrameVisible())
+    return ns.MobEstimate.PickOrigin(ex, ey, fx, fy)
 end
 
 -- The nameplate frame of the current target, or nil. Only ever used as an anchor, never measured.

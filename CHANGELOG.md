@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.11
+- **No-mouseover kills start the stream at the mob.** `MobEstimate` cursor weight 0.35 -> 0 (an idle cursor said nothing about the mob and pulled P-hat about 230 px off); the code path stays configurable and the source label is `default` without a sample. popstream's stream origin is always P-hat when an estimate exists (the portrait is only the no-estimate fallback, and `stream` style keeps portrait -> centre). `CONFIDENT` and `Target:TargetFrameVisible` removed (dead).
+- **crossfade is catchable and paced like popstream.** Each orb blooms at the plate as copy A only (`XF_HOLD` 0.22 s, ring radius `XF_BLOOM_R` 18 px, size x1.5 easing to 1, `XF_FADE_IN` 0.06 s), then flies for `XF_FLIGHT` 1.2 x flightTime with a gentler launch (`XF_EASE_OUT` 0.25, via the new optional `OrbMath.PopEase(p, w)` argument). Tight `POP_STREAM_SPREAD/LIFT` and `STAGGER_POP`. Equal-power A/B fade (cos/sin) over flight p 0.12-0.30.
+- Pop ring angles interleave by the golden ratio (`OrbMath.RingAngle`) so rested orbs mix around the ring. The stream's angles are unchanged.
+- Arrival flash tinted 45% towards white (`FLASH_WHITE`).
+- Logs: `BURST origin=` names what Orbs uses (`estimate` for crossfade kills); `pop=` renamed `plate=` (it only ever meant a plate exists); the per-removal `GEOM ...` line is gone (counters remain in `/xporbs status`).
+- DB schema unchanged (4).
+
 ## 0.10
 - **Cursor-informed mob estimate.** New `logic/MobEstimate.lua` (pure) and `Mouseover.lua` (sampler). While you hover a hostile unit (`UPDATE_MOUSEOVER_UNIT`, plus a 10 Hz poll only while a unit is moused over) the cursor position is remembered per GUID (cap 20, pruned after 5 s). When a mob dies its estimated screen point P-hat blends a fresh sample (+40 px head offset; full weight up to 1 s, linear to 0 at 3 s) with 0.35 cursor + 0.65 default (screen centre x, 0.58 H). No GUID or name is ever logged.
 - **popstream:** pop and stream now read as one effect. Pop 0.55 s, less upward drift (12), ring 30-55 px around a plate anchor 20 px lower, orbs gather then launch (exit phase from p=0.45, 140 px) along the direction from P-hat to the stream origin, stream delay 0.30 s. The stream after a pop is tighter (stagger 0.08, spread x0.45, lift 0.10, fade-in 0.15). Stream origin: P-hat when mouseover confidence is at least 0.7; else the target-frame portrait while that frame is visible; else P-hat (the frame hides on death).

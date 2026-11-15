@@ -11,14 +11,13 @@ MobEstimate.__index = MobEstimate
 -- default mob height as a fraction of screen height (target plates sat at 0.55-0.62); the only place this is defined
 MobEstimate.ASSUMED_MOB_Y = 0.58
 MobEstimate.HEAD_OFFSET = 40 -- a hovered mob's cursor sits on the body; the plate/head is about this far above (px)
-MobEstimate.CONFIDENT = 0.7 -- mouseover weight at which the stream may start at the estimate
 
 local DEFAULTS = {
     cap = 20, -- max remembered GUIDs (oldest evicted)
     prune = 5, -- samples older than this many seconds are dropped
     full = 1, -- sample weight is 1 up to this age (s)
     zero = 3, -- ... falls linearly to 0 at this age
-    cursorWeight = 0.35, -- weight of the plain cursor when there is no usable sample
+    cursorWeight = 0, -- weight of the plain cursor when there is no usable sample (an idle cursor says nothing)
 }
 
 -- The default mob point for a screen of w x h.
@@ -26,21 +25,16 @@ function MobEstimate.Default(w, h, assumedY)
     return w / 2, h * (assumedY or MobEstimate.ASSUMED_MOB_Y)
 end
 
--- Which point the popstream stream starts from. wm = mouseover weight, (ex, ey) = the estimate, (fx, fy) = target
--- frame portrait centre (nil if never measured), fvisible = TargetFrame:IsVisible().
--- Returns x, y, "estimate"|"targetframe", or nil when neither applies (caller falls back to the screen centre).
-function MobEstimate.PickOrigin(wm, ex, ey, fx, fy, fvisible)
-    local haveEst = type(ex) == "number" and type(ey) == "number"
-    if haveEst and type(wm) == "number" and wm >= MobEstimate.CONFIDENT then
+-- Which point the popstream stream starts from: the estimate P-hat whenever there is one (the pop sits at the mob, so
+-- the stream starts there too), else the target frame portrait (nil if never measured). (ex, ey) = the estimate,
+-- (fx, fy) = portrait centre. Returns x, y, "estimate"|"targetframe", or nil when neither applies (the caller falls
+-- back to the screen centre).
+function MobEstimate.PickOrigin(ex, ey, fx, fy)
+    if type(ex) == "number" and type(ey) == "number" then
         return ex, ey, "estimate"
     end
     if type(fx) == "number" and type(fy) == "number" then
-        if fvisible then
-            return fx, fy, "targetframe"
-        end
-        if haveEst then
-            return ex, ey, "estimate" -- the target frame hides on death: its cached portrait is empty grass
-        end
+        return fx, fy, "targetframe"
     end
     return nil
 end
@@ -123,8 +117,8 @@ function MobEstimate:Estimate(guid, cursorX, cursorY, w, h)
     self:_prune()
     local dx, dy = MobEstimate.Default(w, h)
     local bx, by, source = dx, dy, "default"
-    if type(cursorX) == "number" and type(cursorY) == "number" then
-        local cw = self.cfg.cursorWeight
+    local cw = self.cfg.cursorWeight
+    if cw > 0 and type(cursorX) == "number" and type(cursorY) == "number" then
         bx, by, source = cw * cursorX + (1 - cw) * dx, cw * cursorY + (1 - cw) * dy, "cursor"
     end
     local s = type(guid) == "string" and self.samples[guid] or nil

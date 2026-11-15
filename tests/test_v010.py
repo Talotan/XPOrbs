@@ -35,7 +35,8 @@ def estimate(est, guid, cursor=None, w=W, h=H):
 
 
 def blend(cursor):
-    return 0.35 * cursor[0] + 0.65 * DEF_X, 0.35 * cursor[1] + 0.65 * DEF_Y
+    # v0.11: cursorWeight is 0, so the idle cursor no longer moves the estimate (it is just the default point)
+    return DEF_X, DEF_Y
 
 
 # ---------------------------------------------------------------- MobEstimate (pure)
@@ -87,12 +88,12 @@ def test_weight_blend_numbers(env):
     assert x == pytest.approx(0.5 * 100 + 0.5 * bx) and y == pytest.approx(
         0.5 * (200 + HEAD) + 0.5 * by
     )
-    # expired: pure cursor blend, then pure default without a cursor
+    # expired: the default point (the cursor has weight 0), with or without a cursor
     t[0] = 3.0
     assert estimate(est, "A", cur) == (
         pytest.approx(bx),
         pytest.approx(by),
-        "cursor",
+        "default",
         0,
     )
     assert estimate(est, "A") == (
@@ -113,7 +114,7 @@ def test_guid_mismatch_nil_and_unknown_fall_back(env):
         assert estimate(est, guid, cur) == (
             pytest.approx(bx),
             pytest.approx(by),
-            "cursor",
+            "default",
             0,
         )
         assert estimate(est, guid) == (
@@ -171,15 +172,13 @@ def test_add_sample_rejects_bad_input(env):
 def test_pick_origin_rules(env):
     env.load_addon()
     pick = env.ns.MobEstimate.PickOrigin
-    # a confident estimate beats a visible portrait
-    assert tuple(pick(0.7, 10, 20, 250, 900, True)) == (10, 20, "estimate")
-    assert tuple(pick(0.69, 10, 20, 250, 900, True)) == (250, 900, "targetframe")
-    # the frame hides on death: its cached portrait is empty grass
-    assert tuple(pick(0, 10, 20, 250, 900, False)) == (10, 20, "estimate")
+    # v0.11: the estimate always wins when there is one; the portrait is only the no-estimate fallback
+    assert tuple(pick(10, 20, 250, 900)) == (10, 20, "estimate")
+    assert tuple(pick(10, 20, None, None)) == (10, 20, "estimate")
+    assert tuple(pick(None, None, 250, 900)) == (250, 900, "targetframe")
     # nothing usable -> nil, the caller falls back to the screen centre
-    assert pick(0, None, None, 250, 900, False) is None
-    assert pick(0, 10, 20, None, None, True) is None  # no frame at all: legacy centre
-    assert tuple(pick(1, 10, 20, None, None, True)) == (10, 20, "estimate")
+    assert pick(None, None, None, None) is None
+    assert pick(10, None, None, None) is None
 
 
 # ---------------------------------------------------------------- Mouseover sampler (WoW side)
@@ -210,7 +209,7 @@ def test_hostile_hover_records_a_sample(env):
         "mouseover",
         1,
     )
-    assert mo_estimate(g, "OTHER")[2] == "cursor"
+    assert mo_estimate(g, "OTHER")[2] == "default"
 
 
 def test_cursor_is_divided_by_ui_scale(env):
@@ -302,19 +301,18 @@ def test_kill_uses_estimate_when_mouseover_confident(env):
         and b["est"] == "mouseover"
         and b["estW"] == 1
     )
-    assert g.has_log("origin=estimate pop=yes probe=false est=mouseover w=1.00")
+    assert g.has_log("origin=estimate plate=yes probe=false est=mouseover w=1.00")
 
 
-def test_kill_uses_portrait_when_visible_and_not_confident(env):
+def test_kill_uses_estimate_even_when_not_confident_and_frame_visible(env):
     g = make(env)
     g.fake_orbs_on()
     g.stub.setTargetFrame(250, 900, True)
-    kill_after_hover(g, 1.85)  # sample 2.0 s old when the burst is emitted: w_m = 0.5 < 0.7
+    kill_after_hover(g, 1.85)  # sample 2.0 s old when the burst is emitted: w_m = 0.5
     (b,) = g.bursts()
-    assert (b["x"], b["y"]) == (250, 900) and b["estW"] == pytest.approx(0.5)
-    assert g.has_log("origin=targetframe pop=yes probe=false est=mouseover w=0.50")
-    # the estimate itself is still handed on (crossfade / pop exit use it)
-    assert b["ex"] != b["x"]
+    assert (b["x"], b["y"]) == (b["ex"], b["ey"]) and b["x"] != 250
+    assert b["estW"] == pytest.approx(0.5)
+    assert g.has_log("origin=estimate plate=yes probe=false est=mouseover w=0.50")
 
 
 def test_kill_uses_estimate_when_target_frame_hidden(env):
@@ -324,7 +322,7 @@ def test_kill_uses_estimate_when_target_frame_hidden(env):
     kill_after_hover(g, 1.85)  # w_m = 0.5
     (b,) = g.bursts()
     assert (b["x"], b["y"]) == (b["ex"], b["ey"]) and b["x"] != 250
-    assert g.has_log("origin=estimate pop=yes probe=false est=mouseover w=0.50")
+    assert g.has_log("origin=estimate plate=yes probe=false est=mouseover w=0.50")
 
 
 def test_other_xp_keeps_centre_origin_and_no_estimate(env):
@@ -364,7 +362,7 @@ def test_stream_style_keeps_portrait_origin(env):
     g.stub.setTargetFrame(250, 900, False)
     kill_after_hover(g, 0.3)
     (b,) = g.bursts()
-    assert (b["x"], b["y"]) == (250, 900) and g.has_log("origin=targetframe pop=no")
+    assert (b["x"], b["y"]) == (250, 900) and g.has_log("origin=targetframe plate=no")
 
 
 def test_tier4_has_no_guid_so_default_or_cursor_estimate(env):
@@ -374,7 +372,7 @@ def test_tier4_has_no_guid_so_default_or_cursor_estimate(env):
     hover(g, cursor=(700, 500))
     g.chat()
     g.tick(0.6)  # tier 4: no death, no guid
-    assert g.has_log("tier=4") and g.has_log("est=cursor w=0.00")
+    assert g.has_log("tier=4") and g.has_log("est=default w=0.00")
 
 
 # ---------------------------------------------------------------- OrbMath: exit vector, PopControl
@@ -511,19 +509,20 @@ def test_crossfade_copy_a_anchored_to_plate_bottom_and_curve_starts_at_estimate(
     )
     assert (pt[4], pt[5]) == (0, 0)
     g.stub.tick(
-        0.08
-    )  # just after the start delay: the screen-space orb is still near P-hat, not at the default point
+        0.1
+    )  # v0.11: inside the bloom hold (delay 0.04 + hold 0.22): copy A only, a small offset from P-hat
     b = [t for t in stream_textures(g) if t.calls["SetDrawLayer"][2] == 0]
     a = [t for t in pop_textures(g) if t.shown and t.calls["SetDrawLayer"][2] == 0]
-    assert a  # copy A is visible; B is not yet (w = 0 before XF_START)
+    assert a  # copy A is visible; B is hidden for the whole hold
     ox, oy = (
         a[0].points[1][4],
         a[0].points[1][5],
-    )  # offset = B-hat - P-hat, small this early
-    assert abs(ox) < 20 and abs(oy) < 20 and b == []
-    g.stub.tick(0.1)
+    )  # offset = (ring position - P-hat) at most XF_BLOOM_R
+    assert abs(ox) <= 18 + 1e-6 and abs(oy) <= 18 + 1e-6 and b == []
+    # in flight (p = 0.2 of the stretched flight) the screen-space copy starts near P-hat, not at the default point
+    g.stub.tick(0.26 - 0.1 + 0.2 * g.db.flightTime * 1.2)  # start delay 0.04 + hold 0.22 are over
     (bt,) = [t for t in stream_textures(g) if t.calls["SetDrawLayer"][2] == 0]
-    assert abs(bt.points[1][4] - 700) < 120 and abs(bt.points[1][5] - 500) < 120
+    assert abs(bt.points[1][4] - 700) < 150 and abs(bt.points[1][5] - 500) < 150
 
 
 # ---------------------------------------------------------------- /xporbs test
@@ -544,11 +543,11 @@ def test_test_command_uses_target_estimate_and_prints_it(env):
     g.stub.tick(3)
     g.stub.units[
         "target"
-    ].guid = "OTHER"  # a different target: no sample, so cursor blend and the portrait
+    ].guid = "OTHER"  # a different target: no sample, so the default estimate (the portrait is no longer used)
     g.slash("test 5 popstream")
     line = chat_lines(g)[-1]
-    assert "est=cursor w=0.00" in line and line.endswith(
-        "pop=yes stream=targetframe style=popstream"
+    assert "est=default w=0.00" in line and line.endswith(
+        "pop=yes stream=estimate style=popstream"
     )
     g.stub.tick(3)
     g.slash("test 5 crossfade")

@@ -263,43 +263,43 @@ def test_burst_requires_positive_n(env):
 # ---------------------------------------------------------------- /xporbs test and /xporbs pop
 
 
-def test_test_command_with_target_plate_pops_from_target_frame(env):
+def test_test_command_with_target_plate_pops_and_streams_from_estimate(env):
     g = make(env)
     plate = restricted_plate(g)
     g.stub.plates["target"] = plate
     g.stub.setTargetFrame(250, 900)
     g.slash("test 5")
-    assert chat_lines(g)[-1].endswith("pop=yes stream=targetframe style=popstream")
+    assert chat_lines(g)[-1].endswith("pop=yes stream=estimate style=popstream")
     assert len(pop_frames(g)) == 1
     g.stub.tick(0.4)
     pts = [t.points[1] for t in stream_textures(g)]
-    assert pts and all(abs(p[4] - 250) < 300 for p in pts)
+    assert pts and all(abs(p[4] - 960) < 300 for p in pts)  # v0.11: the stream starts at P-hat, not the portrait
 
 
-def test_test_command_without_plate_streams_from_cursor(env):
+def test_test_command_without_plate_streams_from_estimate(env):
     g = make(env)
     g.stub.cursor.x, g.stub.cursor.y = 200, 300
     g.slash("test 1")
-    assert chat_lines(g)[-1].endswith("pop=no stream=cursor style=stream")
+    assert chat_lines(g)[-1].endswith("pop=no stream=estimate style=stream")
     assert pop_frames(g) == []
 
 
-def test_test_command_centre_when_nothing_else(env):
+def test_test_command_estimate_even_without_a_cursor(env):
     g = make(env)
     g.env.lua.execute("GetCursorPosition = nil")
     g.slash("test 1")
-    assert chat_lines(g)[-1].endswith("pop=no stream=centre style=stream")
+    assert chat_lines(g)[-1].endswith("pop=no stream=estimate style=stream")
 
 
 def test_test_command_ignores_frame_and_plate_words(env):
     g = make(env)
     g.stub.setTargetFrame(250, 900)
     g.slash("test 5 frame")
-    assert "stream=targetframe" in chat_lines(g)[-1]
+    assert "stream=estimate" in chat_lines(g)[-1]
     g.stub.tick(3)
     g.slash("test 5 rested plate")
     last = chat_lines(g)[-1]
-    assert "(7 purple)" in last and "stream=targetframe" in last
+    assert "(7 purple)" in last and "stream=estimate" in last
 
 
 def test_style_and_pop_commands_persist_and_toggle(env):
@@ -408,21 +408,21 @@ def test_tier1_kill_with_plate_hidden_target_frame_uses_estimate(env):
     g.stub.setTargetFrame(250, 900, False)  # hidden: the mob was deselected on death
     plate = kill_with_secret_pos_plate(g)
     (b,) = g.bursts()
-    # no mouseover sample, cursor at the stub default (960, 540): P-hat = 0.35 * cursor + 0.65 * (W/2, 0.58 H)
-    assert (b["x"], b["y"]) == (pytest.approx(960), pytest.approx(0.35 * 540 + 0.65 * 1080 * 0.58))
+    # no mouseover sample: P-hat is the default point (W/2, 0.58 H); the cursor (stub default 960, 540) has weight 0
+    assert (b["x"], b["y"]) == (pytest.approx(960), pytest.approx(1080 * 0.58))
     assert (b["ex"], b["ey"]) == (b["x"], b["y"]) and OWN(g, b["plate"], plate)
     assert b["n"] == 14 and b["kind"] == "kill" and b["nPurple"] == 0
-    assert g.has_log("origin=estimate pop=yes probe=false est=cursor w=0.00")
+    assert g.has_log("origin=estimate plate=yes probe=false est=default w=0.00")
 
 
-def test_tier1_kill_with_plate_visible_target_frame_uses_portrait(env):
+def test_tier1_kill_with_plate_visible_target_frame_still_uses_estimate(env):
     g = make(env)
     g.fake_orbs_on()
     g.stub.setTargetFrame(250, 900, True)
     plate = kill_with_secret_pos_plate(g)
     (b,) = g.bursts()
-    assert (b["x"], b["y"]) == (250, 900) and OWN(g, b["plate"], plate)
-    assert g.has_log("origin=targetframe pop=yes probe=false est=cursor w=0.00")
+    assert (b["x"], b["y"]) == (pytest.approx(960), pytest.approx(1080 * 0.58)) and OWN(g, b["plate"], plate)
+    assert g.has_log("origin=estimate plate=yes probe=false est=default w=0.00")
 
 
 def test_kill_real_orbs_pop_and_stream_end_to_end(env):
@@ -437,12 +437,12 @@ def test_kill_real_orbs_pop_and_stream_end_to_end(env):
     assert not g.orbs.Info(g.orbs)[0]
 
 
-def test_kill_without_target_frame_uses_centre(env):
+def test_kill_without_target_frame_uses_estimate(env):
     g = make(env)
     g.fake_orbs_on()
     kill_with_secret_pos_plate(g)
     (b,) = g.bursts()
-    assert b["x"] == 960 and b["y"] == 702 and g.has_log("origin=centre pop=yes")
+    assert b["x"] == 960 and b["y"] == pytest.approx(626.4) and g.has_log("origin=estimate plate=yes")
 
 
 def test_kill_without_any_plate_no_pop(env):
@@ -454,8 +454,8 @@ def test_kill_without_any_plate_no_pop(env):
     (b,) = g.bursts()
     assert (
         b["plate"] is None
-        and (b["x"], b["y"]) == (250, 900)
-        and g.has_log("origin=targetframe pop=no")
+        and (b["x"], b["y"]) == (pytest.approx(960), pytest.approx(626.4))
+        and g.has_log("origin=estimate plate=no")
     )
 
 
@@ -467,7 +467,7 @@ def test_tier4_uses_target_plate(env):
     g.chat()
     g.tick(0.6)
     (b,) = g.bursts()
-    assert OWN(g, b["plate"], plate) and g.has_log("pop=yes")
+    assert OWN(g, b["plate"], plate) and g.has_log("plate=yes")
 
 
 def test_corpse_pop_off_passes_no_plate(env):
@@ -476,14 +476,14 @@ def test_corpse_pop_off_passes_no_plate(env):
     g.db.style = "stream"
     kill_with_secret_pos_plate(g)
     (b,) = g.bursts()
-    assert b["plate"] is None and g.has_log("pop=no")
+    assert b["plate"] is None and g.has_log("plate=no")
 
 
 def test_probe_mode_logs_only(env):
     g = make(env, probe=True)
     g.fake_orbs_on()
     kill_with_secret_pos_plate(g)
-    assert g.bursts() == [] and g.has_log("pop=yes probe=true")
+    assert g.bursts() == [] and g.has_log("plate=yes probe=true")
 
 
 def test_disabled_suppresses_bursts(env):
@@ -521,7 +521,7 @@ def test_quest_burst_from_screen_centre_without_plate(env):
     (b,) = g.bursts()
     assert b["kind"] == "other" and b["plate"] is None
     assert (b["x"], b["y"]) == (960, pytest.approx(1080 * 0.55))
-    assert g.has_log("kind=other") and g.has_log("origin=centre pop=no")
+    assert g.has_log("kind=other") and g.has_log("origin=centre plate=no")
 
 
 def test_quest_bursts_gated_by_option(env):
@@ -611,17 +611,30 @@ def smoothstep(p):
     return t * t * (3 - 2 * t)
 
 
+XF_HOLD, XF_BLOOM_R, XF_FLIGHT, XF_EASE_OUT, STAGGER_POP = 0.22, 18, 1.2, 0.25, 0.08
+
+
+def xf_dur(g):
+    """Flight duration of the single fixed-random (0.5) crossfade orb: flightTime * XF_FLIGHT * (0.85 + 0.5 * 0.3)."""
+    return g.db.flightTime * XF_FLIGHT
+
+
+def xf_start(g):
+    """Seconds after the burst at which the flight (p = 0) of that orb starts: stagger delay + hold."""
+    return 0.5 * STAGGER_POP + XF_HOLD
+
+
 def xf_expected(g, t_now, dest):
-    """Expected (ex, ey, p) for the single fixed-random orb of a crossfade burst after t_now seconds."""
+    """Expected (ex, ey, p) for the single fixed-random orb of a crossfade burst after t_now seconds (in flight)."""
     om = g.ns.OrbMath
     px, py = 1920 * 0.5, 1080 * 0.58
-    rad = 6 * math.sqrt(0.5)
-    x0, y0 = px + math.cos(math.pi) * rad, py + math.sin(math.pi) * rad
-    c1x, c1y, _ = om.PopControl(1, 1, x0, y0, lambda: 0.5)
+    ang = om.RingAngle(1, 1, lambda: 0.5)  # the bloom ring position is the flight's start
+    x0, y0 = px + math.cos(ang) * XF_BLOOM_R, py + math.sin(ang) * XF_BLOOM_R
+    c1x, c1y, _ = om.PopControl(1, 1, x0, y0, lambda: 0.5, 0.45, 0.10)
     dist0 = math.hypot(dest[0] - x0, dest[1] - y0)
     c2x, c2y = om.HomeControl(c1x, c1y, dest[0], dest[1], dist0)
-    p = (t_now - 0.5 * 0.15) / 0.75
-    ex, ey = om.Cubic(om.PopEase(p), x0, y0, c1x, c1y, c2x, c2y, dest[0], dest[1])
+    p = (t_now - xf_start(g)) / xf_dur(g)
+    ex, ey = om.Cubic(om.PopEase(p, XF_EASE_OUT), x0, y0, c1x, c1y, c2x, c2y, dest[0], dest[1])
     return ex, ey, p, px, py
 
 
@@ -632,10 +645,11 @@ def test_crossfade_burst_wires_copy_a_on_plate_frame(env):
     (G,) = pop_frames(g)
     assert len(G.points) == 1 and OWN(g, G.points[1][2], plate) and G.points[1][3] == "BOTTOM"
     dest = tuple(g.ns.Target.GetDestination(g.ns.Target))[:2]
-    g.stub.tick(0.225)  # p = (0.225 - 0.075) / 0.75 = 0.2
-    ex, ey, p, px, py = xf_expected(g, 0.225, dest)
+    t_now = xf_start(g) + 0.2 * xf_dur(g)  # flight p = 0.2, inside the crossfade window
+    g.stub.tick(t_now)
+    ex, ey, p, px, py = xf_expected(g, t_now, dest)
     w = smoothstep(p)
-    assert 0 < w < 1
+    assert p == pytest.approx(0.2) and 0 < w < 1
     a_tex = pop_textures(g)
     assert len(a_tex) == 3
     for t in a_tex:
@@ -645,11 +659,12 @@ def test_crossfade_burst_wires_copy_a_on_plate_frame(env):
     assert len(b_tex) == 3  # trail off: underlay, orb, sparkle
     for t in b_tex:
         assert (t.points[1][4], t.points[1][5]) == (pytest.approx(ex), pytest.approx(ey))
-    # the orb textures (draw layer 0 = second of each triple): alphas sum to the orb alpha
+    # the orb textures (draw layer 0 = second of each triple): equal-power alphas
     a_orb = [t for t in a_tex if t.calls["SetDrawLayer"][2] == 0][0]
     b_orb = [t for t in b_tex if t.calls["SetDrawLayer"][2] == 0][0]
-    assert a_orb.alpha == pytest.approx(1 - w) and b_orb.alpha == pytest.approx(w)
-    assert a_orb.alpha + b_orb.alpha == pytest.approx(1)
+    assert a_orb.alpha == pytest.approx(math.cos(w * math.pi / 2))
+    assert b_orb.alpha == pytest.approx(math.sin(w * math.pi / 2))
+    assert a_orb.alpha ** 2 + b_orb.alpha ** 2 == pytest.approx(1)
     assert g.stub.restrictedHits == 0
 
 
@@ -657,22 +672,21 @@ def test_crossfade_weights_cross_at_half(env):
     g = make(env)
     plate = restricted_plate(g)
     burst(g, plate=plate, n=1, kind="kill", style="crossfade")
-    # p = 0.21 is the midpoint of [0.12, 0.30]: t = 0.5 -> smoothstep = 0.5
-    t_now = 0.075 + 0.75 * 0.21
-    g.stub.tick(t_now)
+    # flight p = 0.21 is the midpoint of [0.12, 0.30]: smoothstep = 0.5, equal power = 0.707 each
+    g.stub.tick(xf_start(g) + 0.21 * xf_dur(g))
     a_orb = [t for t in pop_textures(g) if t.calls["SetDrawLayer"][2] == 0][0]
     b_orb = [t for t in stream_textures(g) if t.calls["SetDrawLayer"][2] == 0][0]
-    assert a_orb.alpha == pytest.approx(0.5) and b_orb.alpha == pytest.approx(0.5)
+    assert a_orb.alpha == pytest.approx(math.sqrt(0.5)) and b_orb.alpha == pytest.approx(math.sqrt(0.5))
 
 
 def test_crossfade_copy_a_hidden_after_window_and_b_hidden_before(env):
     g = make(env)
     plate = restricted_plate(g)
     burst(g, plate=plate, n=1, kind="kill", style="crossfade")
-    g.stub.tick(0.075 + 0.75 * 0.08)  # p = 0.08 < XF_START: only copy A is visible
+    g.stub.tick(xf_start(g) + 0.08 * xf_dur(g))  # flight p = 0.08 < XF_START: only copy A is visible
     assert len([t for t in pop_textures(g) if t.shown]) == 3
     assert len([t for t in stream_textures(g)]) == 0
-    g.stub.tick(0.75 * 0.28)  # p = 0.36 > XF_END: only copy B is visible
+    g.stub.tick(0.28 * xf_dur(g))  # p = 0.36 > XF_END: only copy B is visible
     assert len([t for t in pop_textures(g) if t.shown]) == 0
     assert len(stream_textures(g)) == 3
 
@@ -699,7 +713,7 @@ def test_crossfade_plate_reused_fades_copy_a_only(env):
     g = make(env)
     p1 = restricted_plate(g, "nameplate1")
     burst(g, plate=p1, n=1, kind="kill", style="crossfade")
-    g.stub.tick(0.15)  # p = 0.1: copy A fully visible
+    g.stub.tick(xf_start(g) + 0.1 * xf_dur(g))  # flight p = 0.1: copy A fully visible
     a_orb = [t for t in pop_textures(g) if t.calls["SetDrawLayer"][2] == 0][0]
     assert a_orb.alpha > 0.9
     g.orbs.PlateReused(g.orbs, p1)
@@ -738,7 +752,8 @@ def test_crossfade_style_from_db_and_kills_pass_plate(env):
     g.stub.setTargetFrame(250, 900)
     kill_with_secret_pos_plate(g)
     assert len(pop_frames(g)) == 1
-    assert g.has_log("pop=yes probe=false")
+    assert g.has_log("plate=yes probe=false")
+    assert g.has_log("origin=estimate plate=yes")  # v0.11: crossfade flies from P-hat, so the log says so
     for _ in range(60):
         g.tick(0.05)
     assert g.stub.restrictedHits == 0 and not g.orbs.Info(g.orbs)[0]
@@ -760,7 +775,7 @@ def test_test_command_style_word_forces_style(env):
     assert chat_lines(g)[-1].endswith("style=crossfade")
     g.stub.tick(3)
     g.slash("test 5 popstream")
-    assert chat_lines(g)[-1].endswith("pop=yes stream=targetframe style=popstream")
+    assert chat_lines(g)[-1].endswith("pop=yes stream=estimate style=popstream")
 
 
 def test_stream_kills_pass_no_plate(env):

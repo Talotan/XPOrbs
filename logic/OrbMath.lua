@@ -107,10 +107,18 @@ function OrbMath.HomeControl(c1x, c1y, dx, dy, dist0)
     return dx + (c1x - dx) * 0.15, dy + 0.30 * dist0
 end
 
--- Pop ease: fast start (ease-out half) blended with a slow-in finish (ease-in half). p clamped to [0, 1].
-function OrbMath.PopEase(p)
+-- Pop ease: fast start (ease-out half, weight w) blended with a slow-in finish (ease-in half, weight 1 - w).
+-- w defaults to 0.5 (launch slope 1.5); crossfade uses a smaller w for a gentler launch. p clamped to [0, 1].
+function OrbMath.PopEase(p, w)
     p = clamp(p, 0, 1)
-    return 0.5 * (1 - (1 - p) ^ 3) + 0.5 * p ^ 2.2
+    w = w or 0.5
+    return w * (1 - (1 - p) ^ 3) + (1 - w) * p ^ 2.2
+end
+
+-- Corpse-pop ring angle (radians) of orb i of n: golden-ratio interleave plus jitter, so the first k orbs (the rested
+-- ones) are spread around the whole ring instead of taking one half. rand() is in [0, 1).
+function OrbMath.RingAngle(i, n, rand)
+    return ((((i - 1) * 0.618034) % 1) + rand() * 0.8 / n) * 2 * math.pi
 end
 
 -- Cubic Bezier point at t.

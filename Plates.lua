@@ -367,8 +367,6 @@ local function onRemoved(unit)
     ns:Log("PLATE_REMOVED deadReadable=%s deadAtRemoval=%s hadPos=%s hostile=%s geomOK=%d geomSecret=%d",
         tostring(deadKnown), tostring(dead), tostring(entry.x ~= nil), tostring(entry.hostile), stats.okGeom,
         stats.secretGeom)
-    ns:Log("GEOM okA=%d okB=%d noPlate=%d forbidden=%d errA=%d errB=%d nilA=%d nilB=%d", stats.okA, stats.okB,
-        stats.noPlate, stats.forbidden, stats.errA, stats.errB, stats.nilA, stats.nilB)
     prune()
     updateSampler()
     if Plates.onRemoved then

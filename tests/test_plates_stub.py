@@ -69,10 +69,10 @@ def test_tier2_plate_removed_dead_then_chat(env):
     g.tick(0.1)
     assert g.stats()["tier2"] == 1 and g.stats()["tier1"] == 0
     (b,) = g.bursts()
-    assert (b["x"], b["y"]) == (960, 702)  # no target frame: the screen centre
+    assert (b["x"], b["y"]) == (960, 626.4)  # no target frame: the default estimate
     assert b["n"] == 14 and b["scale"] == 1 and b["nPurple"] == 0 and b["kind"] == "kill"
     assert g.has_log(
-        "BURST tier=2 kind=kill amount=50 rested=nil hadXY=true origin=centre pop=yes probe=false"
+        "BURST tier=2 kind=kill amount=50 rested=nil hadXY=true origin=estimate plate=yes probe=false"
     )
 
 
@@ -89,7 +89,7 @@ def test_tier1_unit_died_guid_match(env):
     assert g.stats()["tier1"] == 1 and g.stats()["tier2"] == 0
     assert g.has_log("UNIT_DIED guidReadable=true matched=true")
     assert g.has_log(
-        "BURST tier=1 kind=kill amount=50 rested=nil hadXY=true origin=centre pop=yes probe=true"
+        "BURST tier=1 kind=kill amount=50 rested=nil hadXY=true origin=estimate plate=yes probe=true"
     )
 
 
@@ -270,7 +270,7 @@ def test_probe_off_calls_orbs_once_with_expected_n(env):
     (b,) = g.bursts()
     assert b["n"] == 14  # 5% of a level -> (3 + 5 * sqrt(5)) at multiplier 100
     assert b["scale"] == 1 and b["nPurple"] == 0 and b["kind"] == "kill"
-    assert (b["x"], b["y"]) == (960, 702)
+    assert (b["x"], b["y"]) == (960, 626.4)
 
 
 def test_probe_off_rested_split(env):
@@ -293,8 +293,8 @@ def test_tier4_falls_back_to_target_then_screen_centre(env):
     g.chat()
     g.tick(0.6)
     (b,) = g.bursts()
-    assert (b["x"], b["y"]) == (960, 702)  # plate positions are no longer used as the stream origin
-    assert g.has_log("tier=4 kind=kill amount=50 rested=nil hadXY=false origin=centre pop=no")
+    assert (b["x"], b["y"]) == (960, 626.4)  # plate positions are no longer used as the stream origin
+    assert g.has_log("tier=4 kind=kill amount=50 rested=nil hadXY=false origin=estimate plate=no")
 
 
 def test_tier4_screen_centre_when_no_target(env):
@@ -303,8 +303,8 @@ def test_tier4_screen_centre_when_no_target(env):
     g.chat()
     g.tick(0.6)
     (b,) = g.bursts()
-    assert (b["x"], b["y"]) == (960, 702)
-    assert g.has_log("origin=centre")
+    assert (b["x"], b["y"]) == (960, 626.4)
+    assert g.has_log("origin=estimate")
 
 
 def test_target_entry_returns_numeric_xy_or_nil(env):

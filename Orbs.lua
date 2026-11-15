@@ -14,6 +14,7 @@ local SPARKLE_TEX = "Interface\\AddOns\\XPOrbs\\media\\sparkle"
 local FLASH_TEX = "Interface\\AddOns\\XPOrbs\\media\\flash"
 
 local TWO_PI = math.pi * 2
+local HALF_PI = math.pi / 2
 local random = math.random
 local floor, min, sqrt, cos, sin = math.floor, math.min, math.sqrt, math.cos, math.sin
 
@@ -39,6 +40,7 @@ local GHOST2_ALPHA, GHOST2_SIZE = 0.30, 0.70
 local UNDER_R, UNDER_G, UNDER_B = 0.02, 0.08, 0.30 -- dark underlay so bright orbs keep their hue
 local UNDER_ALPHA, UNDER_SIZE = 0.45, 1.25
 local FLASH_TIME = 0.4
+local FLASH_WHITE = 0.45 -- arrival flash tint = lerp(colour, white, this)
 local FLASH_ALPHA, FLASH_STEP = 0.6, 0.08 -- arrival flash base alpha, added per recent arrival
 local FLASH_W, FLASH_ASPECT = 12, 7 -- width = size * FLASH_W, height = width / FLASH_ASPECT
 -- Corpse pop (a burst of orbs at the dead mob's nameplate, drawn relative to a tiny frame anchored ONLY to the plate).
@@ -59,9 +61,15 @@ local POP_FADE_OUT = 0.1 -- seconds a pop fades when its plate is reused for ano
 local STREAM_DELAY = 0.30 -- extra start delay of the stream when a pop happened, so the pop reads first
 -- Crossfade style: orbs fly from an ESTIMATED mob position P-hat (plates can't be measured; see logic/MobEstimate.lua,
 -- which owns the default point). Copy A is drawn relative to the plate's BOTTOM (exact if the estimate is right),
--- copy B in screen space; A fades out and B fades in over
--- p in [XF_START, XF_END].
+-- copy B in screen space. Each orb first blooms at the plate as copy A only (the hold), then flies; A fades out and B
+-- fades in (equal power) over flight p in [XF_START, XF_END], measured after the hold.
 local XF_START, XF_END = 0.12, 0.30
+local XF_HOLD = 0.22 -- s: bloom at the plate (copy A only) before the flight timeline starts
+local XF_BLOOM_R = 18 -- px: ring radius reached (ease-out cubic) by the end of the hold
+local XF_BLOOM_SIZE = 1.5 -- start-size multiplier during the hold, easing to 1.0 by its end
+local XF_FADE_IN = 0.06 -- s: alpha fade-in at birth
+local XF_FLIGHT = 1.2 -- multiplier on flightTime for crossfade orbs
+local XF_EASE_OUT = 0.25 -- ease-out weight of the crossfade launch (PopEase default 0.5 = launch slope 1.5)
 
 local overlay, driver, flash
 local freeTex, texCreated, texInUse = {}, 0, 0
@@ -230,6 +238,18 @@ local function drawA(o, g, ex, ey, s, alpha)
     sp:SetRotation(o.rot0 + TWO_PI * (o.el - o.delay))
 end
 
+-- drawA under pcall; the first failure silences copy A for the whole burst frame and is logged once.
+local function safeA(o, g, ex, ey, s, alpha)
+    local ok, err = pcall(drawA, o, g, ex, ey, s, alpha)
+    if not ok then
+        g.fm = 0
+        if not popErrSeen then
+            popErrSeen = true
+            ns:Log("POP_ERR crossfade %s", string.sub(tostring(err), 1, 120))
+        end
+    end
+end
+
 local function hideB(o)
     hideTex(o.under)
     hideTex(o.orb)
@@ -240,10 +260,26 @@ local function hideB(o)
     end
 end
 
+-- Crossfade hold: t seconds after the orb's birth. Copy A only, blooming from P-hat out to the ring start (o.x0, o.y0)
+-- with a size boost that eases off. Copy B (screen space) stays hidden.
+local function drawHold(o, t)
+    local h = t / XF_HOLD
+    if h > 1 then
+        h = 1
+    end
+    local e = 1 - (1 - h) * (1 - h) * (1 - h)
+    local a = t < XF_FADE_IN and t / XF_FADE_IN or 1
+    local g = o.g
+    hideB(o)
+    safeA(o, g, o.px + (o.x0 - o.px) * e, o.py + (o.y0 - o.py) * e, o.size * (1 + (XF_BLOOM_SIZE - 1) * (1 - e)),
+        a * g.fm)
+end
+
 local function drawOrb(o, p, dx, dy)
     local x0, y0, c1x, c1y = o.x0, o.y0, o.c1x, o.c1y
     local c2x, c2y = OrbMath.HomeControl(c1x, c1y, dx, dy, o.dist0)
-    local ex, ey = OrbMath.Cubic(OrbMath.PopEase(p), x0, y0, c1x, c1y, c2x, c2y, dx, dy)
+    local ew = o.ew
+    local ex, ey = OrbMath.Cubic(OrbMath.PopEase(p, ew), x0, y0, c1x, c1y, c2x, c2y, dx, dy)
     local s = o.size
     if p > SHRINK_FROM then
         s = s * (1 - 0.4 * (p - SHRINK_FROM) / (1 - SHRINK_FROM))
@@ -252,20 +288,13 @@ local function drawOrb(o, p, dx, dy)
     local a = p < fi and p / fi or 1
     local g = o.g
     if g then
-        local w = smoothstep(p) -- weight of the screen-space copy B
-        local ok, err = pcall(drawA, o, g, ex, ey, s, a * (1 - w) * g.fm)
-        if not ok then
-            g.fm = 0
-            if not popErrSeen then
-                popErrSeen = true
-                ns:Log("POP_ERR crossfade %s", string.sub(tostring(err), 1, 120))
-            end
-        end
+        local w = smoothstep(p) -- position of the crossfade; equal power keeps the sum of the two copies steady
+        safeA(o, g, ex, ey, s, w >= 1 and 0 or a * cos(w * HALF_PI) * g.fm) -- cos(pi/2) is not exactly 0
         if w <= 0 then
             hideB(o)
             return
         end
-        a = a * w
+        a = a * sin(w * HALF_PI)
     end
     place(o.under, ex, ey, s * GLOW * UNDER_SIZE, a * UNDER_ALPHA)
     place(o.orb, ex, ey, s * GLOW, a)
@@ -274,14 +303,14 @@ local function drawOrb(o, p, dx, dy)
     if o.g1 then
         local pk = p - GHOST_STEP
         if pk > 0 then
-            local gx, gy = OrbMath.Cubic(OrbMath.PopEase(pk), x0, y0, c1x, c1y, c2x, c2y, dx, dy)
+            local gx, gy = OrbMath.Cubic(OrbMath.PopEase(pk, ew), x0, y0, c1x, c1y, c2x, c2y, dx, dy)
             place(o.g1, gx, gy, s * GLOW * GHOST1_SIZE, a * GHOST1_ALPHA)
         else
             hideTex(o.g1)
         end
         pk = p - 2 * GHOST_STEP
         if pk > 0 then
-            local gx, gy = OrbMath.Cubic(OrbMath.PopEase(pk), x0, y0, c1x, c1y, c2x, c2y, dx, dy)
+            local gx, gy = OrbMath.Cubic(OrbMath.PopEase(pk, ew), x0, y0, c1x, c1y, c2x, c2y, dx, dy)
             place(o.g2, gx, gy, s * GLOW * GHOST2_SIZE, a * GHOST2_ALPHA)
         else
             hideTex(o.g2)
@@ -351,7 +380,7 @@ local function setupPop(g, plate, m, scale, nP, rc, bc, ux, uy)
             t:Hide()
             t.xoShown = false
         end
-        local ang = ((i - 1) + random() * 0.8) / m * TWO_PI
+        local ang = OrbMath.RingAngle(i, m, random)
         local rad = POP_R_MIN + random() * (POP_R_MAX - POP_R_MIN)
         g.dx[i], g.dy[i] = cos(ang) * rad, sin(ang) * rad
         g.drift[i] = random() * POP_DRIFT
@@ -563,13 +592,18 @@ local function onUpdate(self, dt)
         local t = o.el - o.delay
         local drop = false
         if t >= 0 then
-            local p = t / o.dur
-            if p >= 1 then
-                arrivedRecently = arrivedRecently + 1
-                flashAge, flashOn, flashRested = 0, true, o.rested
-                drop = true
+            local ft = t - o.hold -- flight time; negative during the crossfade hold
+            if ft < 0 then
+                drawHold(o, t)
             else
-                drawOrb(o, p, dx, dy)
+                local p = ft / o.dur
+                if p >= 1 then
+                    arrivedRecently = arrivedRecently + 1
+                    flashAge, flashOn, flashRested = 0, true, o.rested
+                    drop = true
+                else
+                    drawOrb(o, p, dx, dy)
+                end
             end
         end
         if drop then
@@ -591,7 +625,8 @@ local function onUpdate(self, dt)
             local c = flashRested and ns.db.restedColor or ns.db.color
             local a = min(1, FLASH_ALPHA + FLASH_STEP * arrivedRecently) * (1 - flashAge / FLASH_TIME)
             local w = ns.db.size * FLASH_W
-            flash:SetVertexColor(c[1], c[2], c[3])
+            flash:SetVertexColor(c[1] + (1 - c[1]) * FLASH_WHITE, c[2] + (1 - c[2]) * FLASH_WHITE,
+                c[3] + (1 - c[3]) * FLASH_WHITE)
             flash:ClearAllPoints()
             flash:SetPoint("CENTER", overlay, "BOTTOMLEFT", dx, dy)
             flash:SetSize(w, w / FLASH_ASPECT)
@@ -663,12 +698,13 @@ function Orbs:Burst(p)
     local need = trail and 1 + EXTRAS or 3 -- orb + underlay + sparkle (+ 2 ghosts)
     local limit = ceiling() - 1 -- the arrival flash holds one slot
     local extra = popped and STREAM_DELAY or 0
-    local stagger = popped and STAGGER_POP or STAGGER
+    local stagger = (popped or xg) and STAGGER_POP or STAGGER
     local spread, lift = nil, nil -- PopControl defaults
-    if popped then
+    if popped or xg then
         spread, lift = POP_STREAM_SPREAD, POP_STREAM_LIFT
     end
     local fadeIn = popped and FADE_IN_POP or FADE_IN
+    local flight = xg and XF_FLIGHT or 1
     local xfCount = 0
 
     for i = 1, n do
@@ -679,27 +715,34 @@ function Orbs:Burst(p)
         local c = rested and d.restedColor or d.color
         local r, g, bl = c[1], c[2], c[3]
         local o = newRec()
-        local ang, rad = random() * TWO_PI, START_RADIUS * sqrt(random())
-        o.x0, o.y0 = x + cos(ang) * rad, y + sin(ang) * rad
-        o.c1x, o.c1y = OrbMath.PopControl(i, n, o.x0, o.y0, random, spread, lift)
-        local ddx, ddy = dx - o.x0, dy - o.y0
-        o.dist0 = sqrt(ddx * ddx + ddy * ddy)
-        o.delay = random() * stagger + (rested and RESTED_DELAY or 0) + extra
-        o.dur = d.flightTime * (0.85 + random() * 0.3)
-        o.el = 0
-        o.fadeIn = fadeIn
-        o.rested = rested
-        o.size = d.size * scale * (rested and RESTED_SIZE or 1)
-        o.rot0 = random() * TWO_PI
-        o.g = nil
+        o.g, o.hold, o.ew = nil, 0, nil
         if xg then
             local k = xfCount * 3
             if pcall(xfTextures, xg, k, r, g, bl) then
                 xfCount = xfCount + 1
                 o.g, o.k, o.px, o.py = xg, k, px, py
+                o.hold, o.ew = XF_HOLD, XF_EASE_OUT
                 xg.refs = xg.refs + 1
             end
         end
+        if o.g then
+            -- the flight starts where the bloom ends: on the ring around P-hat
+            local ang = OrbMath.RingAngle(i, n, random)
+            o.x0, o.y0 = x + cos(ang) * XF_BLOOM_R, y + sin(ang) * XF_BLOOM_R
+        else
+            local ang, rad = random() * TWO_PI, START_RADIUS * sqrt(random())
+            o.x0, o.y0 = x + cos(ang) * rad, y + sin(ang) * rad
+        end
+        o.c1x, o.c1y = OrbMath.PopControl(i, n, o.x0, o.y0, random, spread, lift)
+        local ddx, ddy = dx - o.x0, dy - o.y0
+        o.dist0 = sqrt(ddx * ddx + ddy * ddy)
+        o.delay = random() * stagger + (rested and RESTED_DELAY or 0) + extra
+        o.dur = d.flightTime * (o.g and flight or 1) * (0.85 + random() * 0.3)
+        o.el = 0
+        o.fadeIn = o.g and 0 or fadeIn -- crossfade orbs fade in during the hold (XF_FADE_IN)
+        o.rested = rested
+        o.size = d.size * scale * (rested and RESTED_SIZE or 1)
+        o.rot0 = random() * TWO_PI
         o.under = acquire(ORB_TEX, -1, UNDER_R, UNDER_G, UNDER_B, "BLEND")
         o.orb = acquire(ORB_TEX, 0, r, g, bl)
         o.spark = acquire(SPARKLE_TEX, 1, lighten(r), lighten(g), lighten(bl))
@@ -753,11 +796,11 @@ function Orbs:PopInfo()
     return nPops, popsCreated, POP_FRAMES
 end
 
--- Stream origin for /xporbs test. popstream follows the kill rule (Target:StreamOrigin, so a hovered target starts the
--- stream at the estimate); otherwise target frame, else the cursor, else the screen centre. Returns x, y, label.
-local function testOrigin(popstream, wm, ex, ey)
+-- Stream origin for /xporbs test. popstream follows the kill rule (Target:StreamOrigin: the estimate P-hat, the
+-- portrait only without one); otherwise target frame, else the cursor, else the screen centre. Returns x, y, label.
+local function testOrigin(popstream, ex, ey)
     if popstream then
-        local sx, sy, sl = Target:StreamOrigin(wm, ex, ey)
+        local sx, sy, sl = Target:StreamOrigin(ex, ey)
         if sx then
             return sx, sy, sl
         end
@@ -808,7 +851,7 @@ function ns.commands.test(arg)
         guid = tg
     end
     local ex, ey, est, estW = ns.Mouseover:Estimate(guid)
-    local x, y, label = testOrigin(styleOf(force or d.style) == "popstream", estW, ex, ey)
+    local x, y, label = testOrigin(styleOf(force or d.style) == "popstream", ex, ey)
     local mode = Orbs:Burst({
         x = x,
         y = y,
