@@ -153,3 +153,56 @@ function OrbMath.XPDelta(oldXP, oldMax, newXP, newMax, leveled)
     end
     return max(0, delta)
 end
+
+-- Nearest permitted slider value: clamped to [lo, hi], snapped to the step grid that starts at lo, float dust removed.
+-- Returns nil for anything that is not a finite number (so callers can ignore bad input).
+function OrbMath.Snap(v, lo, hi, step)
+    if type(v) ~= "number" or v ~= v or v == math.huge or v == -math.huge then
+        return nil
+    end
+    v = clamp(v, lo, hi)
+    if type(step) == "number" and step > 0 then
+        v = lo + floor((v - lo) / step + 0.5) * step
+        v = tonumber(string.format("%.4f", v)) -- no float dust (0.15000000000000002)
+    end
+    return clamp(v, lo, hi)
+end
+
+-- Text typed into a value box -> number, or nil. Tolerates spaces and a trailing % or "s" unit.
+function OrbMath.ParseNumber(s)
+    if type(s) ~= "string" then
+        return nil
+    end
+    s = s:gsub("%s+", ""):gsub("[%%s]+$", "")
+    return tonumber(s)
+end
+
+-- Does value differ from its default? Numbers within 1e-4, colour tables per channel within 0.005, nil only equals
+-- nil (so an unset default, like targetFrame, differs whenever a value is set).
+function OrbMath.Differs(value, default)
+    if value == nil or default == nil then
+        return value ~= default
+    end
+    if type(value) == "number" and type(default) == "number" then
+        return math.abs(value - default) > 1e-4
+    end
+    if type(value) == "table" and type(default) == "table" then
+        for i = 1, max(#value, #default) do
+            local a, b = value[i], default[i]
+            if type(a) ~= "number" or type(b) ~= "number" or math.abs(a - b) > 0.005 then
+                return true
+            end
+        end
+        return false
+    end
+    return value ~= default
+end
+
+-- Diameter of the round arrival glow: 1.3 x the smaller side of the destination frame, clamped to [32, 160]; without
+-- a usable frame size, 6 x the orb size.
+function OrbMath.GlowDiameter(w, h, orbSize)
+    if type(w) == "number" and type(h) == "number" and w > 0 and h > 0 then
+        return clamp(min(w, h) * 1.3, 32, 160)
+    end
+    return (type(orbSize) == "number" and orbSize or 14) * 6
+end

@@ -5,12 +5,19 @@ globals = {
     "XPOrbsDB",
     "SLASH_XPORBS1",
     "SlashCmdList.XPORBS",
+    "StaticPopupDialogs", -- we only add one entry (XPORBS_RESET_ALL), never replace the table
 }
 
 read_globals = {
     "C_NamePlate",
     "C_AddOns",
     "Settings",
+    "C_ClassColor",
+    "C_Texture",
+    "UnitClass",
+    "RAID_CLASS_COLORS",
+    "GameTooltip",
+    "StaticPopup_Show",
     "ColorPickerFrame",
     "CreateFrame",
     "UIParent",

@@ -6,7 +6,7 @@ import pytest
 from conftest import TESTS
 
 
-def build(env, settings=True, colorpicker=True, mouse_foci=True):
+def build(env, settings=True, colorpicker=True, mouse_foci=True, pre=None):
     env.load_chunk(TESTS / "stubs_m2.lua", "stubs_m2.lua")(env.ns)
     env.load_chunk(TESTS / "stubs_m5.lua", "stubs_m5.lua")(env.ns)
     env.load_chunk(TESTS / "stubs_m3.lua", "stubs_m3.lua")(env.ns)
@@ -16,6 +16,8 @@ def build(env, settings=True, colorpicker=True, mouse_foci=True):
         env.G.ColorPickerFrame = None
     if not mouse_foci:
         env.G.GetMouseFoci = None
+    if pre:
+        pre(env)  # v0.13: tweak the stubs before the addon loads
     env.load_addon()
     env.ns.fire("ADDON_LOADED", "XPOrbs")
     env.stub = env.ns.stub
@@ -300,7 +302,9 @@ def test_reset_restores_defaults_and_refreshes_controls(m5):
     m5.db.log = m5.lua.table_from(["x"])
     show(m5)
     assert ctl(m5, "cap").value == 10
-    m5.stub.click(buttons(m5)["Reset"])
+    m5.stub.click(buttons(m5)["Reset all to default"])  # v0.13: footer button, asks first
+    assert m5.db.cap == 10
+    m5.G.StaticPopupDialogs["XPORBS_RESET_ALL"].OnAccept()
     assert (m5.db.density, m5.db.cap, m5.db.trail, m5.db.style) == (
         100,
         40,
@@ -531,7 +535,7 @@ def test_picked_frame_is_used_and_a_hidden_one_falls_back(m5):
 
 def test_panel_destination_line(m5):
     show(m5)
-    assert "XP bar frame: MainStatusTrackingBarContainer (auto)" in panel_texts(m5)
+    assert "MainStatusTrackingBarContainer (auto)" in panel_texts(m5)  # v0.13: the row label says "XP bar frame"
     m5.db.targetFrame = "Nope"
     show(m5)
     assert any(
@@ -547,7 +551,7 @@ def test_pick_refreshes_an_open_panel(m5):
     m5.stub.focus = bar
     m5.slash("pick")
     m5.stub.mouseDown("LeftButton")
-    assert "XP bar frame: MyBar (picked)" in panel_texts(m5)
+    assert "MyBar (picked)" in panel_texts(m5)
 
 
 def test_status_shows_auto_without_a_pick(m5):

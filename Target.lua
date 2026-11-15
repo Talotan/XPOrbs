@@ -28,8 +28,9 @@ local function isVisible(f)
     return f:IsShown()
 end
 
--- Fill-edge point of a frame in UIParent space, or nil if it is hidden or its geometry is unusable.
-local function frameEdge(f, xp, xpMax)
+-- Fill-edge point (or, with centre, the middle) of a frame in UIParent space plus its size, or nil if it is hidden or
+-- its geometry is unusable.
+local function frameEdge(f, xp, xpMax, centre)
     if not isVisible(f) then
         return nil
     end
@@ -43,10 +44,14 @@ local function frameEdge(f, xp, xpMax)
     end
     l, b = OrbMath.ToUIParent(l, b, fs, ps)
     w, h = OrbMath.ToUIParent(w, h, fs, ps)
-    return OrbMath.FillEdge(l, b, w, h, xp, xpMax)
+    if centre then
+        return l + w / 2, b + h / 2, w, h
+    end
+    local x, y = OrbMath.FillEdge(l, b, w, h, xp, xpMax)
+    return x, y, w, h
 end
 
-local function tryFrame(name, xp, xpMax)
+local function tryFrame(name, xp, xpMax, centre)
     if type(name) ~= "string" or name == "" then
         return nil
     end
@@ -54,15 +59,18 @@ local function tryFrame(name, xp, xpMax)
     if type(f) ~= "table" then
         return nil
     end
-    local ok, x, y = pcall(frameEdge, f, xp, xpMax)
+    local ok, x, y, w, h = pcall(frameEdge, f, xp, xpMax, centre)
     if ok and num(x) and num(y) then
-        return x, y
+        return x, y, w, h
     end
     return nil
 end
 
 -- Returns x, y, ok. ok is false when no bar frame was usable and the bottom-centre fallback was returned.
-function Target:GetDestination()
+-- Target.lastW / lastH are the destination frame's size in UIParent units (nil on the fallback).
+-- centre = true aims at the middle of the frame instead of the XP fill edge (a round target such as a portrait has
+-- no fill edge).
+function Target:GetDestination(centre)
     local okxp, xp = pcall(UnitXP, "player")
     local okmax, xpMax = pcall(UnitXPMax, "player")
     if not okxp then
@@ -71,24 +79,24 @@ function Target:GetDestination()
     if not okmax then
         xpMax = 0
     end
-    local x, y
+    local x, y, fw, fh
     local name = ns.db and ns.db.targetFrame
-    x, y = tryFrame(name, xp, xpMax)
+    x, y, fw, fh = tryFrame(name, xp, xpMax, centre)
     if not x then
         for i = 1, #BAR_FRAMES do
             name = BAR_FRAMES[i]
-            x, y = tryFrame(name, xp, xpMax)
+            x, y, fw, fh = tryFrame(name, xp, xpMax, centre)
             if x then
                 break
             end
         end
     end
     if x then
-        self.lastName, self.lastOk = name, true
+        self.lastName, self.lastOk, self.lastW, self.lastH = name, true, fw, fh
         return x, y, true
     end
     local okw, w = pcall(UIParent.GetWidth, UIParent)
-    self.lastName, self.lastOk = nil, false
+    self.lastName, self.lastOk, self.lastW, self.lastH = nil, false, nil, nil
     return (okw and num(w) and w / 2 or 0), FALLBACK_Y, false
 end
 
@@ -163,12 +171,15 @@ end
 
 local PICK_TIMEOUT = 15 -- seconds the picker stays armed
 local PICK_DEPTH = 40
-local picking, pickElapsed = false, 0
+local PICK_HL_STEP = 0.06 -- highlight refresh interval (about 16 Hz)
+local picking, pickElapsed, hlElapsed = false, 0, 0
 local pickFrame
+local hl, hlLabel, hlFor, hlBad -- highlight frame, its name label, the frame it covers, a frame that won't anchor
 
 local function isOurs(f)
     local O, Opt = ns.Orbs, ns.Options
     return f == pickFrame
+        or f == hl
         or f == ns.eventFrame
         or (O ~= nil and (f == O.overlay or f == O.driver))
         or (Opt ~= nil and f == Opt.panel)
@@ -191,8 +202,8 @@ local function mouseFocus()
     return f
 end
 
--- Name of the first frame at or above f (walking GetParent) that has a readable, non-empty name. nil when the chain
--- has none, or reaches UIParent, the WorldFrame or one of our own frames first.
+-- Name (and the frame itself) of the first frame at or above f (walking GetParent) that has a readable, non-empty
+-- name. nil when the chain has none, or reaches UIParent, the WorldFrame or one of our own frames first.
 function Target.PickName(f)
     for _ = 1, PICK_DEPTH do
         if type(f) ~= "table" or not readable(f) then
@@ -203,7 +214,7 @@ function Target.PickName(f)
         end
         local ok, name = pcall(f.GetName, f)
         if ok and type(name) == "string" and readable(name) and name ~= "" then
-            return name
+            return name, f
         end
         local okp, parent = pcall(f.GetParent, f)
         if not okp then
@@ -220,8 +231,89 @@ local function refreshPanel()
     end
 end
 
+-- One highlight frame of ours: a translucent fill, a thin border and a name label, SetAllPoints'd onto the frame that
+-- would be picked. It never takes the mouse (EnableMouse(false)), so it can't become the mouse focus itself.
+local function ensureHighlight()
+    if hl then
+        return hl
+    end
+    local f = CreateFrame("Frame", nil, UIParent)
+    f:SetFrameStrata("TOOLTIP")
+    f:EnableMouse(false)
+    local fill = f:CreateTexture(nil, "BACKGROUND")
+    fill:SetAllPoints(f)
+    fill:SetColorTexture(0.35, 0.65, 1, 0.18)
+    for i = 1, 4 do
+        local e = f:CreateTexture(nil, "OVERLAY")
+        e:SetColorTexture(0.35, 0.65, 1, 0.95)
+        if i == 1 then
+            e:SetPoint("TOPLEFT", f, "TOPLEFT", 0, 0)
+            e:SetPoint("TOPRIGHT", f, "TOPRIGHT", 0, 0)
+            e:SetHeight(2)
+        elseif i == 2 then
+            e:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 0, 0)
+            e:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", 0, 0)
+            e:SetHeight(2)
+        elseif i == 3 then
+            e:SetPoint("TOPLEFT", f, "TOPLEFT", 0, 0)
+            e:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 0, 0)
+            e:SetWidth(2)
+        else
+            e:SetPoint("TOPRIGHT", f, "TOPRIGHT", 0, 0)
+            e:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", 0, 0)
+            e:SetWidth(2)
+        end
+    end
+    local back = f:CreateTexture(nil, "ARTWORK")
+    back:SetColorTexture(0, 0, 0, 0.7)
+    local label = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    label:SetPoint("TOPLEFT", f, "TOPLEFT", 6, -6)
+    label:SetJustifyH("LEFT")
+    back:SetPoint("TOPLEFT", label, "TOPLEFT", -3, 3)
+    back:SetPoint("BOTTOMRIGHT", label, "BOTTOMRIGHT", 3, -3)
+    f:Hide()
+    hl, hlLabel = f, label
+    Target.highlight = f
+    return f
+end
+
+local function hideHighlight()
+    hlFor = nil
+    if hl then
+        pcall(hl.Hide, hl)
+    end
+end
+
+-- Highlights the frame a click would pick (same resolution as the click: Target.PickName). Never throws.
+local function updateHighlight()
+    local name, frame = Target.PickName(mouseFocus())
+    if not frame then
+        hideHighlight()
+        hlBad = nil
+        return
+    end
+    if frame == hlFor or frame == hlBad then
+        return -- unchanged (or known not to anchor): nothing to do
+    end
+    ensureHighlight()
+    local ok = pcall(function()
+        hl:ClearAllPoints()
+        hl:SetAllPoints(frame)
+    end)
+    if not ok then
+        hlBad = frame
+        hideHighlight()
+        return
+    end
+    hlBad, hlFor = nil, frame
+    pcall(hlLabel.SetText, hlLabel, name)
+    hl:Show()
+end
+
 local function disarm(msg)
     picking = false
+    hideHighlight()
+    hlBad = nil
     if pickFrame then
         pcall(pickFrame.UnregisterEvent, pickFrame, "GLOBAL_MOUSE_DOWN")
         pickFrame:SetScript("OnUpdate", nil)
@@ -251,9 +343,16 @@ local function onPickMouse(_, event, button)
 end
 
 local function onPickUpdate(_, dt)
-    pickElapsed = pickElapsed + (type(dt) == "number" and dt or 0)
+    dt = type(dt) == "number" and dt or 0
+    pickElapsed = pickElapsed + dt
     if pickElapsed >= PICK_TIMEOUT then
         disarm("pick timed out")
+        return
+    end
+    hlElapsed = hlElapsed + dt
+    if hlElapsed >= PICK_HL_STEP then
+        hlElapsed = 0
+        pcall(updateHighlight)
     end
 end
 
@@ -268,7 +367,8 @@ function Target:StartPick()
         ns.Print("pick: picking isn't available on this client (set the frame another way or leave it on auto)")
         return false
     end
-    picking, pickElapsed = true, 0
+    picking, pickElapsed, hlElapsed = true, 0, PICK_HL_STEP
+    pcall(ensureHighlight)
     pickFrame:SetScript("OnUpdate", onPickUpdate)
     ns.Print("Click the XP bar (right-click to cancel)")
     return true

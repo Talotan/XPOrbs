@@ -71,7 +71,7 @@ local XF_FADE_IN = 0.06 -- s: alpha fade-in at birth
 local XF_FLIGHT = 1.2 -- multiplier on flightTime for crossfade orbs
 local XF_EASE_OUT = 0.25 -- ease-out weight of the crossfade launch (PopEase default 0.5 = launch slope 1.5)
 
-local overlay, driver, flash
+local overlay, driver, flash, flashShape
 local freeTex, texCreated, texInUse = {}, 0, 0
 local live, nLive = {}, 0
 local freeRec = {}
@@ -97,6 +97,55 @@ local function readable(v)
     return not issecretvalue or not issecretvalue(v)
 end
 
+-- The orb colour for the next burst: the player's class colour when db.classColor is on and the API answers, else
+-- db.color. One reusable table, filled in once per burst (never per frame); the arrival flash reads it too.
+local normalC = { 0.2, 0.5, 1 }
+
+local function classRGB()
+    if not UnitClass then
+        return nil
+    end
+    local ok, r, g, b = pcall(function()
+        local _, classFile = UnitClass("player")
+        if type(classFile) ~= "string" then
+            return nil
+        end
+        local c = nil
+        if C_ClassColor and C_ClassColor.GetClassColor then
+            c = C_ClassColor.GetClassColor(classFile)
+        end
+        if not c and RAID_CLASS_COLORS then
+            c = RAID_CLASS_COLORS[classFile]
+        end
+        if c then
+            return c.r, c.g, c.b
+        end
+        return nil
+    end)
+    if ok and type(r) == "number" and type(g) == "number" and type(b) == "number" and readable(r) then
+        return r, g, b
+    end
+    return nil
+end
+
+local function resolveNormal(d)
+    local c = d.color
+    local r, g, b = c[1], c[2], c[3]
+    if d.classColor then
+        local cr, cg, cb = classRGB()
+        if cr then
+            r, g, b = cr, cg, cb
+        end
+    end
+    normalC[1], normalC[2], normalC[3] = r, g, b
+    return normalC
+end
+
+-- Round glow = the destination is a round frame (a portrait): the orbs aim at its centre, not the XP fill edge.
+local function aimCentre(d)
+    return d.glow ~= false and d.glowShape == "round"
+end
+
 local function ensureFrames()
     if overlay then
         return
@@ -111,6 +160,7 @@ local function ensureFrames()
     Orbs.driver = driver
     flash = overlay:CreateTexture(nil, "OVERLAY")
     flash:SetTexture(FLASH_TEX)
+    flashShape = "bar"
     flash:SetBlendMode("ADD")
     flash:Hide()
     texCreated = 1 -- the flash counts towards the ceiling
@@ -422,7 +472,7 @@ local function startPop(plate, n, scale, nPurple, ux, uy)
     local d = ns.db
     local m = min(n, POP_MAX)
     local nP = nPurple > 0 and floor(nPurple * m / n + 0.5) or 0
-    local ok, err = pcall(setupPop, g, plate, m, scale, nP, d.restedColor, d.color, ux, uy)
+    local ok, err = pcall(setupPop, g, plate, m, scale, nP, d.restedColor, normalC, ux, uy)
     if not ok then
         if not popErrSeen then
             popErrSeen = true
@@ -585,7 +635,7 @@ local function onUpdate(self, dt)
             g.fm = g.fadeEl >= POP_FADE_OUT and 0 or 1 - g.fadeEl / POP_FADE_OUT
         end
     end
-    local dx, dy = Target:GetDestination()
+    local dx, dy = Target:GetDestination(aimCentre(ns.db))
     local i = 1
     while i <= nLive do
         local o = live[i]
@@ -599,8 +649,10 @@ local function onUpdate(self, dt)
             else
                 local p = ft / o.dur
                 if p >= 1 then
-                    arrivedRecently = arrivedRecently + 1
-                    flashAge, flashOn, flashRested = 0, true, o.rested
+                    if ns.db.glow ~= false then
+                        arrivedRecently = arrivedRecently + 1
+                        flashAge, flashOn, flashRested = 0, true, o.rested
+                    end
                     drop = true
                 else
                     drawOrb(o, p, dx, dy)
@@ -619,18 +671,28 @@ local function onUpdate(self, dt)
 
     if flashOn then
         flashAge = flashAge + dt
-        if flashAge >= FLASH_TIME then
+        if flashAge >= FLASH_TIME or ns.db.glow == false then
             flashOn, arrivedRecently = false, 0
             flash:Hide()
         else
-            local c = flashRested and ns.db.restedColor or ns.db.color
+            local c = flashRested and ns.db.restedColor or normalC
             local a = min(1, FLASH_ALPHA + FLASH_STEP * arrivedRecently) * (1 - flashAge / FLASH_TIME)
-            local w = ns.db.size * FLASH_W
+            local shape = ns.db.glowShape == "round" and "round" or "bar"
+            if shape ~= flashShape then
+                flashShape = shape
+                flash:SetTexture(shape == "round" and ORB_TEX or FLASH_TEX) -- orb.tga is a radial gradient
+            end
             flash:SetVertexColor(c[1] + (1 - c[1]) * FLASH_WHITE, c[2] + (1 - c[2]) * FLASH_WHITE,
                 c[3] + (1 - c[3]) * FLASH_WHITE)
             flash:ClearAllPoints()
             flash:SetPoint("CENTER", overlay, "BOTTOMLEFT", dx, dy)
-            flash:SetSize(w, w / FLASH_ASPECT)
+            if shape == "round" then
+                local dia = OrbMath.GlowDiameter(Target.lastW, Target.lastH, ns.db.size)
+                flash:SetSize(dia, dia)
+            else
+                local w = ns.db.size * FLASH_W
+                flash:SetSize(w, w / FLASH_ASPECT)
+            end
             flash:SetAlpha(a)
             flash:Show()
         end
@@ -679,7 +741,8 @@ function Orbs:Burst(p)
     if type(x) ~= "number" or type(y) ~= "number" then
         x, y = UIParent:GetWidth() / 2, UIParent:GetHeight() * 0.65
     end
-    local dx, dy = Target:GetDestination()
+    local dx, dy = Target:GetDestination(aimCentre(d))
+    local normal = resolveNormal(d)
     -- P-hat: our best guess of where the mob is on screen (Kills passes the mouseover/cursor estimate)
     local px, py = p.ex, p.ey
     if type(px) ~= "number" or type(py) ~= "number" then
@@ -713,7 +776,7 @@ function Orbs:Burst(p)
             break
         end
         local rested = i <= nPurple
-        local c = rested and d.restedColor or d.color
+        local c = rested and d.restedColor or normal
         local r, g, bl = c[1], c[2], c[3]
         local o = newRec()
         o.g, o.hold, o.ew = nil, 0, nil
@@ -876,11 +939,18 @@ function ns.commands.test(arg)
         label, used))
 end
 
+local function refreshPanel()
+    if ns.Options and ns.Options.Refresh then
+        ns.Options:Refresh()
+    end
+end
+
 -- /xporbs style popstream|crossfade|stream  (/xporbs pop on|off = alias for popstream|stream)
 function ns.commands.style(arg)
     local w = string.match(arg or "", "%S+")
     if w == "popstream" or w == "crossfade" or w == "stream" then
         db().style = w
+        refreshPanel()
     elseif w ~= nil then
         ns.Print("style: use popstream, crossfade or stream")
         return
@@ -892,8 +962,10 @@ function ns.commands.pop(arg)
     local w = string.match(arg or "", "%S+")
     if w == "on" then
         db().style = "popstream"
+        refreshPanel()
     elseif w == "off" then
         db().style = "stream"
+        refreshPanel()
     elseif w ~= nil then
         ns.Print("pop: use on or off")
         return

@@ -134,3 +134,151 @@ function stub.namedFrame(name, parent)
     _G[name] = f
     return f
 end
+
+-- ---------------------------------------------------------------- v0.13 extensions
+-- scroll frames, enable/disable, edit boxes, tooltip, static popups, atlas, class colours.
+for _, name in ipairs({ "SetHighlightTexture", "EnableMouseWheel", "RegisterForClicks", "SetAutoFocus", "SetMaxLetters" }) do
+    fm[name] = function(self, ...)
+        self.calls = self.calls or {}
+        self.calls[name] = { ... }
+    end
+end
+function fm:SetAtlas(name)
+    self.atlas = name
+end
+function fm:SetTextColor(r, g, b)
+    self.textColor = { r, g, b }
+end
+function fm:Disable()
+    self.disabled = true
+end
+function fm:Enable()
+    self.disabled = false
+end
+function fm:IsEnabled()
+    return self.disabled ~= true
+end
+function fm:SetScrollChild(c)
+    self.scrollChild = c
+end
+function fm:GetScrollChild()
+    return self.scrollChild
+end
+function fm:SetVerticalScroll(v)
+    self.vscroll = v
+end
+function fm:GetVerticalScroll()
+    return self.vscroll or 0
+end
+function fm:GetVerticalScrollRange()
+    return 100
+end
+function fm:SetFocus()
+    self.hasFocus = true
+end
+function fm:ClearFocus()
+    if self.hasFocus then
+        self.hasFocus = false
+        local fn = self.scripts.OnEditFocusLost
+        if fn then
+            fn(self)
+        end
+    end
+end
+function fm:HighlightText()
+    self.highlighted = true
+end
+local baseHide = fm.Hide
+function fm:Hide()
+    baseHide(self)
+    if self.hasFocus then
+        self:ClearFocus() -- hiding a focused edit box drops its focus
+    end
+end
+
+function stub.rightClick(f)
+    local fn = f.scripts.OnClick
+    if fn then
+        fn(f, "RightButton", false)
+    end
+end
+function stub.hover(f)
+    local fn = f.scripts.OnEnter
+    if fn then
+        fn(f)
+    end
+end
+function stub.unhover(f)
+    local fn = f.scripts.OnLeave
+    if fn then
+        fn(f)
+    end
+end
+-- type into an edit box and press Enter / Escape (WoW clears focus after both)
+function stub.enterText(eb, str)
+    eb:SetText(str)
+    local fn = eb.scripts.OnEnterPressed
+    if fn then
+        fn(eb)
+    end
+    eb:ClearFocus()
+end
+function stub.escapeText(eb, str)
+    eb:SetText(str)
+    local fn = eb.scripts.OnEscapePressed
+    if fn then
+        fn(eb)
+    end
+    eb:ClearFocus()
+end
+
+stub.tooltip = { shown = false }
+GameTooltip = {
+    SetOwner = function(_, owner, anchor)
+        stub.tooltip.owner, stub.tooltip.anchor = owner, anchor
+    end,
+    SetText = function(_, t)
+        stub.tooltip.text = t
+    end,
+    Show = function()
+        stub.tooltip.shown = true
+    end,
+    Hide = function()
+        stub.tooltip.shown = false
+    end,
+}
+
+stub.popups = {}
+StaticPopupDialogs = {}
+function StaticPopup_Show(name)
+    stub.popups[#stub.popups + 1] = name
+    return true
+end
+
+stub.atlases = { ["transmog-icon-revert"] = { width = 20, height = 20 } }
+C_Texture = {
+    GetAtlasInfo = function(name)
+        return stub.atlases[name]
+    end,
+}
+
+-- Install a class: UnitClass("player") and the class colour APIs. api = false removes C_ClassColor (RAID_CLASS_COLORS
+-- stays), api = "none" removes every class colour source.
+function stub.setClass(classFile, r, g, b, api)
+    function UnitClass()
+        return classFile:sub(1, 1) .. classFile:sub(2):lower(), classFile, 2
+    end
+    RAID_CLASS_COLORS = { [classFile] = { r = r, g = g, b = b } }
+    C_ClassColor = {
+        GetClassColor = function(cf)
+            if cf == classFile then
+                return { r = r, g = g, b = b }
+            end
+        end,
+    }
+    if api == false then
+        C_ClassColor = nil
+    elseif api == "none" then
+        C_ClassColor, RAID_CLASS_COLORS = nil, nil
+    end
+end

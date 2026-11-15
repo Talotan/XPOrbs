@@ -7,6 +7,7 @@ ns.defaults = {
     size = 14,
     flightTime = 0.75,
     color = { 0.20, 0.50, 1.00 },
+    classColor = false, -- true: normal (non-rested) orbs use the player's class colour instead of `color`
     restedTint = true,
     restedColor = { 1.0, 0.30, 0.85 },
     trail = true,
@@ -15,6 +16,8 @@ ns.defaults = {
     showAtMax = false,
     debug = false,
     style = "popstream", -- kill style: "popstream" (pop at the nameplate, then stream), "crossfade" or "stream"
+    glow = true, -- arrival flash on/off
+    glowShape = "bar", -- "bar" (horizontal flash on the fill edge) or "round" (circular glow at the frame centre)
     probe = false, -- true: log kill bursts instead of drawing them
 }
 
@@ -54,6 +57,8 @@ end
 -- v2: new default colours. Only colours still equal to the old defaults are replaced (deepFill re-adds them).
 -- v3: kills go live (probe off).
 -- v4: the stream origin is always the target frame (then the screen centre); the origin option is gone.
+-- v0.13 added classColor / glow / glowShape: no schema bump, deepFill adds the missing keys (a stored false or an
+-- existing value is never overwritten, a missing key gets the default).
 local function migrate(db)
     local v = type(db.version) == "number" and db.version or 0
     if v < 2 then
@@ -140,6 +145,9 @@ function commands.debug(arg)
         return
     end
     say("debug " .. (ns.db.debug and "on" or "off"))
+    if ns.Options and ns.Options.Refresh then
+        ns.Options:Refresh()
+    end
 end
 
 function commands.status()

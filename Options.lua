@@ -1,27 +1,72 @@
 local ADDON, ns = ...
 
--- Settings panel: a canvas category under Esc > Options > AddOns, built from plain CreateFrame controls. Every control
--- writes ns.db directly (changes apply to the next burst) and the panel re-reads ns.db whenever it is shown.
+-- Settings panel (v0.13): a canvas category under Esc > Options > AddOns. Fixed title and footer, a scrolling body with
+-- a label column and a control column (layout spec: docs/review-v012/review.md). Every control writes ns.db directly
+-- (changes apply to the next burst) and the panel re-reads ns.db whenever it is shown or a slash command changes it.
 
 local Options = {}
 ns.Options = Options
 
+local OrbMath = ns.OrbMath
 local floor = math.floor
 
-local STYLES = { "popstream", "crossfade", "stream" }
-local SLIDER_W = 220
-local COL2 = 236 -- x of the second checkbox column
-local RULE_W = 520
+-- Layout (UI px, relative to the scroll child; y grows downwards).
+local HEADER_X, LABEL_X, CTRL_X, VALUE_X, RESET_X = 16, 32, 260, 472, 548
+local SLIDER_W = 200
+local RULE_W = 552
+local CONTENT_W, CONTENT_H = 584, 894 -- |last y| + 16
+local DIM = 0.4
+local SWATCH_OFF_ALPHA = 0.35
+local GREY = 0.70
+local EN_DASH = "\226\128\147"
+local POPUP = "XPORBS_RESET_ALL"
+local ICON_ATLAS = "transmog-icon-revert"
+local ICON_FALLBACK = "Interface\\Buttons\\UI-RefreshButton"
+local HILITE = "Interface\\Buttons\\ButtonHilight-Square"
 
-local refreshers = {}
+local STYLES = { "popstream", "crossfade", "stream" }
+local STYLE_NAME = { popstream = "Popstream (default)", crossfade = "Crossfade", stream = "Stream" }
+local STYLE_DESC = {
+    popstream = "A burst at the corpse, then a stream to the bar.",
+    crossfade = "Orbs bloom at the corpse, then fly straight to the bar.",
+    stream = "A plain stream from the target frame to the bar.",
+}
+local SHAPES = { "bar", "round" }
+local SHAPE_NAME = { bar = "Horizontal", round = "Circular" }
+local SHAPE_DESC = "Horizontal suits a bar. Circular suits a round target such as a portrait; orbs aim at its centre."
+
+local refreshers, postRefresh, resets = {}, {}, {}
 local refreshing = false
-Options.controls = {}
+local child -- the scroll child every row hangs off
+Options.controls = {} -- key -> the widget (checkbox, slider, swatch, radio)
+Options.rows = {} -- key -> the row frame (dimming and layout)
+Options.resets = {} -- key -> the per-row reset button
+Options.descs = {} -- style -> its description FontString
+Options.CONTENT_H = CONTENT_H
 
 local function D()
     if not ns.db then
         ns:InitDB()
     end
     return ns.db
+end
+
+local function updateResets()
+    for i = 1, #resets do
+        pcall(resets[i])
+    end
+end
+
+local function applyDim()
+    for i = 1, #postRefresh do
+        pcall(postRefresh[i])
+    end
+end
+
+-- After any value change made through the panel.
+local function changed()
+    updateResets()
+    applyDim()
 end
 
 -- Re-read every control from ns.db (OnShow, reset, slash changes).
@@ -34,7 +79,52 @@ function Options:Refresh()
         pcall(refreshers[i])
     end
     refreshing = false
+    changed()
 end
+
+local function copyDefault(v)
+    if type(v) == "table" then
+        local t = {}
+        for k, x in pairs(v) do
+            t[k] = x
+        end
+        return t
+    end
+    return v
+end
+
+local function hex(c)
+    if type(c) ~= "table" then
+        return "?"
+    end
+    local function b(v)
+        return floor((tonumber(v) or 0) * 255 + 0.5)
+    end
+    return string.format("#%02X%02X%02X", b(c[1]), b(c[2]), b(c[3]))
+end
+
+local function onOff(v)
+    return v and "on" or "off"
+end
+
+local function showTip(owner, str)
+    if not GameTooltip then
+        return
+    end
+    pcall(function()
+        GameTooltip:SetOwner(owner, "ANCHOR_RIGHT")
+        GameTooltip:SetText(str)
+        GameTooltip:Show()
+    end)
+end
+
+local function hideTip()
+    if GameTooltip then
+        pcall(GameTooltip.Hide, GameTooltip)
+    end
+end
+
+-- ---------------------------------------------------------------- building blocks
 
 local function text(parent, template, str, x, y, width)
     local fs = parent:CreateFontString(nil, "ARTWORK", template)
@@ -47,40 +137,164 @@ local function text(parent, template, str, x, y, width)
     return fs
 end
 
-local function header(parent, str, y)
-    text(parent, "GameFontNormal", str, 16, y)
-    local rule = parent:CreateTexture(nil, "ARTWORK")
-    rule:SetPoint("TOPLEFT", parent, "TOPLEFT", 16, y - 18)
+local function header(str, y)
+    text(child, "GameFontNormal", str, HEADER_X, -y)
+    local rule = child:CreateTexture(nil, "ARTWORK")
+    rule:SetPoint("TOPLEFT", child, "TOPLEFT", HEADER_X, -(y + 18))
     rule:SetSize(RULE_W, 1)
     rule:SetColorTexture(1, 1, 1, 0.15)
 end
 
-local function newCheck(parent, label, x, y)
-    local cb = CreateFrame("CheckButton", nil, parent, "UICheckButtonTemplate")
-    cb:SetSize(24, 24)
-    cb:SetPoint("TOPLEFT", parent, "TOPLEFT", x, y)
-    local fs = cb.Text or cb.text
-    if not fs then
-        fs = parent:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
-        fs:SetPoint("LEFT", cb, "RIGHT", 4, 0)
+-- A full-width row frame of height h at y. Its label, control and reset button anchor LEFT to it, so they share its
+-- centre line; it is also what dimming hangs on.
+local function newRow(y, h)
+    local row = CreateFrame("Frame", nil, child)
+    row:SetSize(CONTENT_W, h)
+    row:SetPoint("TOPLEFT", child, "TOPLEFT", 0, -y)
+    return row
+end
+
+local function label(row, str, x)
+    local fs = row:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+    fs:SetPoint("LEFT", row, "LEFT", x, 0)
+    fs:SetJustifyH("LEFT")
+    fs:SetText(str)
+    return fs
+end
+
+local function hideTemplateText(b)
+    for _, k in ipairs({ "Text", "text" }) do
+        local fs = b[k]
+        if type(fs) == "table" and fs.Hide then
+            if fs.SetText then
+                fs:SetText("")
+            end
+            fs:Hide()
+        end
     end
-    fs:SetText(label)
+end
+
+local function enable(frame, on)
+    if not frame then
+        return
+    end
+    if on then
+        if frame.Enable then
+            pcall(frame.Enable, frame)
+        end
+    elseif frame.Disable then
+        pcall(frame.Disable, frame)
+    end
+end
+
+-- Dim a row and disable what's in it while its parent setting is off.
+local function setDim(row, controls, on)
+    if row then
+        row:SetAlpha(on and 1 or DIM)
+    end
+    for _, c in ipairs(controls) do
+        enable(c, on)
+    end
+end
+
+local function newCheck(row, x)
+    local cb = CreateFrame("CheckButton", nil, row, "UICheckButtonTemplate")
+    cb:SetSize(24, 24)
+    cb:SetPoint("LEFT", row, "LEFT", x, 0)
+    hideTemplateText(cb)
     return cb
 end
 
-local function checkbox(parent, key, label, x, y)
-    local cb = newCheck(parent, label, x, y)
+-- A radio button; falls back to a check button when the template is missing.
+local function newRadio(row, x)
+    local ok, rb = pcall(CreateFrame, "CheckButton", nil, row, "UIRadioButtonTemplate")
+    if ok and rb then
+        rb:SetSize(16, 16)
+        rb:SetPoint("LEFT", row, "LEFT", x, 0)
+        hideTemplateText(rb)
+        return rb
+    end
+    return newCheck(row, x - 4)
+end
+
+-- The small revert button in the gutter. keys: db keys it resets (a colour row has two). describe() -> default text.
+local function addReset(row, name, keys, describe)
+    local btn = CreateFrame("Button", nil, row)
+    btn:SetSize(20, 20)
+    btn:SetPoint("LEFT", row, "LEFT", RESET_X, 0)
+    local tex = btn:CreateTexture(nil, "ARTWORK")
+    tex:SetAllPoints(btn)
+    local okAtlas = false
+    if C_Texture and C_Texture.GetAtlasInfo then
+        local okInfo, info = pcall(C_Texture.GetAtlasInfo, ICON_ATLAS)
+        if okInfo and info then
+            okAtlas = pcall(tex.SetAtlas, tex, ICON_ATLAS)
+        end
+    end
+    if not okAtlas then
+        tex:SetTexture(ICON_FALLBACK)
+    end
+    pcall(btn.SetHighlightTexture, btn, HILITE, "ADD")
+    btn:SetAlpha(0.75)
+    btn:SetScript("OnEnter", function(self)
+        self:SetAlpha(1)
+        showTip(self, "Reset to default: " .. describe())
+    end)
+    btn:SetScript("OnLeave", function(self)
+        self:SetAlpha(0.75)
+        hideTip()
+    end)
+    btn:SetScript("OnClick", function()
+        local d = D()
+        for _, k in ipairs(keys) do
+            d[k] = copyDefault(ns.defaults[k])
+        end
+        hideTip()
+        Options:Refresh()
+    end)
+    btn:Hide() -- shown by updateResets once the db is known; it keeps its space either way
+    resets[#resets + 1] = function()
+        local d, differs = D(), false
+        for _, k in ipairs(keys) do
+            if OrbMath.Differs(d[k], ns.defaults[k]) then
+                differs = true
+            end
+        end
+        if differs then
+            btn:Show()
+        else
+            btn:Hide()
+        end
+    end
+    for _, k in ipairs(keys) do
+        Options.resets[k] = btn
+    end
+    Options.resets[name] = btn
+    return btn
+end
+
+local function checkbox(y, key, labelStr, opts)
+    opts = opts or {}
+    local row = newRow(y, 28)
+    label(row, labelStr, opts.labelX or LABEL_X)
+    local cb = newCheck(row, CTRL_X - 3)
     cb:SetScript("OnClick", function(self)
         D()[key] = self:GetChecked() and true or false
+        changed()
     end)
     refreshers[#refreshers + 1] = function()
         cb:SetChecked(D()[key] and true or false)
     end
+    addReset(row, key, { key }, function()
+        return onOff(ns.defaults[key])
+    end)
     Options.controls[key] = cb
+    Options.rows[key] = row
+    return row, cb
 end
 
-local function newSlider(parent)
-    local ok, s = pcall(CreateFrame, "Slider", nil, parent, "OptionsSliderTemplate")
+local function newSlider(row)
+    local ok, s = pcall(CreateFrame, "Slider", nil, row, "OptionsSliderTemplate")
     if ok and s then
         -- the template's own title and min/max captions are replaced by our label and value text
         for _, k in ipairs({ "Text", "Low", "High" }) do
@@ -90,7 +304,7 @@ local function newSlider(parent)
         end
         return s
     end
-    s = CreateFrame("Slider", nil, parent)
+    s = CreateFrame("Slider", nil, row)
     s:SetOrientation("HORIZONTAL")
     s:SetThumbTexture("Interface\\Buttons\\UI-SliderBar-Button-Horizontal")
     local bg = s:CreateTexture(nil, "BACKGROUND")
@@ -101,30 +315,105 @@ local function newSlider(parent)
     return s
 end
 
-local function slider(parent, key, label, minV, maxV, step, fmt, y)
-    text(parent, "GameFontHighlight", label, 16, y)
-    local s = newSlider(parent)
-    s:SetPoint("TOPLEFT", parent, "TOPLEFT", 20, y - 20)
+-- Right-click the value to type one: an InputBoxTemplate box replaces the text; Enter or losing focus applies the
+-- nearest permitted value, Escape cancels, junk restores the old value. Returns nothing when the template is missing.
+local function attachValueEdit(row, key, val, lo, hi, step, unit)
+    local okE, eb = pcall(CreateFrame, "EditBox", nil, row, "InputBoxTemplate")
+    if not okE or not eb then
+        return
+    end
+    local hit = CreateFrame("Button", nil, row)
+    hit:SetSize(56, 20)
+    hit:SetPoint("LEFT", row, "LEFT", VALUE_X, 0)
+    pcall(hit.RegisterForClicks, hit, "RightButtonUp")
+    eb:SetSize(50, 20)
+    eb:SetPoint("LEFT", row, "LEFT", VALUE_X + 5, 0)
+    pcall(eb.SetAutoFocus, eb, false)
+    pcall(eb.SetMaxLetters, eb, 8)
+    eb:Hide()
+    local editing = false
+    local function finish(apply)
+        if not editing then
+            return
+        end
+        editing = false
+        local typed = eb:GetText()
+        eb:Hide()
+        hit:Show()
+        val:Show()
+        if apply then
+            local v = OrbMath.Snap(OrbMath.ParseNumber(typed), lo, hi, step)
+            if v then
+                D()[key] = v
+            end
+        end
+        Options:Refresh() -- repaints the slider and the value text (the old value when the input was junk)
+    end
+    eb:SetScript("OnEnterPressed", function()
+        finish(true)
+    end)
+    eb:SetScript("OnEscapePressed", function()
+        finish(false)
+    end)
+    eb:SetScript("OnEditFocusLost", function()
+        finish(true)
+    end)
+    hit:SetScript("OnClick", function(_, button)
+        if button ~= "RightButton" or editing then
+            return
+        end
+        local cur = D()[key]
+        if type(cur) ~= "number" then
+            return
+        end
+        hideTip()
+        editing = true
+        val:Hide()
+        hit:Hide()
+        eb:SetText(string.format("%g", cur))
+        eb:Show()
+        pcall(eb.SetFocus, eb)
+        pcall(eb.HighlightText, eb)
+    end)
+    hit:SetScript("OnEnter", function()
+        val:SetTextColor(1, 1, 1)
+        showTip(hit, string.format("Right-click to type a value (%g%s%g%s)", lo, EN_DASH, hi, unit))
+    end)
+    hit:SetScript("OnLeave", function()
+        val:SetTextColor(1, 0.82, 0)
+        hideTip()
+    end)
+    Options.editBoxes = Options.editBoxes or {}
+    Options.editBoxes[key] = eb
+    Options.valueTexts = Options.valueTexts or {}
+    Options.valueTexts[key] = val
+    Options.valueButtons = Options.valueButtons or {}
+    Options.valueButtons[key] = hit
+end
+
+local function slider(y, key, labelStr, lo, hi, step, fmt, unit)
+    local row = newRow(y, 32)
+    label(row, labelStr, LABEL_X)
+    local s = newSlider(row)
+    s:SetPoint("LEFT", row, "LEFT", CTRL_X, 0)
     s:SetSize(SLIDER_W, 16)
-    s:SetMinMaxValues(minV, maxV)
+    s:SetMinMaxValues(lo, hi)
     s:SetValueStep(step)
     if s.SetObeyStepOnDrag then
         s:SetObeyStepOnDrag(true)
     end
-    local val = text(parent, "GameFontNormal", "", 20 + SLIDER_W + 14, y - 19)
-    local function snap(v)
-        v = minV + floor((v - minV) / step + 0.5) * step
-        v = tonumber(string.format("%.4f", v)) -- no float dust (0.15000000000000002)
-        return math.max(minV, math.min(maxV, v))
-    end
+    local val = row:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    val:SetPoint("LEFT", row, "LEFT", VALUE_X, 0)
+    val:SetJustifyH("LEFT")
     s:SetScript("OnValueChanged", function(_, v)
-        if type(v) ~= "number" then
+        v = OrbMath.Snap(v, lo, hi, step)
+        if not v then
             return
         end
-        v = snap(v)
         val:SetText(string.format(fmt, v))
         if not refreshing then
             D()[key] = v
+            changed()
         end
     end)
     refreshers[#refreshers + 1] = function()
@@ -133,22 +422,27 @@ local function slider(parent, key, label, minV, maxV, step, fmt, y)
             return
         end
         s:SetValue(v)
-        val:SetText(string.format(fmt, snap(v)))
+        val:SetText(string.format(fmt, OrbMath.Snap(v, lo, hi, step) or v))
     end
+    attachValueEdit(row, key, val, lo, hi, step, unit)
+    addReset(row, key, { key }, function()
+        return string.format(fmt, ns.defaults[key])
+    end)
     Options.controls[key] = s
+    Options.rows[key] = row
 end
 
-local function swatch(parent, key, label, x, y)
-    local b = CreateFrame("Button", nil, parent)
+-- A colour swatch at x in the row. Returns the swatch button (hidden when there is no colour picker).
+local function swatch(row, key, x)
+    local b = CreateFrame("Button", nil, row)
     b:SetSize(22, 22)
-    b:SetPoint("TOPLEFT", parent, "TOPLEFT", x, y)
+    b:SetPoint("LEFT", row, "LEFT", x, 0)
     local border = b:CreateTexture(nil, "BACKGROUND")
     border:SetAllPoints(b)
     border:SetColorTexture(0.75, 0.75, 0.75, 1)
     local fill = b:CreateTexture(nil, "ARTWORK")
     fill:SetPoint("TOPLEFT", b, "TOPLEFT", 2, -2)
     fill:SetPoint("BOTTOMRIGHT", b, "BOTTOMRIGHT", -2, 2)
-    local cap = text(parent, "GameFontHighlight", label, x + 30, y - 4)
     local function paint()
         local c = D()[key]
         if type(c) == "table" then
@@ -156,6 +450,9 @@ local function swatch(parent, key, label, x, y)
         end
     end
     b:SetScript("OnClick", function()
+        if b.IsEnabled and not b:IsEnabled() then
+            return
+        end
         if not ColorPickerFrame or not ColorPickerFrame.SetupColorPickerAndShow then
             return
         end
@@ -170,26 +467,28 @@ local function swatch(parent, key, label, x, y)
                 local r, g, bl = ColorPickerFrame:GetColorRGB()
                 D()[key] = { r, g, bl }
                 paint()
+                changed()
             end,
             cancelFunc = function()
                 D()[key] = { prev[1], prev[2], prev[3] }
                 paint()
+                changed()
             end,
         })
     end)
     if not (ColorPickerFrame and ColorPickerFrame.SetupColorPickerAndShow) then
         b:Hide()
-        cap:Hide()
     end
     refreshers[#refreshers + 1] = paint
     Options.controls[key] = b
+    return b
 end
 
-local function button(parent, label, x, y, w, onClick)
-    local b = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
-    b:SetSize(w, 24)
-    b:SetPoint("TOPLEFT", parent, "TOPLEFT", x, y)
-    b:SetText(label)
+local function button(row, str, x, w, onClick)
+    local b = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
+    b:SetSize(w, 22)
+    b:SetPoint("LEFT", row, "LEFT", x, 0)
+    b:SetText(str)
     b:SetScript("OnClick", function()
         pcall(onClick)
     end)
@@ -201,56 +500,196 @@ local function destinationText()
     pcall(T.GetDestination, T)
     local using, picked = T.lastName, d.targetFrame
     if picked and using == picked then
-        return "XP bar frame: " .. picked .. " (picked)"
+        return picked .. " (picked)"
     elseif picked then
         return "Picked frame " .. picked .. " is unavailable; using " .. (using or "the bottom-centre fallback")
     end
-    return "XP bar frame: " .. (using and (using .. " (auto)") or "none found, using the bottom-centre fallback")
+    return using and (using .. " (auto)") or "none found, using the bottom-centre fallback"
 end
+
+-- Radio click: store the value, then repaint (this is also what re-ticks a radio the user clicked while selected).
+local function radioClick(key, v)
+    D()[key] = v
+    Options:Refresh()
+end
+
+local function registerPopup()
+    if type(StaticPopupDialogs) ~= "table" then
+        return false
+    end
+    StaticPopupDialogs[POPUP] = {
+        text = "Reset all XPOrbs settings to their defaults?",
+        button1 = "Reset",
+        button2 = "Cancel",
+        OnAccept = function()
+            pcall(ns.commands.reset)
+        end,
+        timeout = 0,
+        whileDead = true,
+        hideOnEscape = true,
+        preferredIndex = 3,
+    }
+    return true
+end
+
+local function confirmReset()
+    if StaticPopup_Show and type(StaticPopupDialogs) == "table" and StaticPopupDialogs[POPUP] then
+        if pcall(StaticPopup_Show, POPUP) then
+            return
+        end
+    end
+    ns.Print("couldn't show the confirmation; use /xporbs reset instead")
+end
+
+local function newScroll(panel)
+    for _, tpl in ipairs({ "ScrollFrameTemplate", "UIPanelScrollFrameTemplate" }) do
+        local ok, sf = pcall(CreateFrame, "ScrollFrame", nil, panel, tpl)
+        if ok and sf then
+            return sf, tpl
+        end
+    end
+    -- no template: a bare scroll frame with mouse-wheel scrolling and no bar
+    local sf = CreateFrame("ScrollFrame", nil, panel)
+    pcall(sf.EnableMouseWheel, sf, true)
+    sf:SetScript("OnMouseWheel", function(self, delta)
+        local cur, range = self:GetVerticalScroll() or 0, self:GetVerticalScrollRange() or 0
+        self:SetVerticalScroll(math.max(0, math.min(range, cur - (delta or 0) * 40)))
+    end)
+    return sf, nil
+end
+
+-- ---------------------------------------------------------------- the panel
 
 local function build()
     local panel = CreateFrame("Frame")
     Options.panel = panel
     text(panel, "GameFontNormalLarge", "XPOrbs", 16, -16)
 
-    local y = -48
-    header(panel, "General", y)
-    y = y - 26
-    checkbox(panel, "enabled", "Enabled", 16, y)
-    checkbox(panel, "restedTint", "Rested tint", COL2, y)
-    y = y - 26
-    checkbox(panel, "trail", "Trail", 16, y)
-    checkbox(panel, "questBursts", "Quest bursts", COL2, y)
-    y = y - 26
-    checkbox(panel, "showAtMax", "Show at max level", 16, y)
-    checkbox(panel, "debug", "Debug log", COL2, y)
+    local scroll, tpl = newScroll(panel)
+    Options.scroll, Options.scrollTemplate = scroll, tpl
+    scroll:SetPoint("TOPLEFT", panel, "TOPLEFT", 0, -40)
+    scroll:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -28, 44)
+    child = CreateFrame("Frame", nil, scroll)
+    child:SetSize(CONTENT_W, CONTENT_H)
+    scroll:SetScrollChild(child)
+    Options.child = child
 
-    y = y - 38
-    header(panel, "Look", y)
-    y = y - 26
-    slider(panel, "density", "Orb multiplier", 25, 400, 25, "%d%%", y)
-    y = y - 40
-    slider(panel, "cap", "Max orbs per burst", 5, 80, 1, "%d", y)
-    y = y - 40
-    slider(panel, "size", "Orb size", 8, 32, 1, "%d", y)
-    y = y - 40
-    slider(panel, "flightTime", "Flight time", 0.4, 1.5, 0.05, "%.2f s", y)
-    y = y - 42
-    swatch(panel, "color", "Orb colour", 16, y)
-    swatch(panel, "restedColor", "Rested colour", COL2, y)
+    header("General", 8)
+    checkbox(34, "enabled", "Enabled")
+    checkbox(62, "trail", "Trail")
+    checkbox(90, "questBursts", "Quest bursts")
+    checkbox(118, "showAtMax", "Show at max level")
 
-    y = y - 38
-    header(panel, "Style", y)
-    y = y - 26
+    header("Look", 160)
+    slider(186, "density", "Orb quantity multiplier", 25, 400, 25, "%d%%", "%")
+    slider(218, "cap", "Max orbs per burst", 5, 80, 1, "%d", "")
+    slider(250, "size", "Orb size", 8, 32, 1, "%d", "")
+    slider(282, "flightTime", "Flight time", 0.4, 1.5, 0.05, "%.2f s", " s")
+
+    -- Orb colour: swatch + "Class colour" checkbox; one reset button resets both
+    local crow = newRow(314, 28)
+    Options.rows.color = crow
+    local clabel = label(crow, "Orb colour", LABEL_X)
+    local sw = swatch(crow, "color", CTRL_X)
+    local ccb = newCheck(crow, 297)
+    label(crow, "Class colour", 297 + 24 + 2)
+    ccb:SetScript("OnClick", function(self)
+        D().classColor = self:GetChecked() and true or false
+        changed()
+    end)
+    refreshers[#refreshers + 1] = function()
+        ccb:SetChecked(D().classColor and true or false)
+    end
+    Options.controls.classColor = ccb
+    addReset(crow, "color", { "color", "classColor" }, function()
+        return hex(ns.defaults.color) .. ", class colour " .. onOff(ns.defaults.classColor)
+    end)
+    postRefresh[#postRefresh + 1] = function()
+        local on = not D().classColor
+        enable(sw, on)
+        sw:SetAlpha(on and 1 or SWATCH_OFF_ALPHA)
+    end
+    if not sw:IsShown() then
+        clabel:Hide() -- no colour picker on this client: the colour can't be edited, class colour still works
+    end
+
+    checkbox(342, "restedTint", "Rested tint")
+    local rrow = newRow(370, 28)
+    Options.rows.restedColor = rrow
+    local rlabel = label(rrow, "Rested colour", 48)
+    local rsw = swatch(rrow, "restedColor", CTRL_X)
+    addReset(rrow, "restedColor", { "restedColor" }, function()
+        return hex(ns.defaults.restedColor)
+    end)
+    if not rsw:IsShown() then
+        rlabel:Hide()
+    end
+    postRefresh[#postRefresh + 1] = function()
+        setDim(rrow, { rsw }, D().restedTint)
+    end
+
+    header("Arrival glow", 412)
+    checkbox(438, "glow", "Show glow")
+    local shrow = newRow(466, 24)
+    Options.rows.glowShape = shrow
+    label(shrow, "Shape", LABEL_X)
+    local shapeBtns = {}
+    for i, sh in ipairs(SHAPES) do
+        local x = CTRL_X + (i - 1) * 130
+        local rb = newRadio(shrow, x)
+        label(shrow, SHAPE_NAME[sh], x + 22)
+        rb:SetScript("OnClick", function()
+            radioClick("glowShape", sh)
+        end)
+        shapeBtns[#shapeBtns + 1] = rb
+        Options.controls["glowShape_" .. sh] = rb
+    end
+    refreshers[#refreshers + 1] = function()
+        local cur = D().glowShape
+        for i, sh in ipairs(SHAPES) do
+            shapeBtns[i]:SetChecked(cur == sh)
+        end
+    end
+    addReset(shrow, "glowShape", { "glowShape" }, function()
+        return SHAPE_NAME[ns.defaults.glowShape] or tostring(ns.defaults.glowShape)
+    end)
+    local sdrow = newRow(492, 42)
+    Options.rows.glowShapeDesc = sdrow
+    local sd = sdrow:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+    sd:SetPoint("TOPLEFT", sdrow, "TOPLEFT", CTRL_X, 0)
+    sd:SetWidth(300)
+    sd:SetJustifyH("LEFT")
+    sd:SetWordWrap(true)
+    sd:SetTextColor(GREY, GREY, GREY)
+    sd:SetText(SHAPE_DESC)
+    Options.shapeDesc = sd
+    postRefresh[#postRefresh + 1] = function()
+        local on = D().glow ~= false
+        setDim(shrow, shapeBtns, on)
+        sdrow:SetAlpha(on and 1 or DIM)
+    end
+
+    header("Style", 540)
     local radios = {}
     for i, st in ipairs(STYLES) do
-        local cb = newCheck(panel, st, 16 + (i - 1) * 140, y)
-        cb:SetScript("OnClick", function()
-            D().style = st
-            Options:Refresh()
+        local y = 566 + (i - 1) * 46
+        local row = newRow(y, 24)
+        local rb = newRadio(row, LABEL_X)
+        label(row, STYLE_NAME[st], LABEL_X + 22)
+        rb:SetScript("OnClick", function()
+            radioClick("style", st)
         end)
-        radios[st] = cb
-        Options.controls["style_" .. st] = cb
+        radios[st] = rb
+        Options.controls["style_" .. st] = rb
+        Options.rows["style_" .. st] = row
+        local desc = text(child, "GameFontHighlight", STYLE_DESC[st], LABEL_X + 22, -(y + 24), 490)
+        desc:SetTextColor(GREY, GREY, GREY)
+        Options.descs[st] = desc
+        if i == 1 then
+            addReset(row, "style", { "style" }, function()
+                return STYLE_NAME[ns.defaults.style] or tostring(ns.defaults.style)
+            end)
+        end
     end
     refreshers[#refreshers + 1] = function()
         local cur = D().style
@@ -258,35 +697,59 @@ local function build()
             radios[st]:SetChecked(cur == st)
         end
     end
-    y = y - 28
-    local hint = text(panel, "GameFontHighlightSmall", "popstream: a burst at the corpse, then a stream to the bar. "
-        .. "crossfade: orbs bloom at the corpse, then fly to the bar. stream: a plain stream from the target frame.",
-        20, y, RULE_W - 8)
-    hint:SetWordWrap(true)
 
-    y = y - 44
-    header(panel, "XP bar", y)
-    y = y - 26
-    local dest = text(panel, "GameFontHighlight", "", 16, y, RULE_W)
+    header("XP bar", 718)
+    local drow = newRow(744, 36)
+    Options.rows.targetFrame = drow
+    label(drow, "XP bar frame", LABEL_X)
+    local dest = drow:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+    dest:SetPoint("LEFT", drow, "LEFT", CTRL_X, 0)
+    dest:SetWidth(280)
+    dest:SetJustifyH("LEFT")
+    dest:SetWordWrap(true)
     refreshers[#refreshers + 1] = function()
         dest:SetText(destinationText())
     end
-    y = y - 28
-    button(panel, "Pick XP bar frame", 16, y, 150, function()
+    addReset(drow, "targetFrame", { "targetFrame" }, function()
+        return "auto-detect"
+    end)
+    local prow = newRow(780, 30)
+    button(prow, "Pick XP bar frame", CTRL_X, 150, function()
         ns.commands.pick("")
     end)
-    button(panel, "Test burst", 176, y, 110, function()
-        ns.commands.test("5")
+
+    header("Advanced", 824)
+    checkbox(850, "debug", "Debug log")
+
+    -- fixed footer
+    local rule = panel:CreateTexture(nil, "ARTWORK")
+    rule:SetPoint("BOTTOMLEFT", panel, "BOTTOMLEFT", 16, 44)
+    rule:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -16, 44)
+    rule:SetHeight(1)
+    rule:SetColorTexture(1, 1, 1, 0.15)
+    local test = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+    test:SetSize(110, 22)
+    test:SetPoint("BOTTOMLEFT", panel, "BOTTOMLEFT", 16, 11)
+    test:SetText("Test burst")
+    test:SetScript("OnClick", function()
+        -- the same orbs a kill would make: rested ones too when Rested tint is on
+        pcall(ns.commands.test, D().restedTint and "5 rested" or "5")
     end)
-    button(panel, "Reset", 296, y, 90, function()
-        ns.commands.reset()
-    end)
+    local resetAll = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+    resetAll:SetSize(160, 22)
+    resetAll:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -72, 11)
+    resetAll:SetText("Reset all to default")
+    resetAll:SetScript("OnClick", confirmReset)
+    Options.resetAll = resetAll
+    registerPopup()
 
     panel:SetScript("OnShow", function()
         Options:Refresh()
     end)
     return panel
 end
+
+Options.POPUP = POPUP
 
 if Settings and Settings.RegisterCanvasLayoutCategory and Settings.RegisterAddOnCategory then
     local ok, err = pcall(function()
