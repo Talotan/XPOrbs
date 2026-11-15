@@ -44,9 +44,13 @@ function OrbMath.RestedSplit(n, amount, rested)
     return n - nPurple, nPurple
 end
 
--- Where a burst's rested bonus comes from. Chat wins; else a fresh exhaustion-pool drop for this kill (the pool shrinks
--- by the bonus XP granted); else half the gain (rested kills pay double) capped by the pool; else nothing.
--- Returns rested|nil, source = "chat" | "pool" | "estimate" | "none".
+-- Where a burst's rested bonus comes from. Chat wins; else a fresh exhaustion-pool drop for this kill; else an estimate
+-- from the current pool; else nothing.
+-- Forever drains the pool by the FULL gain of a kill, not just the bonus (in-game log, 2026-11-15: exhDrop == delta on
+-- all seven kills), and rested doubles kill XP, so the bonus is half of the XP the pool covered: bonus = covered / 2.
+--   pool:     covered = min(drop, amount)
+--   estimate: covered = min(amount, pool now)  (no drop seen: assume the whole gain was rested, capped by the pool)
+-- Both round half up. Returns rested|nil, source = "chat" | "pool" | "estimate" | "none".
 function OrbMath.RestedFallback(amount, chatRested, exhDrop, exhNow)
     if type(chatRested) == "number" then
         return chatRested, "chat"
@@ -55,10 +59,10 @@ function OrbMath.RestedFallback(amount, chatRested, exhDrop, exhNow)
         return nil, "none"
     end
     if type(exhDrop) == "number" and exhDrop > 0 then
-        return min(exhDrop, amount), "pool"
+        return floor(min(exhDrop, amount) / 2 + 0.5), "pool"
     end
     if type(exhNow) == "number" and exhNow > 0 then
-        return min(floor(amount / 2 + 0.5), exhNow), "estimate"
+        return floor(min(amount, exhNow) / 2 + 0.5), "estimate"
     end
     return nil, "none"
 end

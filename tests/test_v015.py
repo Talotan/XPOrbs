@@ -88,12 +88,12 @@ def test_fallback_chat_wins_over_everything(fb):
 
 
 def test_fallback_pool_drop(fb):
-    assert fb(100, None, 30, 500) == (30, "pool")
-    assert fb(100, None, 30, None) == (30, "pool")
+    assert fb(100, None, 30, 500) == (15, "pool")
+    assert fb(100, None, 30, None) == (15, "pool")
 
 
 def test_fallback_drop_is_capped_at_the_amount(fb):
-    assert fb(100, None, 250, 500) == (100, "pool")
+    assert fb(100, None, 250, 500) == (50, "pool")
 
 
 def test_fallback_zero_or_bad_drop_falls_through_to_estimate(fb):
@@ -105,8 +105,27 @@ def test_fallback_zero_or_bad_drop_falls_through_to_estimate(fb):
 def test_fallback_estimate_rounds_half_up_and_caps_at_the_pool(fb):
     assert fb(101, None, None, 500) == (51, "estimate")
     assert fb(99, None, None, 500) == (50, "estimate")
-    assert fb(100, None, None, 20) == (20, "estimate")
+    assert fb(100, None, None, 20) == (10, "estimate")
     assert fb(1, None, None, 500) == (1, "estimate")
+
+
+def test_fallback_pool_drop_equal_to_amount_is_half(fb):
+    assert fb(246, None, 246, 1832) == (123, "pool")  # in-game log: exhDrop == delta
+
+
+def test_fallback_pool_drop_below_amount_is_drop_over_two(fb):
+    assert fb(100, None, 40, 500) == (20, "pool")
+    assert fb(100, None, 41, 500) == (21, "pool")  # half up
+
+
+def test_fallback_pool_drop_above_amount_is_amount_over_two(fb):
+    assert fb(100, None, 300, 500) == (50, "pool")
+
+
+def test_fallback_estimate_with_small_pool_is_pool_over_two(fb):
+    assert fb(100, None, None, 30) == (15, "estimate")
+    assert fb(100, None, None, 31) == (16, "estimate")
+    assert fb(100, None, None, 100) == (50, "estimate")
 
 
 def test_fallback_none_cases(fb):
@@ -178,9 +197,9 @@ def test_drop_known_before_emit_uses_the_pool(env):
     g.chat()
     g.tick(0.5, 3)
     (b,) = g.bursts()
-    assert b["nPurple"] == 3  # floor(14 * 10 / 50 + 0.5); the estimate would give 7
+    assert b["nPurple"] == 1  # rested 5 (half of the 10 covered): floor(14 * 5 / 50 + 0.5); the estimate would give 7
     line = burst_logs(g)[-1]
-    assert src_of(line) == "pool" and "rested=10 " in line
+    assert src_of(line) == "pool" and "rested=5 " in line
 
 
 @pytest.mark.parametrize("early", [True, False])
@@ -203,7 +222,7 @@ def test_exhaustion_event_around_the_xp_update_counts_once(env, early):
     g.chat()
     g.tick(0.5, 3)
     (b,) = g.bursts()
-    assert b["nPurple"] == 3
+    assert b["nPurple"] == 1
     assert src_of(burst_logs(g)[-1]) == "pool"
 
 
@@ -275,7 +294,7 @@ def test_estimate_is_capped_by_the_pool(env):
     g = setup(env)
     g.stub.exh = 10
     kill(g, xp=50)
-    assert g.bursts()[0]["nPurple"] == 3  # floor(14 * 10 / 50 + 0.5)
+    assert g.bursts()[0]["nPurple"] == 1  # pool 10 covers 10 of 50: rested 5, floor(14 * 5 / 50 + 0.5)
 
 
 def test_other_bursts_ignore_the_pool(env):
@@ -397,3 +416,26 @@ def test_logs_never_contain_names(env):
     g.stub.exh = 500
     kill(g, xp=50)
     assert not any("Boar" in x for x in g.log())
+
+
+def test_same_kill_gives_the_same_purple_via_pool_and_estimate(env):
+    """Forever drains the pool by the whole gain, so a pool drop of 246 and an estimate for 246 must agree."""
+    g = setup(env)
+    g.stub.exh = 1832
+    g.ns.fire("PLAYER_ENTERING_WORLD")
+    # kill 1, pool route: the drop of the full 246 arrives with the XP update
+    g.plate(guid="G1", name="Boar", cx=300, cy=200)
+    g.tick(0.05)
+    g.stub.removePlate("nameplate1", True)
+    g.stub.exh = 1832 - 246
+    g.stub.setXP(246)
+    g.chat("Boar dies, you gain 246 experience.")
+    g.tick(0.5, 3)
+    g.tick(2, 2)
+    # kill 2, estimate route: the pool does not move, so no drop is seen
+    kill(g, "Boar dies, you gain 246 experience.", xp=492)
+    b1, b2 = g.bursts()
+    lines = burst_logs(g)
+    assert [src_of(x) for x in lines] == ["pool", "estimate"]
+    assert all("rested=123 " in x for x in lines)
+    assert b1["nPurple"] == b2["nPurple"] > 0

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.16
+- **Rested split halved.** The v0.15 debug log showed Forever never prints a rested bonus in kill messages (`tail=""` on every CHAT line) and drains the rested pool by the **whole** kill gain (`exhDrop == delta` on all seven kills, e.g. 246 and 282), while quest XP leaves it alone. The `pool` branch therefore reported the entire gain as rested (100% magenta) and the `estimate` branch half, so the same 246 XP kill rendered either way depending on event timing.
+- Rested kills pay double, so the bonus is half of the XP the pool covered. `OrbMath.RestedFallback`: `pool` = `floor(min(drop, amount) / 2 + 0.5)`; `estimate` = `floor(min(amount, pool now) / 2 + 0.5)` (the cap is now on the covered XP, not the bonus). Both sources agree for the same kill. Chat still wins; `restedSrc` values unchanged.
+- DB schema unchanged (4). Tests: `tests/test_v015.py` updated, new cases added.
+
 ## 0.15
 - **Arrival panel reordered and renamed:** "Target frame shape" (radios and description), "Target offset X" / "Target offset Y" (with their description line), then "Show glow", then "Glow intensity" (still dims with Show glow off). Everything below moved down 6 px (content height 1076).
 - **Rested XP was never detected in real play** (11 of 11 kills logged `rested=nil` while rested). Diagnostics and a fallback, both in `Kills.lua`:
