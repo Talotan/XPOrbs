@@ -8,11 +8,15 @@ CHAT_RESTED = "Boar dies, you gain 50 experience. (+25 exp Rested bonus)"
 
 
 class Game:
-    def __init__(self, env, probe=True, debug=True):
+    def __init__(self, env, probe=True, debug=True, pre=None):
         self.env = env
         self.ns = env.ns
         self.stub = env.ns.stub
         env.load_chunk(TESTS / "stubs_m3.lua", "stubs_m3.lua")(env.ns)
+        if pre:
+            pre(
+                env.ns.stub
+            )  # e.g. stub.failEvents, before the addon registers its events
         env.load_addon()
         env.ns.fire("ADDON_LOADED", "XPOrbs")
         self.db = env.G.XPOrbsDB
@@ -70,7 +74,9 @@ def test_tier2_plate_removed_dead_then_chat(env):
     assert g.stats()["tier2"] == 1 and g.stats()["tier1"] == 0
     (b,) = g.bursts()
     assert (b["x"], b["y"]) == (960, 626.4)  # no target frame: the default estimate
-    assert b["n"] == 14 and b["scale"] == 1 and b["nPurple"] == 0 and b["kind"] == "kill"
+    assert (
+        b["n"] == 14 and b["scale"] == 1 and b["nPurple"] == 0 and b["kind"] == "kill"
+    )
     assert g.has_log(
         "BURST tier=2 kind=kill amount=50 rested=nil hadXY=true origin=estimate plate=yes probe=false"
     )
@@ -293,8 +299,13 @@ def test_tier4_falls_back_to_target_then_screen_centre(env):
     g.chat()
     g.tick(0.6)
     (b,) = g.bursts()
-    assert (b["x"], b["y"]) == (960, 626.4)  # plate positions are no longer used as the stream origin
-    assert g.has_log("tier=4 kind=kill amount=50 rested=nil hadXY=false origin=estimate plate=no")
+    assert (b["x"], b["y"]) == (
+        960,
+        626.4,
+    )  # plate positions are no longer used as the stream origin
+    assert g.has_log(
+        "tier=4 kind=kill amount=50 rested=nil hadXY=false origin=estimate plate=no"
+    )
 
 
 def test_tier4_screen_centre_when_no_target(env):

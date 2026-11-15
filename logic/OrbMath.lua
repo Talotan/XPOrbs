@@ -44,6 +44,25 @@ function OrbMath.RestedSplit(n, amount, rested)
     return n - nPurple, nPurple
 end
 
+-- Where a burst's rested bonus comes from. Chat wins; else a fresh exhaustion-pool drop for this kill (the pool shrinks
+-- by the bonus XP granted); else half the gain (rested kills pay double) capped by the pool; else nothing.
+-- Returns rested|nil, source = "chat" | "pool" | "estimate" | "none".
+function OrbMath.RestedFallback(amount, chatRested, exhDrop, exhNow)
+    if type(chatRested) == "number" then
+        return chatRested, "chat"
+    end
+    if type(amount) ~= "number" or amount <= 0 then
+        return nil, "none"
+    end
+    if type(exhDrop) == "number" and exhDrop > 0 then
+        return min(exhDrop, amount), "pool"
+    end
+    if type(exhNow) == "number" and exhNow > 0 then
+        return min(floor(amount / 2 + 0.5), exhNow), "estimate"
+    end
+    return nil, "none"
+end
+
 -- Quadratic Bezier point at t.
 function OrbMath.Bezier(t, x0, y0, cx, cy, x1, y1)
     local u = 1 - t

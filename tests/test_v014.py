@@ -267,11 +267,12 @@ def test_round_flash_lands_on_the_centre_plus_offset(m):
 @pytest.mark.parametrize(
     "key,y,h",
     [
-        ("glowShape", 466, 24),
-        ("glowShapeDesc", 492, 56),
-        ("glowIntensity", 554, 32),
-        ("glowOffsetX", 586, 32),
-        ("glowOffsetY", 618, 32),
+        ("glowShape", 438, 24),
+        ("glowShapeDesc", 464, 56),
+        ("glowOffsetX", 526, 32),
+        ("glowOffsetY", 558, 32),
+        ("glow", 616, 28),
+        ("glowIntensity", 644, 32),
     ],
 )
 def test_new_rows_follow_the_grid(m, key, y, h):
@@ -291,14 +292,14 @@ def test_new_sliders_use_the_slider_columns_and_ranges(m):
         assert s.points[1][4] == 260 and s.width == 200
         assert m.opt.valueButtons[key].points[1][4] == 472 and m.opt.editBoxes[key]
     labels = panel_texts(m)
-    for t in ("Glow intensity", "Offset X", "Offset Y"):
+    for t in ("Glow intensity", "Target offset X", "Target offset Y"):
         assert t in labels
 
 
 def test_offset_description_line(m):
     d = m.opt.offsetDesc
     assert d.text == "Moves where orbs land and the glow appears (pixels)."
-    assert (d.points[1][4], d.points[1][5]) == (32, -654)
+    assert (d.points[1][4], d.points[1][5]) == (32, -594)
     assert [d.textColor[i] for i in (1, 2, 3)] == pytest.approx([0.7, 0.7, 0.7])
 
 
@@ -391,16 +392,16 @@ def test_picker_hint_fontstring(m):
     )
     assert [h.textColor[i] for i in (1, 2, 3)] == pytest.approx([0.7, 0.7, 0.7])
     assert h.width == 520 and h.calls["SetWordWrap"][1] is True
-    assert (h.points[1][4], h.points[1][5]) == (32, -958)
+    assert (h.points[1][4], h.points[1][5]) == (32, -964)
     assert h.text in panel_texts(m)
 
 
 def test_content_height_grew_and_rows_below_moved(m):
-    assert m.opt.CONTENT_H == 1070 and m.opt.child.height == 1070
-    assert m.opt.rows["debug"].points[1][5] == -1026
-    assert 1026 + 28 + 16 == m.opt.CONTENT_H
+    assert m.opt.CONTENT_H == 1076 and m.opt.child.height == 1076
+    assert m.opt.rows["debug"].points[1][5] == -1032
+    assert 1032 + 28 + 16 == m.opt.CONTENT_H
     # the blocks above stack without overlap
-    assert 654 + 14 <= 684 and 924 + 30 <= 958 and 958 + 28 <= 1000
+    assert 594 + 16 <= 616 and 930 + 30 <= 964 and 964 + 28 <= 1006
 
 
 # ---------------------------------------------------------------- design-review fixes (docs/review-v013)

@@ -668,11 +668,9 @@ local function build()
     y = y + 28
     -- "Arrival": the shape and offsets decide where orbs land even with the glow off
     y = header("Arrival", y + 14)
-    checkbox(y, "glow", "Show glow")
-    y = y + 28
     local shrow = newRow(y, 24)
     Options.rows.glowShape = shrow
-    label(shrow, "Shape", LABEL_X)
+    label(shrow, "Target frame shape", LABEL_X)
     local shapeBtns = {}
     for i, sh in ipairs(SHAPES) do
         local x = CTRL_X + (i - 1) * 130
@@ -707,19 +705,21 @@ local function build()
 
     -- the shape and offsets describe the target frame, so they stay live with Show glow off; only the intensity dims
     y = y + 62
-    slider(y, "glowIntensity", "Glow intensity", 25, 200, 5, "%d%%", "%")
-    postRefresh[#postRefresh + 1] = function()
-        setDim(Options.rows.glowIntensity, { Options.controls.glowIntensity }, D().glow ~= false)
-    end
-y = y + 32
-    slider(y, "glowOffsetX", "Offset X", -100, 100, 1, "%d px", " px")
+    slider(y, "glowOffsetX", "Target offset X", -100, 100, 1, "%d px", " px")
     y = y + 32
-    slider(y, "glowOffsetY", "Offset Y", -100, 100, 1, "%d px", " px")
+    slider(y, "glowOffsetY", "Target offset Y", -100, 100, 1, "%d px", " px")
     y = y + 36
     local od = text(child, "GameFontHighlight", OFFSET_DESC, LABEL_X, -y, 490)
     od:SetTextColor(GREY, GREY, GREY)
     Options.offsetDesc = od
-    y = y + 16
+    y = y + 22
+    checkbox(y, "glow", "Show glow")
+    y = y + 28
+    slider(y, "glowIntensity", "Glow intensity", 25, 200, 5, "%d%%", "%")
+    postRefresh[#postRefresh + 1] = function()
+        setDim(Options.rows.glowIntensity, { Options.controls.glowIntensity }, D().glow ~= false)
+    end
+    y = y + 32
 
     y = header("Style", y + 14)
     local radios = {}

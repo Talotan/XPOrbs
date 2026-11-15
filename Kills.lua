@@ -24,6 +24,19 @@ local unitDiedRegistered = false
 local pendingChat, pendingDelta -- { amount, t, kind } awaiting their counterpart for AMOUNTCHECK
 local lastDropped = 0
 
+-- Rested pool tracking (fallback rested detection when chat carries no "(+N exp Rested bonus)"). exhCur is the last
+-- known pool (nil = unknown); every observed decrease is a drop. A drop is attached to the XP update it arrived with
+-- (UPDATE_EXHAUSTION may land just before or just after PLAYER_XP_UPDATE) and later claimed by the kill burst whose
+-- amount equals that update, so it is counted once. See emitBurst.
+local DROP_TTL = 2.0 -- a recorded XP update stays claimable by a kill this long
+local ACCUM_TTL = 1.0 -- a drop seen before any XP update is attached to the next one within this long
+local LATE_WINDOW = 0.5 -- UPDATE_EXHAUSTION after an XP update still belongs to it within this long
+local exhCur
+local accumDrop, accumT = 0, 0
+local xpEntries = {} -- { amount, drop, t } one per positive XP delta not yet claimed by a burst
+local awaiting = {} -- { amount, t } kill bursts emitted before their XP update arrived (it must not be kept)
+local lastOtherChat -- { amount, rested, t } most recent non-kill chat XP with a rested bonus
+
 local function log(...)
     ns:Log(...)
 end
@@ -49,6 +62,58 @@ local function refreshXP()
     if okm and num(mx) then
         xpCache.max = mx
     end
+end
+
+-- Returns raw, state: raw = the API value for logging (nil when not rested or unreadable); state = the pool for
+-- tracking (nil API value while readable = empty pool = 0; errors and secret values = unknown nil).
+local function readExh()
+    local ok, v = pcall(GetXPExhaustion)
+    if not ok then
+        return nil, nil
+    end
+    if v == nil then
+        return nil, 0
+    end
+    if num(v) then
+        return v, v
+    end
+    return nil, nil
+end
+
+-- Folds a new pool reading into exhCur and returns how much it dropped (0 when not known to have dropped).
+local function observeExh(state)
+    local drop = 0
+    if exhCur and state and state < exhCur then
+        drop = exhCur - state
+    end
+    exhCur = state
+    return drop
+end
+
+local function pruneExh(now)
+    for i = #xpEntries, 1, -1 do
+        if now - xpEntries[i].t > DROP_TTL then
+            table.remove(xpEntries, i)
+        end
+    end
+    for i = #awaiting, 1, -1 do
+        if now - awaiting[i].t > DROP_TTL then
+            table.remove(awaiting, i)
+        end
+    end
+end
+
+-- Takes the XP update recorded for a kill of this amount, FIFO. Returns its drop (nil if none recorded yet).
+local function claimDrop(amount, now)
+    pruneExh(now)
+    for i, e in ipairs(xpEntries) do
+        if e.amount == amount then
+            table.remove(xpEntries, i)
+            return e.drop
+        end
+    end
+    awaiting[#awaiting + 1] = { amount = amount, t = now }
+    return nil
 end
 
 -- Poller: runs only while the matcher has something queued.
@@ -108,15 +173,31 @@ local function emitBurst(b)
     if b.kind == "kill" then
         ex, ey, est, wm = ns.Mouseover:Estimate(b.guid) -- once per burst; b.guid is never logged
     end
+    local now = GetTime()
+    local chatRested, exhDrop = b.rested, nil
+    local restedAmt, restedSrc
+    if b.kind == "kill" then
+        exhDrop = claimDrop(b.amount, now)
+        local rawNow = readExh()
+        restedAmt, restedSrc = OrbMath.RestedFallback(b.amount, chatRested, exhDrop, rawNow)
+    else
+        if lastOtherChat and lastOtherChat.amount == b.amount and now - lastOtherChat.t <= 1.5 then
+            chatRested = lastOtherChat.rested -- quests etc.: only a chat-reported bonus counts, never the pool
+            lastOtherChat = nil
+        end
+        restedAmt, restedSrc = OrbMath.RestedFallback(b.amount, chatRested, nil, nil)
+    end
+    b.rested = restedAmt
     local x, y, origin = chooseOrigin(b, ex, ey)
     local probe = isProbe()
     local plate
     if b.kind == "kill" and db.style ~= "stream" then
         plate = b.plate or ns.Target:TargetPlate()
     end
-    ns:Log("BURST tier=%d kind=%s amount=%s rested=%s hadXY=%s origin=%s plate=%s probe=%s est=%s w=%.2f", b.tier,
+    ns:Log("BURST tier=%d kind=%s amount=%s rested=%s hadXY=%s origin=%s plate=%s probe=%s est=%s w=%.2f restedSrc=%s",
+        b.tier,
         tostring(b.kind), tostring(b.amount), tostring(b.rested), tostring(hadXY), origin, plate and "yes" or "no",
-        tostring(probe), est or "none", wm or 0)
+        tostring(probe), est or "none", wm or 0, restedSrc)
     if probe or not db.enabled or x == nil then
         return
     end
@@ -254,13 +335,24 @@ function handlers.CHAT_MSG_COMBAT_XP_GAIN(msg)
     local isReadable = readable(msg)
     local res = isReadable and parser:Parse(msg, readable) or nil
     local r = res or {}
-    ns:Log("CHAT msgReadable=%s kind=%s amount=%s rested=%s penalty=%s", tostring(isReadable),
-        tostring(r.kind or "none"),
-        tostring(r.amount), tostring(r.rested), tostring(r.penalty))
+    -- tail: what follows the first "experience." (no mob name in it), to see whether a bonus suffix exists
+    local tail = ""
+    if isReadable and type(msg) == "string" then
+        local _, e = string.find(msg, "experience.", 1, true)
+        if e then
+            tail = string.sub(msg, e + 1, e + 60)
+        end
+    end
+    ns:Log("CHAT msgReadable=%s kind=%s amount=%s rested=%s penalty=%s%s", tostring(isReadable),
+        tostring(r.kind or "none"), tostring(r.amount), tostring(r.rested), tostring(r.penalty),
+        isReadable and string.format(' tail="%s"', tail) or "")
     if not res then
         return
     end
     noteChat(res)
+    if res.kind == "other" and res.rested then
+        lastOtherChat = { amount = res.amount, rested = res.rested, t = GetTime() }
+    end
     if res.kind == "kill" then
         matcher:AddKillXP({ amount = res.amount, mob = res.mob, rested = res.rested })
         ensurePoll()
@@ -286,12 +378,46 @@ function handlers.PLAYER_XP_UPDATE(unit)
     end
     local delta = OrbMath.XPDelta(xpCache.xp, xpCache.max, xp, mx, wasLeveled)
     xpCache.xp, xpCache.max = xp, mx
-    ns:Log("XPUPDATE delta=%s leveled=%s xp=%s max=%s", tostring(delta), tostring(wasLeveled), tostring(xp),
-        tostring(mx))
+    local now = GetTime()
+    local rawExh, stateExh = readExh()
+    local drop = observeExh(stateExh)
+    if accumDrop > 0 and now - accumT <= ACCUM_TTL then
+        drop = drop + accumDrop
+    end
+    accumDrop = 0
+    ns:Log("XPUPDATE delta=%s leveled=%s xp=%s max=%s exh=%s exhDrop=%s", tostring(delta), tostring(wasLeveled),
+        tostring(xp), tostring(mx), tostring(rawExh), tostring(drop > 0 and drop or nil))
     if delta > 0 then
+        local claimed = false
+        for i, a in ipairs(awaiting) do -- the burst was emitted before this update: it can no longer use the drop
+            if a.amount == delta and now - a.t <= DROP_TTL then
+                table.remove(awaiting, i)
+                claimed = true
+                break
+            end
+        end
+        if not claimed then
+            xpEntries[#xpEntries + 1] = { amount = delta, drop = drop, t = now }
+        end
         noteDelta(delta)
         matcher:AddDelta(delta)
         ensurePoll()
+    end
+end
+
+function handlers.UPDATE_EXHAUSTION()
+    local rawExh, stateExh = readExh()
+    local drop = observeExh(stateExh)
+    ns:Log("EXH exh=%s drop=%s", tostring(rawExh), tostring(drop > 0 and drop or nil))
+    if drop <= 0 then
+        return
+    end
+    local now = GetTime()
+    local last = xpEntries[#xpEntries]
+    if last and last.drop == 0 and now - last.t <= LATE_WINDOW then
+        last.drop = drop -- arrived just after its XP update
+    else
+        accumDrop, accumT = accumDrop + drop, now -- arrived first: the next XP update takes it
     end
 end
 
@@ -302,6 +428,8 @@ end
 
 function handlers.PLAYER_ENTERING_WORLD()
     refreshXP()
+    local _, stateExh = readExh()
+    exhCur, accumDrop = stateExh, 0 -- re-baseline: a zone change is not a drop
     ns:Log("PLAYER_ENTERING_WORLD xp cached=%s", tostring(xpCache.xp ~= nil and xpCache.max ~= nil))
 end
 
@@ -324,6 +452,7 @@ frame:RegisterEvent("PLAYER_XP_UPDATE")
 frame:RegisterEvent("PLAYER_LEVEL_UP")
 unitDiedRegistered = pcall(frame.RegisterEvent, frame, "UNIT_DIED") and true or false
 Kills.unitDiedRegistered = unitDiedRegistered
+Kills.exhaustionRegistered = pcall(frame.RegisterEvent, frame, "UPDATE_EXHAUSTION") and true or false
 frame:SetScript("OnEvent", function(_, event, ...)
     local fn = handlers[event]
     if not fn then
@@ -336,6 +465,7 @@ frame:SetScript("OnEvent", function(_, event, ...)
 end)
 
 refreshXP()
+exhCur = select(2, readExh())
 
 table.insert(ns.statusProviders, function()
     local s = matcher:Stats()

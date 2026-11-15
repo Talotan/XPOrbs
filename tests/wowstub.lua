@@ -14,6 +14,13 @@ end
 function UnitXPMax()
     return stub.xpMax
 end
+stub.exh = nil -- rested pool: nil (not rested), a number, or stub.SECRET (stubs_m3); stub.exhError makes the call raise
+function GetXPExhaustion()
+    if stub.exhError then
+        error("GetXPExhaustion unavailable")
+    end
+    return stub.exh
+end
 
 local frameMethods = {}
 frameMethods.__index = frameMethods

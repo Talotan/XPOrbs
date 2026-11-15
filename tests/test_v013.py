@@ -256,7 +256,7 @@ def test_scroll_frame_exists_with_the_specified_anchors_and_content_height(m):
     ]
     assert pts[0][0] == "TOPLEFT" and (pts[0][3], pts[0][4]) == (0, -40)
     assert pts[1][0] == "BOTTOMRIGHT" and (pts[1][3], pts[1][4]) == (-28, 44)
-    assert o.child.width == 584 and o.child.height == pytest.approx(1070, abs=2)  # v0.14: 894 + 176
+    assert o.child.width == 584 and o.child.height == pytest.approx(1076, abs=2)  # v0.14: 894 + 176
 
 
 def test_scroll_template_falls_back(env):
@@ -291,13 +291,13 @@ def test_scroll_frame_without_any_template_still_scrolls(env):
         ("color", 314),
         ("restedTint", 342),
         ("restedColor", 370),
-        ("glow", 438),
-        ("glowShape", 466),
-        ("style_popstream", 710),
-        ("style_crossfade", 756),
-        ("style_stream", 802),
-        ("targetFrame", 888),
-        ("debug", 1026),
+        ("glow", 616),
+        ("glowShape", 438),
+        ("style_popstream", 716),
+        ("style_crossfade", 762),
+        ("style_stream", 808),
+        ("targetFrame", 894),
+        ("debug", 1032),
     ],
 )
 def test_row_positions_follow_the_spec(m, key, y):
@@ -369,7 +369,7 @@ def test_label_rename(m):
         "Rested tint",
         "Rested colour",
         "Show glow",
-        "Shape",
+        "Target frame shape",
         "Horizontal",
         "Circular",
         "XP bar frame",
@@ -406,9 +406,9 @@ def test_style_radios_use_the_radio_template_and_each_has_a_description(m):
 def test_style_description_positions(m):
     d = m.opt.descs
     for st, y in (
-        ("popstream", 710 + 24),
-        ("crossfade", 756 + 24),
-        ("stream", 802 + 24),
+        ("popstream", 716 + 24),
+        ("crossfade", 762 + 24),
+        ("stream", 808 + 24),
     ):
         pt = d[st].points[1]
         assert (pt[4], pt[5]) == (56, -y) and d[st].width == 490  # flush with the label (x + 24)

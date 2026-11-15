@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.15
+- **Arrival panel reordered and renamed:** "Target frame shape" (radios and description), "Target offset X" / "Target offset Y" (with their description line), then "Show glow", then "Glow intensity" (still dims with Show glow off). Everything below moved down 6 px (content height 1076).
+- **Rested XP was never detected in real play** (11 of 11 kills logged `rested=nil` while rested). Diagnostics and a fallback, both in `Kills.lua`:
+  - Debug log: `CHAT` gains `tail="..."` (text after the first "experience.", at most 60 chars, no mob name); `XPUPDATE` gains `exh=` and `exhDrop=`; a new `EXH exh=.. drop=..` line on `UPDATE_EXHAUSTION` (registered via pcall); `BURST` ends with `restedSrc=chat|pool|estimate|none` and its `rested=` is now the effective value.
+  - `OrbMath.RestedFallback(amount, chatRested, exhDrop, exhNow)`: chat value, else the exhaustion-pool drop that came with this kill's XP update (capped at the amount), else half the gain capped by the current pool, else none. Only matters with Rested tint on.
+  - Drops are tracked from `GetXPExhaustion` (pcall + readable; nil/secret = unknown) on `PLAYER_XP_UPDATE`, `UPDATE_EXHAUSTION`, `PLAYER_ENTERING_WORLD` and at load, attached to the XP update they arrived with and claimed by the burst with the same amount, so a drop is used once. Non-kill bursts only use a chat-reported bonus.
+  - XPParse matching is unchanged.
+- DB schema unchanged (4). Tests: `tests/test_v015.py`.
+
 ## 0.14
 - **Glow intensity** (`db.glowIntensity`, percent 25-200, step 5, default 100), in Arrival glow after Shape. With k = percent / 100 the flash alpha is multiplied by k (clamped to 1) and its size by 0.8 + 0.2k, for both shapes (`OrbMath.GlowIntensity`). Dimmed while Show glow is off.
 - **Circular shape aims at the frame centre whatever Show glow says.** The shape now describes the target frame (bar or round), so `aimCentre` only looks at `db.glowShape`. The Shape row and its description no longer dim when Show glow is off. New description: "Horizontal: orbs land on the bar's fill edge. Circular: orbs land on the centre of a round frame such as a portrait."
