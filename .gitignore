@@ -3,3 +3,5 @@ tools/bin/
 __pycache__/
 .pytest_cache/
 tools/preview/
+.ruff_cache/
+dist/

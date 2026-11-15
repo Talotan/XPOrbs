@@ -1,0 +1,10 @@
+title = "XPOrbs"
+
+[extend]
+useDefault = true
+
+# False positive: generic-api-key fires on `guid="Creature-0-1-GUIDTEST", ... cx=g.stub.SECRET`
+# (a fake WoW GUID and a stub constant) in the test suite.
+[allowlist]
+description = "Fake creature GUID / stub constant in tests"
+paths = ['''tests/test_v010\.py''']

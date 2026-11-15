@@ -1,3 +1,4 @@
+-- SPDX-License-Identifier: GPL-3.0-or-later
 local ADDON, ns = ...
 
 -- Pure logic: pairs deaths (position) with chat kill-XP and XP deltas into bursts. Touches no WoW globals.

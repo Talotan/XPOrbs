@@ -1,7 +1,7 @@
 # Changelog
 
 ## 1.0.0 (2026-11-15)
-First stable release, signed off by Talotan after an extended in-game questing session with no Lua errors.
+First stable release, signed off after an extended in-game questing session with no Lua errors.
 - Same code as 0.17; version bumped only.
 - The planned final design-review pass on a kill clip was skipped (no clip was recorded). The v0.10 clip review and
   the v0.12/v0.13 panel reviews are the latest visual reviews (`docs/review-*`).
@@ -95,7 +95,7 @@ Release candidate (M6).
 ## 0.7
 - Re-probe: nameplates can't be measured on Forever (plate and proxy GetCenter both error every time). Measuring now switches itself off after 20 failures; `geom:` shows `measurable=` and the last error.
 - Anchored origin: orbs start at the mob's plate without measuring it. The path is rewritten as weight*P + known offset, and two invisible StatusBars spanning UIParent's corner to the plate produce the weighted anchor point.
-- Target-frame origin (Talotan's idea): fallback when there is no plate, and selectable with `/xporbs origin plate|frame`; `/xporbs test [pct] [rested] [frame|plate]`.
+- Target-frame origin: fallback when there is no plate, and selectable with `/xporbs origin plate|frame`; `/xporbs test [pct] [rested] [frame|plate]`.
 - PlateReused: orbs anchored to a plate that gets reassigned fade out.
 
 ## 0.6

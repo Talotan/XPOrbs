@@ -1,3 +1,4 @@
+-- SPDX-License-Identifier: GPL-3.0-or-later
 local ADDON, ns = ...
 
 -- Settings panel (v0.13): a canvas category under Esc > Options > AddOns. Fixed title and footer, a scrolling body with

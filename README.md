@@ -1,25 +1,51 @@
 # XPOrbs
 
-XPOrbs is a World of Warcraft addon for the Forever client. When you gain experience, a burst of orbs flies to your
-XP bar. For a kill the burst starts at the mob; the number of orbs grows with the share of the current level that
-the kill gave. Rested experience is drawn in a second colour.
+[![License](https://img.shields.io/github/license/Talotan/XPOrbs)](LICENSE)
+[![Latest release](https://img.shields.io/github/v/release/Talotan/XPOrbs)](https://github.com/Talotan/XPOrbs/releases)
 
-## Requirements
+A World of Warcraft addon for the Forever client. When you gain experience, a burst of orbs flies to your XP bar. For a
+kill the burst starts at the mob, and rested experience is drawn in a second colour.
 
-- WoW Forever (Interface 16001).
+![Orbs flying from a kill to the XP bar](docs/images/hero.gif)
+<!-- TODO: capture in game -->
+
+The number of orbs grows with the share of the current level that the gain gave, so a big kill looks bigger than a
+trivial one.
+
+## Compatibility
+
+- WoW Forever only (`## Interface: 16001`). It has not been tested on Retail or any Classic client.
+- The English client is tested. Other languages should work, because the XP message patterns are built from the
+  client's own strings, but this is untested.
 - The default UI XP bar, or another frame you pick with `/xporbs pick`.
-
-It has not been tested on any other client.
 
 ## Installation
 
-Copy or clone this folder to `_forever_\Interface\AddOns\XPOrbs`, then `/reload` or restart the game. The folder
-name must be `XPOrbs`.
+### CurseForge
+
+Open the CurseForge app, choose the WoW Forever flavor (instance), and search for XPOrbs. Some users had to reinstall
+the CurseForge app before the Forever flavor appeared.
+<!-- TODO: link to CurseForge page -->
+
+### Wago
+
+Open the Wago app, choose WoW Forever, and search for XPOrbs.
+<!-- TODO: link to Wago page -->
+
+### Manual
+
+1. Download `XPOrbs-<version>.zip` from [GitHub Releases](https://github.com/Talotan/XPOrbs/releases).
+2. Extract it into `World of Warcraft\_forever_\Interface\AddOns\` so that you end up with
+   `AddOns\XPOrbs\XPOrbs.toc`. The folder must be named `XPOrbs`.
+3. `/reload` or restart the game.
 
 ## Usage
 
 Settings are saved per account in `XPOrbsDB`. The options panel is under Esc > Options > AddOns > XPOrbs, or
 `/xporbs options`.
+
+![Options panel](docs/images/options.png)
+<!-- TODO: capture in game -->
 
 | Command | What it does |
 |---|---|
@@ -51,8 +77,9 @@ produces exactly one burst.
 - `UNIT_DIED` carries the dead unit's GUID. If it matches a tracked hostile nameplate, the kill has a plate (tier 1).
 - If the nameplate is removed while the unit is dead and no `UNIT_DIED` matched, that also counts as a death (tier 2).
 - `CHAT_MSG_COMBAT_XP_GAIN` carries the mob name and the XP amount. The message patterns are built from the client's
-  own `COMBATLOG_XPGAIN_*` strings, so they follow the client's language (only English has been tested). A message with no death to pair with (for example, the
-  GUID was unreadable) still produces a burst after 0.5 s, just without a plate (tier 4).
+  own `COMBATLOG_XPGAIN_*` strings, so they follow the client's language (only English has been tested). A message
+  with no death to pair with (for example, the GUID was unreadable) still produces a burst after 0.5 s, just without
+  a plate (tier 4).
 - `PLAYER_XP_UPDATE` gives the XP delta. A delta equal to a pending kill's amount claims that kill, so it is not also
   shown as a second burst. A delta that no kill claims within 0.4 s is non-kill XP.
 
@@ -137,6 +164,19 @@ only: it never records mob names or GUIDs.
 
 To check for Lua errors, run `/console scriptErrors 1`.
 
+## Reporting bugs
+
+Open an issue on [GitHub](https://github.com/Talotan/XPOrbs/issues) and include:
+
+- the output of `/xporbs status`;
+- if you can, the debug log: run `/xporbs debug on`, reproduce the problem, `/reload`, then attach
+  `WTF\Account\<account>\SavedVariables\XPOrbs.lua`. It holds counts and timings only, never names or GUIDs.
+
+## Roadmap
+
+- Per-source origins for non-kill XP: quest turn-ins start at the quest window, exploration and so on.
+- Auto-detect common XP bar replacement addons.
+
 ## Development
 
 ```
@@ -150,9 +190,9 @@ Orbs.lua             overlay, texture pool, plate-anchored frames, flight and gl
 Options.lua          settings panel
 logic/               pure Lua: XPParse, OrbMath, KillMatcher, MobEstimate (no WoW globals)
 media/               orb, sparkle and flash textures
-tools/               make_textures.py
+tools/               make_textures.py, package.py
 tests/               pytest suite and the WoW API stubs
-docs/                ROADMAP.md, probe notes, design reviews
+docs/                probe notes (probe-results.md) and README images
 ```
 
 The tests run the addon's Lua 5.1 code under [lupa](https://github.com/scoder/lupa) against a stub of the WoW API.
@@ -162,7 +202,7 @@ The stub can drive events and time, and it emulates restricted regions so that a
 uv run pytest -q
 ```
 
-`luacheck` and StyLua are not installed here. `.luacheckrc` and `stylua.toml` hold their configuration, and
+`.luacheckrc` and `stylua.toml` hold the luacheck and StyLua configuration. Neither tool is required, and
 `tests/test_lint.py` stands in for the lint: it compiles every file, loads the addon in a sandbox and fails on any
 global other than `XPOrbsDB` and `SLASH_XPORBS1`. Lines are at most 120 columns.
 
@@ -172,6 +212,14 @@ The textures are generated rather than drawn. To rebuild them (and a preview she
 uv run --with pillow python tools/make_textures.py --preview
 ```
 
+To build `dist/XPOrbs-<version>.zip`, the same files the release workflow ships:
+
+```
+uv run python tools/package.py
+```
+
+Releases are built by the [BigWigsMods packager](https://github.com/BigWigsMods/packager) when a `v*` tag is pushed.
+
 For development, link the repository into the game folder instead of copying it:
 
 ```
@@ -180,4 +228,5 @@ New-Item -ItemType Junction -Path "<WoW>\_forever_\Interface\AddOns\XPOrbs" -Tar
 
 ## License
 
-No license has been chosen yet.
+Copyright (C) 2026 Talotan. XPOrbs is free software under the GNU General Public License v3.0 or later; see
+[LICENSE](LICENSE).

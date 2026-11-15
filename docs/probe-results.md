@@ -1,6 +1,6 @@
 # M3 probe results
 
-**Session:** 2026-11-13, WoW Forever 1.60.1, Wetlands, level 22 Shaman (Talotan), XPOrbs v0.4 with `debug` and `probe` on.
+**Session:** 2026-11-13, WoW Forever 1.60.1, Wetlands, level 22 Shaman, XPOrbs v0.4 with `debug` and `probe` on.
 
 **Data:** 6 kills in about 10 minutes, all mobs around the player's level, nameplates visible. There was no grey mob, no quest turn-in and no rested XP.
 

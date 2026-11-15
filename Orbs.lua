@@ -1,3 +1,4 @@
+-- SPDX-License-Identifier: GPL-3.0-or-later
 local ADDON, ns = ...
 
 -- Orb renderer: one overlay frame, a hand-rolled texture pool and a single OnUpdate driver that only runs

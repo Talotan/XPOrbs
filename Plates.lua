@@ -1,3 +1,4 @@
+-- SPDX-License-Identifier: GPL-3.0-or-later
 local ADDON, ns = ...
 
 -- Nameplate tracker. Remembers which hostile plates exist (unit token -> GUID, name, hostile) so a kill can be

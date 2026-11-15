@@ -1,3 +1,4 @@
+-- SPDX-License-Identifier: GPL-3.0-or-later
 local ADDON, ns = ...
 
 -- Kill pipeline: wires UNIT_DIED / plate removal / chat XP / XP deltas into one KillMatcher and turns its bursts into

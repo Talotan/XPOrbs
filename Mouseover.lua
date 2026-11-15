@@ -1,3 +1,4 @@
+-- SPDX-License-Identifier: GPL-3.0-or-later
 local ADDON, ns = ...
 
 -- Mouseover sampler: while the cursor is over a hostile unit it remembers (GUID -> cursor position), which is the best

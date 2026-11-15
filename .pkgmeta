@@ -1,0 +1,16 @@
+package-as: XPOrbs
+
+manual-changelog:
+  filename: CHANGELOG.md
+  markup-type: markdown
+
+ignore:
+  - tests
+  - tools
+  - docs
+  - .github
+  - pyproject.toml
+  - uv.lock
+  - .luacheckrc
+  - stylua.toml
+  - .gitleaks.toml
