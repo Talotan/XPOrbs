@@ -1,7 +1,13 @@
 # Changelog
 
+## 1.0.0 (2026-11-15)
+First stable release, signed off by Talotan after an extended in-game questing session with no Lua errors.
+- Same code as 0.17; version bumped only.
+- The planned final design-review pass on a kill clip was skipped (no clip was recorded). The v0.10 clip review and
+  the v0.12/v0.13 panel reviews are the latest visual reviews (`docs/review-*`).
+
 ## 0.17
-Release candidate (M6). 1.0.0 comes after Talotan's final in-game sign-off.
+Release candidate (M6).
 - **Plate geometry removed entirely.** Nameplates are restricted regions on Forever, and the old one-time `GetCenter` attempt on a plate put `Lua Taint: XPOrbs` in the error text before it disabled itself. Nothing measures a plate any more. Gone from `Plates.lua`: the position sampler, the A/B measuring methods, the proxy frames, position caching (`entry.x/y/t`), `Plates:Sample`, `Plates:TargetEntry`, `Plates.measurable`, `Plates.stats` and the `PLAYER_TARGET_CHANGED` hook. Kept: tracking by unit (GUID, name, hostile), `deadAtRemoval` for tier-2 deaths, the held list, `FindByGUID`, and the plate frame as the single-anchor parent of the pop and crossfade frames. A small retry (every 0.25 s, only while a hostile plate has no readable GUID) replaces the 30 Hz sampler.
 - Deaths never carry x/y; `KillMatcher` still accepts them (nil is fine).
 - **Log and status lines changed.** Removed `hadPos` (PLATE_ADDED, PLATE_REMOVED, DEATH), `geomOK` / `geomSecret`, `GEOM_ERR`, `GEOM disabled`, `hadXY` and `probe` (BURST). `/xporbs status` loses the `geom:` line; `plates:` now reads `tracked= held= retry=active|idle` and `kills:` no longer shows `probe=`.
