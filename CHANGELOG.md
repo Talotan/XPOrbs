@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.1 (2026-11-15)
+
+- The addon now shows as "XP Orbs" in the AddOns list and the options panel. The folder, `/xporbs` and saved settings
+  are unchanged.
+- First release on CurseForge.
+
 ## 1.0.0 (2026-11-15)
 
 First public release, for WoW Forever (Interface 16001).

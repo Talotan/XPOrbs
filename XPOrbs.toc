@@ -3,7 +3,8 @@
 ## Notes: Blue orbs fly from a killed mob to your XP bar, scaled to the XP gained.
 ## Author: Talotan
 ## X-License: GPL-3.0-or-later
-## Version: 1.0.0
+## X-Curse-Project-ID: 1807336
+## Version: 1.0.1
 ## SavedVariables: XPOrbsDB
 
 Core.lua
