@@ -6,7 +6,11 @@ requires-python = ">=3.12"
 dependencies = []
 
 [dependency-groups]
-dev = ["pytest", "lupa"]
+dev = [
+    "pytest",
+    "lupa",
+    "forever-lint==0.2.0",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

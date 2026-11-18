@@ -12,6 +12,15 @@ wheels = [
 ]
 
 [[package]]
+name = "forever-lint"
+version = "0.2.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/a0/2c/f1eaa2f643d14cf9014d88cced53ce1a3815736eea8a7ac9fc0001d9d15a/forever_lint-0.2.0.tar.gz", hash = "sha256:56f4847c716f7e29bd8e174d7675dfa77607de14b2c7651c1f174734b421285a", size = 352528, upload-time = "2026-11-05T16:27:27.129Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/fd/ba/42e9cda0e3fa44beadf7db06428e15a33fc7b48178d3703b358a5b7262e7/forever_lint-0.2.0-py3-none-any.whl", hash = "sha256:784c663840f0dd3fe454a3a3bb314b14ae15c521c4f5a0c132f8835758d3801e", size = 209686, upload-time = "2026-11-05T16:27:25.553Z" },
+]
+
+[[package]]
 name = "iniconfig"
 version = "2.3.1"
 source = { registry = "https://pypi.org/simple" }
@@ -122,6 +131,7 @@ source = { virtual = "." }
 
 [package.dev-dependencies]
 dev = [
+    { name = "forever-lint" },
     { name = "lupa" },
     { name = "pytest" },
 ]
@@ -130,6 +140,7 @@ dev = [
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "forever-lint", specifier = "==0.2.0" },
     { name = "lupa" },
     { name = "pytest" },
 ]

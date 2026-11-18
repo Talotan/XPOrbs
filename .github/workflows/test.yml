@@ -5,12 +5,18 @@ on:
     branches: [main]
   pull_request:
 
+# Tests and lint only read the repo.
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: astral-sh/setup-uv@v10.3.3
-      - run: uv run pytest -q
-      # pipx is preinstalled on the ubuntu runners; the addon has only 2 notes, so this passes
-      - run: pipx run forever-lint==0.2.0 . --fail-on error --no-color
+      - run: uv run --locked pytest -q
+      # forever-lint is a dev dependency pinned by hash in uv.lock; the addon has only 2 notes, so this passes
+      - run: uv run --locked forever-lint . --fail-on error --no-color
