@@ -44,6 +44,25 @@ function CreateFrame(kind, name, parent, template)
     if kind == "CheckButton" then
         f.checked = false
     end
+    if kind == "DropdownButton" then
+        -- Blizzard's modern dropdown: SetupMenu keeps the generator, GenerateMenu runs it against a root that records
+        -- the radios it is given (text, isSelected() as evaluated now, the setSelected callback)
+        function f:SetupMenu(gen)
+            self.menuGen = gen
+            self:GenerateMenu()
+        end
+        function f:GenerateMenu()
+            local root = { entries = {} }
+            function root:CreateRadio(text, isSelected, setSelected, data)
+                self.entries[#self.entries + 1] =
+                    { text = text, selected = isSelected(), setSelected = setSelected, data = data }
+            end
+            self.menuRoot = root
+            if self.menuGen then
+                self.menuGen(self, root)
+            end
+        end
+    end
     return f
 end
 function fm:GetName()
@@ -123,6 +142,18 @@ function stub.click(f)
     if fn then
         fn(f, "LeftButton", false)
     end
+end
+
+-- what a user does in a modern dropdown: open its menu (regenerated, as the client does) and pick a radio by its text
+function stub.pickMenu(dd, text)
+    dd:GenerateMenu()
+    for _, e in ipairs(dd.menuRoot.entries) do
+        if e.text == text then
+            e.setSelected()
+            return true
+        end
+    end
+    return false
 end
 
 -- picking

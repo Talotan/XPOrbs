@@ -16,7 +16,8 @@ ns.defaults = {
     questBursts = true,
     targetFrame = nil,
     showAtMax = false, -- at max level: a small burst of orbs flies to the portrait when an engaged hostile dies
-    sound = false, -- chime as orbs arrive (media/chime1-6.ogg)
+    sound = false, -- chime as orbs arrive
+    soundVoice = "coin", -- which chime: "coin" or "glass" (media/coin1-6.ogg, media/glass1-6.ogg)
     debug = false,
     style = "popstream", -- kill style: "popstream" (pop at the nameplate, then stream), "crossfade" or "stream"
     glow = true, -- arrival flash on/off
@@ -160,6 +161,9 @@ local function sanitize(db)
     if db.glowShape ~= "bar" and db.glowShape ~= "round" then
         db.glowShape = defaults.glowShape
     end
+    if db.soundVoice ~= "coin" and db.soundVoice ~= "glass" then
+        db.soundVoice = defaults.soundVoice
+    end
     for _, key in ipairs(BOOLEANS) do
         if type(db[key]) ~= "boolean" then
             db[key] = defaults[key]
@@ -241,7 +245,7 @@ function commands.help()
     say("/xporbs help - this list")
     say("/xporbs debug on|off - toggle debug logging")
     say("/xporbs debug maxlevel on|off - pretend to be at max level (this session only)")
-    say("/xporbs sound on|off - chime when orbs arrive")
+    say("/xporbs sound on|off|coin|glass - chime when orbs arrive (coin or glass picks the sound)")
     say("/xporbs status - show addon state")
     say("/xporbs test [pct] [rested] [style] - fire a test burst on your target")
     say("/xporbs test stress [n] - fire n test bursts over about 2 seconds (default 20, max 100)")

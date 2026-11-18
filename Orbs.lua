@@ -13,10 +13,12 @@ local Target = ns.Target
 local ORB_TEX = "Interface\\AddOns\\XPOrbs\\media\\orb"
 local SPARKLE_TEX = "Interface\\AddOns\\XPOrbs\\media\\sparkle"
 local FLASH_TEX = "Interface\\AddOns\\XPOrbs\\media\\flash"
--- the six chime notes (built once: nothing is concatenated while orbs fly)
-local CHIME_PATHS = {}
-for i = 1, 6 do
-    CHIME_PATHS[i] = "Interface\\AddOns\\XPOrbs\\media\\chime" .. i .. ".ogg"
+-- the six notes of each chime voice (built once: nothing is concatenated while orbs fly)
+local VOICE_PATHS = { coin = {}, glass = {} }
+for voice, paths in pairs(VOICE_PATHS) do
+    for i = 1, 6 do
+        paths[i] = "Interface\\AddOns\\XPOrbs\\media\\" .. voice .. i .. ".ogg"
+    end
 end
 
 local TWO_PI = math.pi * 2
@@ -675,7 +677,7 @@ local function playChime(key)
     if not n then
         return
     end
-    local ok, willPlay = pcall(PlaySoundFile, CHIME_PATHS[n], "SFX")
+    local ok, willPlay = pcall(PlaySoundFile, (VOICE_PATHS[ns.db.soundVoice] or VOICE_PATHS.coin)[n], "SFX")
     if not ok or willPlay == false then
         soundDead = true
         ns:Log("SOUND_ERR %s", ok and "the client won't play the file" or string.sub(tostring(willPlay), 1, 120))
@@ -1211,22 +1213,34 @@ local function refreshPanel()
     end
 end
 
--- /xporbs sound on|off: the arrival chime. Turning it on also clears a SOUND_ERR shutdown, so it can be retried.
+-- /xporbs sound on|off|coin|glass: the arrival chime. Turning it on also clears a SOUND_ERR shutdown, so it can be
+-- retried. coin and glass pick the sound (and turn the chime on).
 function ns.commands.sound(arg)
     local w = string.match(arg or "", "%S+")
-    if w == "on" then
+    if w == "on" or w == "coin" or w == "glass" then
         db().sound = true
+        if w ~= "on" then
+            db().soundVoice = w
+        end
         soundDead = false
         refreshPanel()
     elseif w == "off" then
         db().sound = false
         refreshPanel()
     elseif w ~= nil then
-        ns.Print("sound: use on or off")
+        ns.Print("sound: use on, off, coin or glass")
         return
     end
     local note = soundDead and " (switched off this session: the client wouldn't play the file)" or ""
-    ns.Print("chime: " .. (db().sound and "on" or "off") .. note)
+    ns.Print("chime: " .. (db().sound and "on" or "off") .. ", " .. tostring(db().soundVoice) .. note)
+end
+
+-- Plays one note of a voice so the options panel can preview it (even with the chime off). One pcall, no state.
+function Orbs:PreviewSound(voice)
+    local paths = VOICE_PATHS[voice]
+    if paths and PlaySoundFile then
+        pcall(PlaySoundFile, paths[random(6)], "SFX")
+    end
 end
 
 -- true once a sound failure has switched the chime off for this session

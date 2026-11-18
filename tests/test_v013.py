@@ -257,8 +257,8 @@ def test_scroll_frame_exists_with_the_specified_anchors_and_content_height(m):
     assert pts[0][0] == "TOPLEFT" and (pts[0][3], pts[0][4]) == (0, -40)
     assert pts[1][0] == "BOTTOMRIGHT" and (pts[1][3], pts[1][4]) == (-28, 44)
     assert o.child.width == 584 and o.child.height == pytest.approx(
-        1104, abs=2
-    )  # v0.14: 894 + 176; +28 for the 1.1.0 chime checkbox
+        1132, abs=2
+    )  # v0.14: 894 + 176; +28 for the 1.1.0 chime checkbox, +28 for its Sound row
 
 
 def test_scroll_template_falls_back(env):
@@ -287,20 +287,21 @@ def test_scroll_frame_without_any_template_still_scrolls(env):
         ("questBursts", 90),
         ("showAtMax", 118),
         ("sound", 146),
-        ("density", 214),
-        ("cap", 246),
-        ("size", 278),
-        ("flightTime", 310),
-        ("color", 342),
-        ("restedTint", 370),
-        ("restedColor", 398),
-        ("glow", 644),
-        ("glowShape", 466),
-        ("style_popstream", 744),
-        ("style_crossfade", 790),
-        ("style_stream", 836),
-        ("targetFrame", 922),
-        ("debug", 1060),
+        ("soundVoice", 174),
+        ("density", 242),
+        ("cap", 274),
+        ("size", 306),
+        ("flightTime", 338),
+        ("color", 370),
+        ("restedTint", 398),
+        ("restedColor", 426),
+        ("glow", 672),
+        ("glowShape", 494),
+        ("style_popstream", 772),
+        ("style_crossfade", 818),
+        ("style_stream", 864),
+        ("targetFrame", 950),
+        ("debug", 1088),
     ],
 )
 def test_row_positions_follow_the_spec(m, key, y):
@@ -413,9 +414,9 @@ def test_style_radios_use_the_radio_template_and_each_has_a_description(m):
 def test_style_description_positions(m):
     d = m.opt.descs
     for st, y in (
-        ("popstream", 744 + 24),
-        ("crossfade", 790 + 24),
-        ("stream", 836 + 24),
+        ("popstream", 772 + 24),
+        ("crossfade", 818 + 24),
+        ("stream", 864 + 24),
     ):
         pt = d[st].points[1]
         assert (pt[4], pt[5]) == (56, -y) and d[

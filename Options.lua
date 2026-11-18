@@ -37,7 +37,10 @@ local SHAPE_NAME = { bar = "Horizontal", round = "Circular" }
 local SHAPE_DESC = "Horizontal: orbs land on the bar's fill edge. Circular: orbs land on the centre of a round frame "
     .. "such as a portrait."
 local MAX_TIP = "At max level, each kill sends a small burst of orbs to your portrait."
-local SOUND_TIP = "A soft, glassy tink as each orb arrives (up to six per burst). Off by default."
+local SOUND_TIP = "Coin: a soft coin clink. Glass: a glassy tink. One per arriving orb (up to six per burst). "
+    .. "Off by default."
+local VOICES = { "coin", "glass" }
+local VOICE_NAME = { coin = "Coin", glass = "Glass" }
 local OFFSET_DESC = "Moves where orbs land and the glow appears (pixels)."
 local PICK_HINT = "Use this if another addon replaces the default XP bar, or to send the orbs somewhere else, such as "
     .. "your portrait with the Circular shape."
@@ -544,6 +547,68 @@ local function radioClick(key, v)
     Options:Refresh()
 end
 
+-- The "Sound" row under the chime checkbox: Blizzard's modern dropdown (WowStyle1DropdownTemplate + SetupMenu radios),
+-- or two radio buttons when this client has no such template. Picking a voice plays one sample note, even with the chime
+-- off, so the player can audition both before turning the chime on. The row stays enabled.
+local function soundVoiceRow(y)
+    local row = newRow(y, 28)
+    Options.rows.soundVoice = row
+    label(row, "Sound", 48)
+    local function pick(v)
+        D().soundVoice = v
+        if ns.Orbs and ns.Orbs.PreviewSound then
+            pcall(ns.Orbs.PreviewSound, ns.Orbs, v)
+        end
+        Options:Refresh()
+    end
+    local dd
+    local okMenu = pcall(function()
+        dd = CreateFrame("DropdownButton", nil, row, "WowStyle1DropdownTemplate")
+        dd:SetPoint("LEFT", row, "LEFT", CTRL_X, 0)
+        dd:SetSize(150, 26)
+        dd:SetupMenu(function(_, root)
+            for _, v in ipairs(VOICES) do
+                root:CreateRadio(VOICE_NAME[v], function()
+                    return D().soundVoice == v
+                end, function()
+                    pick(v)
+                end)
+            end
+        end)
+    end)
+    if okMenu and dd then
+        Options.soundDropdown = dd
+        Options.controls.soundVoice = dd
+        refreshers[#refreshers + 1] = function()
+            if dd.GenerateMenu then
+                dd:GenerateMenu()
+            end
+        end
+    else
+        if dd then
+            pcall(dd.Hide, dd) -- a half-built dropdown must not sit over the radios
+        end
+        Options.soundDropdown = nil
+        local btns = {}
+        for i, v in ipairs(VOICES) do
+            local rb = newRadio(row, CTRL_X + (i - 1) * 100, VOICE_NAME[v])
+            rb:SetScript("OnClick", function()
+                pick(v)
+            end)
+            btns[i] = rb
+            Options.controls["soundVoice_" .. v] = rb
+        end
+        refreshers[#refreshers + 1] = function()
+            for i, v in ipairs(VOICES) do
+                btns[i]:SetChecked(D().soundVoice == v)
+            end
+        end
+    end
+    addReset(row, "soundVoice", { "soundVoice" }, function()
+        return VOICE_NAME[ns.defaults.soundVoice] or tostring(ns.defaults.soundVoice)
+    end)
+end
+
 local function registerPopup()
     if type(StaticPopupDialogs) ~= "table" then
         return false
@@ -621,6 +686,8 @@ local function build()
         checkbox(y, c[1], c[2], c[3])
         y = y + 28
     end
+    soundVoiceRow(y)
+    y = y + 28
 
     y = header("Look", y + 14)
     for _, c in ipairs({

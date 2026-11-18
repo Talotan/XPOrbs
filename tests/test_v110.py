@@ -7,6 +7,7 @@ import zipfile
 
 import pytest
 from conftest import ROOT, lua_list
+from test_m5 import show
 from test_v09 import burst, make, pop_textures, set_level
 
 PURPLE = (0.72, 0.28, 1.00)  # default normal orb
@@ -14,7 +15,7 @@ BLUE = (0.15, 0.38, 1.00)  # default rested orb
 UNDER_PURPLE = tuple(round(0.25 * c, 4) for c in PURPLE)
 UNDER_BLUE = tuple(round(0.25 * c, 4) for c in BLUE)
 SOUNDS = ROOT / "media"
-CHIME_PATH = re.compile(r"Interface\\AddOns\\XPOrbs\\media\\chime([1-6])\.ogg")
+CHIME_PATH = re.compile(r"Interface\\AddOns\\XPOrbs\\media\\(coin|glass)([1-6])\.ogg")
 
 
 def rgb(c):
@@ -91,7 +92,7 @@ def test_new_default_colours_and_flight_time(env):
     env.load_addon()
     d = env.ns.defaults
     assert rgb(d.color) == PURPLE and rgb(d.restedColor) == BLUE
-    assert d.flightTime == 1.0 and d.sound is False
+    assert d.flightTime == 1.0 and d.sound is False and d.soundVoice == "coin"
     assert (env.ns.ranges.flightTime[1], env.ns.ranges.flightTime[2]) == (
         0.4,
         1.5,
@@ -635,8 +636,8 @@ def test_chime_plays_wobbling_notes_on_the_sfx_channel(env):
     idx = []
     for path, _ in played:
         m = CHIME_PATH.fullmatch(path)
-        assert m, path
-        idx.append(int(m.group(1)))
+        assert m and m.group(1) == "coin", path  # the default voice
+        idx.append(int(m.group(2)))
     assert all(1 <= i <= 6 for i in idx)
     assert all(a != b for a, b in zip(idx, idx[1:]))  # never the same note twice running
 
@@ -732,11 +733,11 @@ def test_sound_command_toggles_and_clears_a_shutdown(env):
     g.slash("sound off")
     assert g.db.sound is False
     g.slash("sound")
-    assert "chime: off" in last_chat(g)
+    assert "chime: off, coin" in last_chat(g)
     g.slash("sound on")
     assert g.db.sound is True and g.orbs.SoundDisabled(g.orbs) is False
     g.slash("sound loud")
-    assert "use on or off" in last_chat(g)
+    assert "use on, off, coin or glass" in last_chat(g)
     n = len(sounds(g))
     play(g)
     assert len(sounds(g)) > n
@@ -758,19 +759,26 @@ def test_driver_goes_idle_with_sound_on(env):
 def test_the_chime_path_is_built_once_at_load():
     src = (ROOT / "Orbs.lua").read_text(encoding="utf-8")
     assert (
-        src.count("media\\\\chime") == 1
+        src.count('media\\\\" .. voice') == 1
     )  # one concatenation, in the load-time table, none in the driver
+    assert not re.search(r"media\\\\chime", src)
 
 
 # ---- the sound files and the generator
 
 
+@pytest.mark.parametrize("voice", ["coin", "glass"])
 @pytest.mark.parametrize("i", range(1, 7))
-def test_chime_files_exist_and_are_small(i):
-    p = SOUNDS / f"chime{i}.ogg"
+def test_chime_files_exist_and_are_small(voice, i):
+    p = SOUNDS / f"{voice}{i}.ogg"
     assert p.is_file()
     data = p.read_bytes()
     assert data[:4] == b"OggS" and 1000 < len(data) < 15 * 1024
+
+
+def test_old_chime_files_are_gone():
+    assert not list(SOUNDS.glob("chime*.ogg"))
+    assert len(list(SOUNDS.glob("*.ogg"))) == 12
 
 
 def load_generator():
@@ -800,21 +808,42 @@ def test_generator_is_stdlib_only_and_documents_the_licence():
     assert "original" in src and "GPL" in src and "libvorbis" in src
 
 
-def test_generator_makes_six_close_pitches_around_3khz():
+@pytest.mark.parametrize(
+    "voice,centre,cents", [("coin", 1700, 100), ("glass", 3000, 150)]
+)
+def test_generator_makes_six_close_pitches_per_voice(voice, centre, cents):
     mod = load_generator()
-    assert len(mod.NOTES) == 6 and mod.NOTES == sorted(mod.NOTES)
-    for f in mod.NOTES:
-        assert abs(1200 * math.log2(f / 3000)) <= 150 + 1
+    assert set(mod.VOICES) == {"coin", "glass"}
+    notes = mod.notes(voice)
+    assert len(notes) == 6 and notes == sorted(notes) and len(set(notes)) == 6
+    for f in notes:
+        assert abs(1200 * math.log2(f / centre)) <= cents + 1
 
 
-def test_generator_tink_is_quiet_short_and_deterministic():
+@pytest.mark.parametrize("voice", ["coin", "glass"])
+def test_generator_voices_are_quiet_short_and_deterministic(voice):
     mod = load_generator()
-    for f in mod.NOTES:
-        s = mod.synth(f)
+    for f in mod.notes(voice):
+        s = mod.synth(f, voice)
         assert len(s) / 44100 <= 0.3 and s[-1] == 0
         peak_db = 20 * math.log10(max(abs(v) for v in s) / 32767)
-        assert -23 <= peak_db <= -17
-        assert mod.synth(f) == s  # fixed noise seed: identical on every run
+        assert -29 <= peak_db <= -23
+        assert mod.synth(f, voice) == s  # fixed noise seed: identical on every run
+
+
+def test_glass_has_no_second_strike_and_coin_does():
+    mod = load_generator()
+    assert mod.VOICES["glass"]["BOUNCE_AMP"] == 0
+    assert mod.VOICES["coin"]["BOUNCE_AMP"] > 0
+    # the coin's settling strike lands at 30 ms; without it the same voice is identical before and different after
+    one_strike = dict(mod.VOICES["coin"], BOUNCE_AMP=0.0)
+    mod.VOICES["plain"] = one_strike
+    i = int(44100 * 0.03)
+    with_b, without = mod.synth(1700.0, "coin"), mod.synth(1700.0, "plain")
+    assert with_b[i + 100 : i + 400] != without[i + 100 : i + 400]
+    # the glass voice is already a single strike: forcing its bounce on changes it, so it really has none
+    mod.VOICES["glass2"] = dict(mod.VOICES["glass"], BOUNCE_S=0.03, BOUNCE_AMP=0.35)
+    assert mod.synth(3000.0, "glass2") != mod.synth(3000.0, "glass")
 
 
 def test_generator_fails_clearly_without_ffmpeg(monkeypatch, capsys, tmp_path):
@@ -833,8 +862,10 @@ def test_packaged_zip_includes_the_chimes_and_new_modules_but_no_tools(tmp_path)
     spec.loader.exec_module(package)
     with zipfile.ZipFile(package.build(tmp_path)) as z:
         names = z.namelist()
-    for i in range(1, 7):
-        assert f"XPOrbs/media/chime{i}.ogg" in names
+    for voice in ("coin", "glass"):
+        for i in range(1, 7):
+            assert f"XPOrbs/media/{voice}{i}.ogg" in names
+    assert not any("/chime" in n for n in names)
     for rel in ("logic/Engaged.lua", "logic/Chime.lua"):
         assert f"XPOrbs/{rel}" in names
     assert not any("/tools/" in n or "make_sounds" in n for n in names)
@@ -875,11 +906,12 @@ def test_options_has_the_new_checkboxes_with_tooltips(env):
 
 def test_docs_mention_the_new_features():
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
-    for needle in ("/xporbs sound", "/xporbs debug maxlevel", "portrait"):
+    for needle in ("/xporbs sound", r"coin\|glass", "/xporbs debug maxlevel", "portrait"):
         assert needle in readme, needle
     log = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     assert "## 1.1.0 (unreleased)" in log and "## 1.0.2 (unreleased)" not in log
     assert "chime" in log.lower() and "portrait" in log
+    assert "coin" in log and "glass" in log
 
 
 def test_no_local_paths_in_new_files():
@@ -894,3 +926,267 @@ def test_no_local_paths_in_new_files():
         "CHANGELOG.md",
     ):
         assert not bad.search((ROOT / rel).read_text(encoding="utf-8")), rel
+
+
+# ---------------------------------------------------------------- the sound voice (coin / glass)
+
+
+def played_voices(g):
+    out = []
+    for path, _ in sounds(g):
+        m = CHIME_PATH.fullmatch(path)
+        assert m, path
+        out.append(m.group(1))
+    return out
+
+
+def junk_db(env, **kw):
+    env.G.XPOrbsDB = env.lua.table_from({"version": 5, **kw})
+    env.load_addon()
+    env.ns.fire("ADDON_LOADED", "XPOrbs")
+    return env.G.XPOrbsDB
+
+
+@pytest.mark.parametrize("bad", ["bell", 5, True, "", "Glass", "coin2"])
+def test_sound_voice_junk_values_fall_back_to_coin(env, bad):
+    assert junk_db(env, soundVoice=bad).soundVoice == "coin"
+
+
+def test_a_valid_saved_voice_is_kept(env):
+    assert junk_db(env, soundVoice="glass").soundVoice == "glass"
+
+
+@pytest.mark.parametrize("voice", ["coin", "glass"])
+def test_arrivals_play_the_selected_voice(env, voice):
+    g = chime_game(env)
+    g.db.soundVoice = voice
+    play(g, n=12)
+    assert played_voices(g) and set(played_voices(g)) == {voice}
+
+
+def test_an_unknown_voice_in_the_db_still_plays_coin(env):
+    g = chime_game(env)
+    g.db.soundVoice = "bogus"  # bypasses sanitize, as a live edit would
+    play(g, n=12)
+    assert played_voices(g) and set(played_voices(g)) == {"coin"}
+
+
+def test_switching_voice_mid_session_takes_effect_on_the_next_burst(env):
+    g = chime_game(env)
+    play(g, n=12)
+    g.db.soundVoice = "glass"
+    play(g, n=12)
+    v = played_voices(g)
+    assert v[0] == "coin" and v[-1] == "glass"
+
+
+def test_slash_voice_choices_turn_sound_on_and_report_state(env):
+    g = make(env, probe=False)
+    assert g.db.sound is False
+    g.slash("sound glass")
+    assert g.db.sound is True and g.db.soundVoice == "glass"
+    assert "chime: on, glass" in last_chat(g)
+    g.slash("sound off")
+    assert g.db.sound is False and g.db.soundVoice == "glass"  # off keeps the voice
+    assert "chime: off, glass" in last_chat(g)
+    g.slash("sound coin")
+    assert g.db.sound is True and g.db.soundVoice == "coin"
+    assert "chime: on, coin" in last_chat(g)
+    g.slash("sound glass")
+    g.slash("sound on")  # plain on keeps the current voice
+    assert g.db.soundVoice == "glass"
+    g.slash("sound")
+    assert "chime: on, glass" in last_chat(g)
+
+
+def test_help_lists_the_voices(env):
+    g = make(env, probe=False)
+    g.slash("help")
+    text = "\n".join(str(g.stub.chat[i]) for i in range(1, len(g.stub.chat) + 1))
+    assert "/xporbs sound on|off|coin|glass" in text
+
+
+# ---- the options-panel dropdown
+
+
+def opts(env, **kw):
+    from test_m5 import build
+
+    return build(env, **kw)
+
+
+def entries(dd):
+    dd.GenerateMenu(dd)
+    root = dd.menuRoot
+    return [
+        (str(root.entries[i]["text"]), bool(root.entries[i]["selected"]))
+        for i in range(1, len(root.entries) + 1)
+    ]
+
+
+def test_dropdown_is_built_from_the_modern_template(env):
+    m = opts(env)
+    dd = m.opt.soundDropdown
+    assert (
+        dd is not None
+        and dd.kind == "DropdownButton"
+        and dd.template == "WowStyle1DropdownTemplate"
+    )
+    assert m.lua.eval("rawequal")(m.opt.controls["soundVoice"], dd)
+    assert entries(dd) == [("Coin", True), ("Glass", False)]
+
+
+def test_dropdown_row_sits_under_the_chime_checkbox_inside_the_panel(env):
+    m = opts(env)
+    row, chk = m.opt.rows["soundVoice"], m.opt.rows["sound"]
+    assert row.points[1][5] == chk.points[1][5] - 28 and row.height == 28
+    dd = m.opt.soundDropdown
+    assert dd.points[1][4] == 260 and dd.width == 150
+    assert dd.points[1][4] + dd.width < 548  # clear of the reset button column
+    assert "Sound" in {
+        f.text for f in m.stub.frames.values() if f.kind == "FontString"
+    }
+
+
+def test_picking_from_the_dropdown_sets_the_voice_and_previews_one_note(env):
+    m = opts(env)
+    m.db.sound = True
+    show(m)
+    dd = m.opt.soundDropdown
+    n0 = len(m.stub.sounds)
+    assert m.stub.pickMenu(dd, "Glass") is True
+    assert m.db.soundVoice == "glass"
+    assert len(m.stub.sounds) == n0 + 1
+    path, ch = str(m.stub.sounds[n0 + 1][1]), str(m.stub.sounds[n0 + 1][2])
+    assert CHIME_PATH.fullmatch(path).group(1) == "glass" and ch == "SFX"
+    assert entries(dd) == [("Coin", False), ("Glass", True)]
+    assert m.stub.pickMenu(dd, "Coin") is True
+    assert m.db.soundVoice == "coin" and len(m.stub.sounds) == n0 + 2
+
+
+def test_preview_plays_even_with_the_chime_off(env):
+    m = opts(env)
+    assert m.db.sound is False
+    m.stub.pickMenu(m.opt.soundDropdown, "Glass")  # the menu callback itself
+    assert m.db.soundVoice == "glass" and len(m.stub.sounds) == 1
+    assert m.db.sound is False  # choosing in the panel does not turn the chime on
+
+
+def test_preview_survives_a_failing_playsoundfile(env):
+    m = opts(env)
+    m.stub.soundMode = "error"
+    m.stub.pickMenu(m.opt.soundDropdown, "Glass")
+    assert m.db.soundVoice == "glass"  # no throw, the choice stands
+
+
+def test_dropdown_refreshes_from_the_db_and_follows_the_slash_command(env):
+    m = opts(env)
+    dd = m.opt.soundDropdown
+    m.db.soundVoice = "glass"
+    show(m)
+    assert entries(dd) == [("Coin", False), ("Glass", True)]
+    m.slash("sound coin")
+    assert entries(dd) == [("Coin", True), ("Glass", False)]
+
+
+def test_dropdown_reset_button_restores_coin(env):
+    m = opts(env)
+    m.db.soundVoice = "glass"
+    show(m)
+    btn = m.opt.resets["soundVoice"]
+    assert btn.shown
+    m.stub.click(btn)
+    assert m.db.soundVoice == "coin" and not btn.shown
+    assert entries(m.opt.soundDropdown)[0] == ("Coin", True)
+
+
+def test_reset_all_returns_the_voice_to_coin(env):
+    m = opts(env)
+    m.slash("sound glass")
+    m.slash("reset")
+    assert m.db.soundVoice == "coin" and m.db.sound is False
+    assert entries(m.opt.soundDropdown) == [("Coin", True), ("Glass", False)]
+
+
+def test_dropdown_stays_enabled_with_the_chime_off(env):
+    m = opts(env)
+    row, dd = m.opt.rows["soundVoice"], m.opt.soundDropdown
+    show(m)
+    assert m.db.sound is False
+    assert row.alpha in (None, 1) and dd.IsEnabled(dd)  # never dimmed: the player can preview the voices before turning the chime on
+
+
+def test_sound_tooltip_describes_both_voices(env):
+    m = opts(env)
+    m.stub.hover(m.opt.controls["sound"])
+    tip = str(m.stub.tooltip.text)
+    assert "Coin: a soft coin clink." in tip and "Glass: a glassy tink." in tip
+    assert "Off by default." in tip
+
+
+# ---- the radio fallback (no dropdown template, or SetupMenu missing)
+
+
+def no_dropdown(env):
+    env.lua.execute(
+        """
+        local base = CreateFrame
+        function CreateFrame(kind, name, parent, template)
+            if kind == "DropdownButton" or template == "WowStyle1DropdownTemplate" then
+                error("template not found: " .. tostring(template))
+            end
+            return base(kind, name, parent, template)
+        end
+        """
+    )
+
+
+def no_setupmenu(env):
+    env.lua.execute(
+        """
+        local base = CreateFrame
+        function CreateFrame(kind, name, parent, template)
+            local f = base(kind, name, parent, template)
+            if kind == "DropdownButton" then f.SetupMenu = nil end
+            return f
+        end
+        """
+    )
+
+
+@pytest.mark.parametrize("hook", [no_dropdown, no_setupmenu])
+def test_radio_fallback_when_the_dropdown_is_unavailable(env, hook):
+    m = opts(env, pre=hook)
+    assert m.opt.category is not None and m.opt.soundDropdown is None
+    coin, glass = m.opt.controls["soundVoice_coin"], m.opt.controls["soundVoice_glass"]
+    assert coin.template == "UIRadioButtonTemplate"
+    assert glass.template == "UIRadioButtonTemplate"
+    labels = {f.text for f in m.stub.frames.values() if f.kind == "FontString"}
+    assert {"Sound", "Coin", "Glass"} <= labels
+    show(m)
+    assert coin.checked is True and glass.checked is False
+    n0 = len(m.stub.sounds)
+    m.stub.click(glass)
+    assert m.db.soundVoice == "glass"
+    assert glass.checked is True and coin.checked is False
+    assert len(m.stub.sounds) == n0 + 1
+    assert CHIME_PATH.fullmatch(str(m.stub.sounds[n0 + 1][1])).group(1) == "glass"
+    m.slash("sound coin")
+    assert coin.checked is True and glass.checked is False
+
+
+def test_radio_fallback_sits_inside_the_panel_width(env):
+    m = opts(env, pre=no_dropdown)
+    xs = [m.opt.controls[f"soundVoice_{v}"].points[1][4] for v in ("coin", "glass")]
+    assert xs == sorted(xs) and xs[0] >= 258
+    assert xs[1] + 24 + 7 * len("Glass") + 8 < 548  # label end clear of the resets
+
+
+def test_radio_fallback_resets_and_stays_enabled(env):
+    m = opts(env, pre=no_dropdown)
+    m.db.soundVoice = "glass"
+    show(m)
+    assert m.opt.rows["soundVoice"].alpha in (None, 1)  # never dimmed
+    m.stub.click(m.opt.resets["soundVoice"])
+    assert m.db.soundVoice == "coin"
+    assert m.opt.controls["soundVoice_coin"].checked is True
