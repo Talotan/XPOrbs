@@ -1,10 +1,10 @@
 -- SPDX-License-Identifier: GPL-3.0-or-later
 local ADDON, ns = ...
 
--- Pure logic: decides which of the six chime notes (if any) to play as an orb arrives. Notes climb one step per
--- played note (a pentatonic arpeggio), stay on the top note once they get there, and start again from the bottom after
--- a quiet moment. At most one note per `gap` seconds and `perBurst` notes per burst. Touches no WoW globals and
--- allocates nothing per call once a burst's counter exists (counters are cleared with Done).
+-- Pure logic: decides which of the six chime notes (if any) to play as an orb arrives. Each played note is a random
+-- one of the six that differs from the previous note, so the pitch wobbles instead of climbing. At most one note per
+-- `gap` seconds and `perBurst` notes per burst. Touches no WoW globals and allocates nothing per call once a burst's
+-- counter exists (counters are cleared with Done).
 
 local Chime = {}
 ns.Chime = Chime
@@ -12,17 +12,21 @@ Chime.__index = Chime
 
 local NOTES = 6
 
--- cfg = { now = fn, gap = min seconds between notes (0.07), perBurst = notes per burst (6), reset = quiet seconds
--- before the arpeggio restarts (0.5) }
+local function defaultRand(n)
+    return math.random(n)
+end
+
+-- cfg = { now = fn, rand = fn(n) -> integer 1..n (default math.random), gap = min seconds between notes (0.07),
+-- perBurst = notes per burst (6) }
 function Chime.New(cfg)
     cfg = cfg or {}
     local self = setmetatable({}, Chime)
     self.now = cfg.now
+    self.rand = cfg.rand or defaultRand
     self.gap = cfg.gap or 0.07
     self.perBurst = cfg.perBurst or 6
-    self.reset = cfg.reset or 0.5
     self.lastAt = nil -- time of the last note played
-    self.step = 0 -- index of the last note played (0 = none)
+    self.last = 0 -- index of the last note played (0 = none)
     self.counts = {} -- burstKey -> notes played for it so far
     return self
 end
@@ -42,14 +46,28 @@ function Chime:Arrive(burstKey)
     if last ~= nil and t - last < self.gap then
         return nil
     end
-    if last == nil or t - last >= self.reset then
-        self.step = 1
-    elseif self.step < NOTES then
-        self.step = self.step + 1
+    local prev = self.last
+    local n
+    if prev == 0 then
+        n = self.rand(NOTES)
+        if n ~= n or n < 1 or n > NOTES then
+            n = 1
+        end
+    else
+        -- pick among the other five notes: draw 1..5 and skip over the previous one
+        n = self.rand(NOTES - 1)
+        if n ~= n or n < 1 or n > NOTES - 1 then
+            n = 1
+        end
+        if n >= prev then
+            n = n + 1
+        end
     end
+    n = n - n % 1 -- whole number even if the source returned a fraction
     self.lastAt = t
+    self.last = n
     counts[burstKey] = played + 1
-    return self.step
+    return n
 end
 
 -- The burst has finished (all its orbs arrived or were freed): forget its counter.

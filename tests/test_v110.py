@@ -626,7 +626,7 @@ def test_sound_is_off_by_default(env):
     assert sounds(g) == []
 
 
-def test_chime_plays_ascending_notes_on_the_sfx_channel(env):
+def test_chime_plays_wobbling_notes_on_the_sfx_channel(env):
     g = chime_game(env)
     play(g, n=12)
     played = sounds(g)
@@ -637,7 +637,8 @@ def test_chime_plays_ascending_notes_on_the_sfx_channel(env):
         m = CHIME_PATH.fullmatch(path)
         assert m, path
         idx.append(int(m.group(1)))
-    assert idx[0] == 1 and all(b - a in (0, 1) for a, b in zip(idx, idx[1:]))
+    assert all(1 <= i <= 6 for i in idx)
+    assert all(a != b for a, b in zip(idx, idx[1:]))  # never the same note twice running
 
 
 def test_at_most_six_notes_per_burst(env):
@@ -787,6 +788,7 @@ def test_generator_is_stdlib_only_and_documents_the_licence():
     assert imports <= {
         "argparse",
         "math",
+        "random",
         "shutil",
         "struct",
         "subprocess",
@@ -798,15 +800,21 @@ def test_generator_is_stdlib_only_and_documents_the_licence():
     assert "original" in src and "GPL" in src and "libvorbis" in src
 
 
-def test_generator_synthesises_the_documented_notes():
+def test_generator_makes_six_close_pitches_around_3khz():
     mod = load_generator()
-    assert mod.NOTES == [1046.5, 1174.7, 1318.5, 1568.0, 1760.0, 2093.0]
+    assert len(mod.NOTES) == 6 and mod.NOTES == sorted(mod.NOTES)
+    for f in mod.NOTES:
+        assert abs(1200 * math.log2(f / 3000)) <= 150 + 1
+
+
+def test_generator_tink_is_quiet_short_and_deterministic():
+    mod = load_generator()
     for f in mod.NOTES:
         s = mod.synth(f)
-        assert len(s) == int(44100 * 0.40) and s[-1] == 0
-        peak = max(abs(v) for v in s) / 32767
-        assert abs(20 * math.log10(peak) - (-14.0)) < 0.1
-        assert abs(s[0]) < 50  # starts from silence (the 4 ms attack)
+        assert len(s) / 44100 <= 0.3 and s[-1] == 0
+        peak_db = 20 * math.log10(max(abs(v) for v in s) / 32767)
+        assert -23 <= peak_db <= -17
+        assert mod.synth(f) == s  # fixed noise seed: identical on every run
 
 
 def test_generator_fails_clearly_without_ffmpeg(monkeypatch, capsys, tmp_path):

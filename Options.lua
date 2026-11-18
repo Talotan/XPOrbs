@@ -37,7 +37,7 @@ local SHAPE_NAME = { bar = "Horizontal", round = "Circular" }
 local SHAPE_DESC = "Horizontal: orbs land on the bar's fill edge. Circular: orbs land on the centre of a round frame "
     .. "such as a portrait."
 local MAX_TIP = "At max level, each kill sends a small burst of orbs to your portrait."
-local SOUND_TIP = "A soft bell note as each orb arrives (up to six per burst). Off by default."
+local SOUND_TIP = "A soft, glassy tink as each orb arrives (up to six per burst). Off by default."
 local OFFSET_DESC = "Moves where orbs land and the glow appears (pixels)."
 local PICK_HINT = "Use this if another addon replaces the default XP bar, or to send the orbs somewhere else, such as "
     .. "your portrait with the Circular shape."

@@ -91,7 +91,7 @@ local pops, nPops = {}, 0
 local popErrSeen = false
 local xfs, nXf = {}, 0 -- crossfade pop frames alive (their orbs are driven from the stream loop)
 local portraitMode = false -- decided once per Burst (Target:PortraitMode): orbs aim at the portrait centre, round flash
-local chime = ns.Chime.New({ now = GetTime, gap = 0.07, perBurst = 6, reset = 0.5 })
+local chime = ns.Chime.New({ now = GetTime, gap = 0.07, perBurst = 6 })
 local soundDead = false -- the first sound failure switches the chime off for the session
 Orbs.chime = chime -- exposed for tests
 local burstSeq = 0 -- burst key counter; every orb carries its burst's key (o.bk)
