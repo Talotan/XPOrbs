@@ -92,9 +92,9 @@ def test_registered_once_with_name_and_minimap_db(m):
     assert m.lua.eval("rawequal")(regs[1].db, m.db.minimap)
     obj = m.p2a.object
     assert obj.type == "launcher"
-    assert obj.icon == "Interface\\AddOns\\XPOrbs\\media\\icon-minimap"
+    assert obj.icon == "Interface\\AddOns\\XPOrbs\\media\\icon"
     # the texture path the game resolves must exist as a 64x64 32-bit TGA
-    tga = (ROOT / "media" / "icon-minimap.tga").read_bytes()
+    tga = (ROOT / "media" / "icon.tga").read_bytes()
     assert tga[2] == 2 and tga[12:16] == bytes([64, 0, 64, 0]) and tga[16] == 32
     assert obj.label == "XP Orbs" and obj.text == "XP Orbs"
 

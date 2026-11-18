@@ -1,84 +1,81 @@
-"""Build the small icons from docs/images/icon.png.
+"""Build media/icon.tga (addon list, minimap button, addon compartment) from docs/images/icon.png.
 
 Run: uv run --with pillow --with numpy python tools/make_icon.py [--purple]
-Writes 64x64 uncompressed 32-bit TGAs (bottom-left origin), like tools/make_textures.py:
-- media/icon.tga          addon list + addon compartment (toc IconTexture): cropped 1.19x so "XP" reads at 16-20 px
-- media/icon-minimap.tga  LibDBIcon button: uncropped, so the letters stay inside the gold ring
-Both thicken and brighten the gold "XP" first; at 18 px the original hairlines average into the outline.
---purple rotates the blue orbs to the normal-orb purple (hue ~278 deg) and leaves the navy and the gold alone.
+The gold "XP" is erased (the name is printed next to the icon everywhere it shows, and at 16-20 px the letters
+smear), then the comet is cropped so it sits centred. Writes a 64x64 uncompressed 32-bit TGA (bottom-left origin),
+like tools/make_textures.py. --purple rotates the blue orbs to the normal-orb purple (hue ~278 deg).
 """
 
 import sys
 from pathlib import Path
 
 import numpy as np
-from PIL import Image, ImageFilter
+from PIL import Image, ImageDraw, ImageFilter
 
 ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / "docs" / "images" / "icon.png"
-MEDIA = ROOT / "media"
+OUT = ROOT / "media" / "icon.tga"
 SIZE = 64
-LIST_CROP = (40, 44, 472, 476)  # the art's spare margin; too tight for the minimap ring
+CROP = (
+    60,
+    0,
+    420,
+    360,
+)  # centres the comet once the text is gone; stays inside LibDBIcon's button ring
 
 
 def gold_mask(im):
-    """Mask of the gold lettering (Pillow HSV hue 14-48 of 255), closed to remove speckle."""
+    """Mask of the gold lettering (Pillow HSV hue 14-48 of 255)."""
     h, s, v = np.asarray(im.convert("HSV")).astype(int).transpose(2, 0, 1)
     m = (h >= 14) & (h <= 48) & (s >= 90) & (v >= 70)
-    mask = Image.fromarray((m * 255).astype(np.uint8))
-    return mask.filter(ImageFilter.MaxFilter(3)).filter(ImageFilter.MinFilter(3))
+    return Image.fromarray((m * 255).astype(np.uint8))
 
 
-def bold_gold(im, grow=5, stroke=6, gain=1.3):
-    """Faux-bold the gold letters, keep a dark outline round them, and brighten them without shifting hue."""
-    m = gold_mask(im)
-    k = 2 * grow + 1
-    gold = Image.composite(im, Image.new("RGB", im.size), m).filter(
-        ImageFilter.MaxFilter(k)
+def erase_text(im):
+    """Replace the whole text block (letters, outline, shadow) with the background gradient.
+
+    Each row is filled by blending between clean columns either side of the text, so the navy gradient carries
+    through without dragging the orb's glow down into the gap.
+    """
+    bbox = gold_mask(im).getbbox()
+    if bbox is None:
+        return im  # no text in the source art
+    x0, y0, x1, y1 = bbox
+    box = Image.new("L", im.size, 0)
+    ImageDraw.Draw(box).rectangle(
+        (x0 - 40, y0 - 30, x1 + 40, min(im.height - 1, y1 + 40)), fill=255
     )
-    m_big = m.filter(ImageFilter.MaxFilter(k)).filter(ImageFilter.GaussianBlur(1.2))
-    m_stroke = m.filter(ImageFilter.MaxFilter(k + 2 * stroke)).filter(
-        ImageFilter.GaussianBlur(1.5)
+    keep = (
+        1 - np.asarray(box.filter(ImageFilter.GaussianBlur(14)), float)[..., None] / 255
     )
-    out = Image.composite(Image.new("RGB", im.size, (6, 5, 10)), im, m_stroke)
-    out = Image.composite(gold, out, m_big)
-    a = np.asarray(out).astype(float)
-    mb = np.asarray(m_big)[..., None] / 255
-    scale = np.minimum(255 / a.max(-1, keepdims=True).clip(1), gain)
+    a = np.asarray(im, float)
+    xl, xr = x0 - 55, x1 + 55
+    left = a[:, xl - 5 : xl, :].mean(1, keepdims=True)
+    right = a[:, xr : xr + 5, :].mean(1, keepdims=True)
+    t = np.clip((np.arange(im.width)[None, :, None] - xl) / (xr - xl), 0, 1)
+    fill = np.clip(left * (1 - t) + right * t, 0, 255).astype(np.uint8)
+    fill = np.asarray(Image.fromarray(fill).filter(ImageFilter.GaussianBlur(3)), float)
     return Image.fromarray(
-        (a * (1 - mb) + np.clip(a * scale, 0, 255) * mb).astype(np.uint8)
+        np.clip(a * keep + fill * (1 - keep), 0, 255).astype(np.uint8)
     )
 
 
 def purple(im):
-    """Rotate the blue orb hues to ~278 deg; the dark navy background and the gold stay as they are."""
+    """Rotate the blue orb hues to ~278 deg; the dark navy background stays as it is."""
     hsv = np.asarray(im.convert("HSV")).astype(float)
     h = hsv[..., 0]
-    blue = (h > 130) & (h < 190)
-    w = np.clip((hsv[..., 2] - 40) / 80, 0, 1) * blue
+    w = np.clip((hsv[..., 2] - 40) / 80, 0, 1) * ((h > 130) & (h < 190))
     hsv[..., 0] = h * (1 - w) + (278 / 360 * 255) * w
     return Image.fromarray(hsv.astype(np.uint8), "HSV").convert("RGB")
 
 
-def to64(im):
-    out = im.resize((SIZE, SIZE), Image.Resampling.LANCZOS)
-    return out.filter(
-        ImageFilter.UnsharpMask(radius=1.0, percent=70, threshold=0)
-    ).convert("RGBA")
-
-
-def save(img, name):
-    path = MEDIA / name
-    img.save(path, format="TGA", compression=None)
-    print(f"wrote {path.relative_to(ROOT)} ({path.stat().st_size} bytes)")
-
-
 def main() -> None:
-    art = bold_gold(Image.open(SRC).convert("RGB"))
+    art = erase_text(Image.open(SRC).convert("RGB"))
     if "--purple" in sys.argv[1:]:
         art = purple(art)
-    save(to64(art.crop(LIST_CROP)), "icon.tga")
-    save(to64(art), "icon-minimap.tga")
+    out = art.crop(CROP).resize((SIZE, SIZE), Image.Resampling.LANCZOS).convert("RGBA")
+    out.save(OUT, format="TGA", compression=None)
+    print(f"wrote {OUT.relative_to(ROOT)} ({OUT.stat().st_size} bytes)")
 
 
 if __name__ == "__main__":

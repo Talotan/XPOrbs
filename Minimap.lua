@@ -9,7 +9,7 @@ local Btn = {}
 ns.Minimap = Btn
 
 local NAME = "XPOrbs"
-local ICON = "Interface\\AddOns\\XPOrbs\\media\\icon-minimap" -- uncropped, so "XP" stays inside the button ring
+local ICON = "Interface\\AddOns\\XPOrbs\\media\\icon"
 local GREY = 0.7
 
 local ldb, ldbi -- the libraries, when they loaded
