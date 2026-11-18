@@ -170,6 +170,68 @@ function stub.namedFrame(name, parent)
     return f
 end
 
+-- Draw-only frames (no mouse): EnumerateFrames walks stub.frames (frames only, no textures) in creation order, and
+-- IsMouseOver tests stub.cursor against the frame's left/bottom/width/height. stub.enumStarts counts full walks.
+stub.enumStarts = 0
+function EnumerateFrames(prev)
+    local list, i = stub.frames, 1
+    if prev == nil then
+        stub.enumStarts = stub.enumStarts + 1
+    else
+        while list[i] ~= nil and not rawequal(list[i], prev) do
+            i = i + 1
+        end
+        i = i + 1
+    end
+    while list[i] ~= nil do
+        local k = list[i].kind
+        if k ~= "Texture" and k ~= "FontString" then
+            return list[i]
+        end
+        i = i + 1
+    end
+    return nil
+end
+function fm:IsForbidden()
+    return self.forbidden == true
+end
+function fm:IsMouseOver()
+    local l, b, w, h = self.left, self.bottom, self.width, self.height
+    if not (l and b and w and h) then
+        return false
+    end
+    local x, y = stub.cursor.x, stub.cursor.y
+    return x >= l and x <= l + w and y >= b and y <= b + h
+end
+-- StatusBar readings: a frame carries sb = { lo, hi, v, orient, reverse } (any value may be stub.SECRET); frames
+-- without it report nothing, like a plain Frame would.
+function fm:GetMinMaxValues()
+    if self.sb then
+        return self.sb.lo, self.sb.hi
+    end
+end
+function fm:GetValue()
+    return self.sb and self.sb.v
+end
+function fm:GetOrientation()
+    return self.sb and self.sb.orient
+end
+function fm:GetReverseFill()
+    return self.sb and self.sb.reverse
+end
+-- A visible, mouse-less StatusBar like EQOL_XPBar. orient: "HORIZONTAL" or "VERTICAL".
+function stub.makeStatusBar(name, left, bottom, width, height, lo, hi, v, orient, reverse)
+    local f = stub.makeBar(name, left, bottom, width, height, true)
+    f.sb = { lo = lo, hi = hi, v = v, orient = orient, reverse = reverse == true }
+    return f
+end
+-- A named, visible frame that takes no mouse input (like EQOL_XPBar): rect only, registered as a global.
+function stub.drawOnly(name, left, bottom, width, height, parent)
+    local f = stub.namedFrame(name, parent)
+    f.left, f.bottom, f.width, f.height = left, bottom, width, height
+    return f
+end
+
 -- ---------------------------------------------------------------- v0.13 extensions
 -- scroll frames, enable/disable, edit boxes, tooltip, static popups, atlas, class colours.
 for _, name in ipairs({ "SetHighlightTexture", "EnableMouseWheel", "RegisterForClicks", "SetAutoFocus", "SetMaxLetters" }) do

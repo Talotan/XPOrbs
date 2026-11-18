@@ -746,7 +746,8 @@ local function drive(self, dt)
             local c = flashRested and ns.db.restedColor or normalC
             local kA, kS = OrbMath.GlowIntensity(ns.db.glowIntensity)
             local a = min(1, min(1, FLASH_ALPHA + FLASH_STEP * arrivedRecently) * (1 - flashAge / FLASH_TIME) * kA)
-            local shape = (portraitMode or ns.db.glowShape == "round") and "round" or "bar"
+            -- the bar-shaped flash is horizontal, so a vertical StatusBar destination gets the round glow instead
+            local shape = (portraitMode or ns.db.glowShape == "round" or Target.lastVertical) and "round" or "bar"
             if shape ~= flashShape then
                 flashShape = shape
                 flash:SetTexture(shape == "round" and ORB_TEX or FLASH_TEX) -- orb.tga is a radial gradient

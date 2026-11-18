@@ -252,7 +252,7 @@ function commands.help()
     say("/xporbs perf [reset] - addon memory, driver frame time and pool usage")
     say("/xporbs style popstream|crossfade|stream - kill burst style")
     say("/xporbs pop on|off - alias: popstream / stream")
-    say("/xporbs pick [clear] - click to pick the XP bar frame (clear = auto-detect)")
+    say("/xporbs pick [clear|FrameName] - click to pick the XP bar frame, or name it (clear = auto-detect)")
     say("/xporbs reset - restore default settings")
     say("/xporbs options - open the settings panel")
 end
@@ -338,7 +338,7 @@ SlashCmdList.XPORBS = function(input)
     end
     local fn = commands[cmd]
     if fn then
-        fn(string.lower(rest or ""))
+        fn(string.lower(rest or ""), rest or "") -- 2nd arg: the typed case, for pick FrameName
     else
         say("unknown command '" .. cmd .. "'")
         commands.help()

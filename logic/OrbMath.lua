@@ -138,6 +138,19 @@ function OrbMath.FillEdge(left, bottom, width, height, xp, xpMax)
     return left + width * frac, bottom + height / 2
 end
 
+-- Landing point on a StatusBar fill edge, whichever way it fills. frac (0..1, clamped) is how full the bar is.
+-- Horizontal: x = left + w * frac (right - w * frac when reversed), y at the vertical middle.
+-- Vertical: y = bottom + h * frac (top - h * frac when reversed), x at the horizontal middle.
+function OrbMath.StatusFill(left, bottom, width, height, frac, vertical, reverse)
+    frac = clamp(frac, 0, 1)
+    if vertical then
+        local y = reverse and (bottom + height - height * frac) or (bottom + height * frac)
+        return left + width / 2, y
+    end
+    local x = reverse and (left + width - width * frac) or (left + width * frac)
+    return x, bottom + height / 2
+end
+
 -- Did the bar wrap between two readings? A level-up leaves less XP than before, or changes the maximum while the XP
 -- moved. Reading it from the numbers means the answer doesn't depend on whether PLAYER_LEVEL_UP arrived before or after
 -- the update. A new maximum with the same XP is the second half of a split level-up update (the wrap was already

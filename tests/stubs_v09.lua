@@ -31,7 +31,7 @@ function fm:SetPoint(point, rel, ...)
     return baseSetPoint(self, point, rel, ...)
 end
 
-local MEASURE = { "GetCenter", "GetLeft", "GetRight", "GetTop", "GetBottom", "GetRect", "GetWidth", "GetHeight" }
+local MEASURE = { "GetCenter", "GetLeft", "GetRight", "GetTop", "GetBottom", "GetRect", "GetWidth", "GetHeight", "IsMouseOver" }
 for _, name in ipairs(MEASURE) do
     local base = fm[name] or function()
         return nil

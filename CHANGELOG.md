@@ -16,6 +16,9 @@
 - Damaged or hand-edited saved settings are repaired when the game loads them, and a failing frame can no longer
   leave orbs stuck on screen.
 - The frame picker no longer picks nameplates.
+- `/xporbs pick` now works on XP bars that ignore the mouse (such as EnhanceQoL's), and `/xporbs pick <FrameName>`
+  sets one by name. EnhanceQoL's XP bar is also detected automatically, and orbs land on the bar's actual fill point,
+  whichever way it fills.
 - New `/xporbs perf` (memory and frame time) and `/xporbs test stress [n]` for checking performance.
 - Now also on Wago.
 

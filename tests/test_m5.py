@@ -508,9 +508,9 @@ def test_pick_clear_goes_back_to_auto(m5):
     assert m5.db.targetFrame is None and "auto-detect" in m5.say()[-1] and not armed(m5)
 
 
-def test_pick_with_junk_argument_prints_usage(m5):
+def test_pick_with_an_unknown_name_is_refused(m5):
     m5.slash("pick banana")
-    assert "usage" in m5.say()[-1] and not armed(m5)
+    assert "no frame called banana" in m5.say()[-1] and not armed(m5) and m5.db.targetFrame is None
 
 
 def test_picked_frame_is_used_and_a_hidden_one_falls_back(m5):
