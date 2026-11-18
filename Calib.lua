@@ -14,10 +14,10 @@ local TICK = 0.1 -- marker re-anchor interval (10 Hz)
 local STEP, STEP_BIG = 2, 10 -- nudge in px (shift = big)
 local POINTS_MAX = 8
 local MARKER_SIZE = 20
-local CROSS = 15 -- crosshair arm length
+local ARM_FROM, ARM_TO = 6, 18 -- reticle arms run from here to here (px from the centre)
 
 local nudge, acc = 0, 0
-local panel, marker, readout
+local panel, marker, readout, fitBtn
 
 local function db()
     if not ns.db then
@@ -39,17 +39,25 @@ end
 local function refresh()
     local z = ns.Orbs.ReadZoom()
     local off = baseOffset(z)
-    if readout then
-        readout:SetText(string.format("zoom %s   offset %s px   points %d", fmt(z), off and fmt(off + nudge) or "n/a",
-            #db().zoomPoints))
-    end
-    if not marker then
-        return
-    end
     local plate = nil
     if ns.Target and ns.Target.TargetPlate then
         local ok, p = pcall(ns.Target.TargetPlate, ns.Target)
         plate = ok and p or nil
+    end
+    local npts = #db().zoomPoints
+    if readout then
+        readout:SetText(string.format("zoom %s   %s   points %d", fmt(z),
+            plate and ("offset " .. (off and fmt(off + nudge) or "n/a") .. " px")
+                or "target a mob with its nameplate showing", npts))
+    end
+    if fitBtn then
+        local fn = npts >= 2 and fitBtn.Enable or fitBtn.Disable
+        if fn then
+            fn(fitBtn)
+        end
+    end
+    if not marker then
+        return
     end
     if not (plate and off) then
         marker:Hide()
@@ -130,19 +138,54 @@ local function makeMarker()
     f:SetFrameStrata("HIGH")
     f:EnableMouse(false)
     f:Hide()
+    -- the orb is only a hint (dimmed over a black underlay); the exact point is the gapped reticle outside it
+    local under = f:CreateTexture(nil, "ARTWORK")
+    under:SetTexture(ns.Orbs.ORB_TEX)
+    under:SetVertexColor(0, 0, 0)
+    under:SetAlpha(0.4)
+    under:SetSize(26, 26)
+    under:SetPoint("CENTER", f, "CENTER", 0, 0)
     local orb = f:CreateTexture(nil, "OVERLAY")
     orb:SetTexture(ns.Orbs.ORB_TEX)
     orb:SetVertexColor(1, 1, 0.85)
+    orb:SetAlpha(0.6)
     orb:SetSize(MARKER_SIZE, MARKER_SIZE)
     orb:SetPoint("CENTER", f, "CENTER", 0, 0)
-    -- a crosshair so the exact point stays readable over a bright body
-    for i = 1, 2 do
-        local line = f:CreateTexture(nil, "OVERLAY")
-        line:SetColorTexture(1, 1, 1, 0.9)
-        line:SetSize(i == 1 and CROSS or 1, i == 1 and 1 or CROSS)
-        line:SetPoint("CENTER", f, "CENTER", 0, 0)
+    local mid, len = (ARM_FROM + ARM_TO) / 2, ARM_TO - ARM_FROM
+    f.arms = {}
+    for i = 1, 4 do
+        local dx, dy = (i == 1 and mid) or (i == 2 and -mid) or 0, (i == 3 and mid) or (i == 4 and -mid) or 0
+        local horizontal = i <= 2
+        for pass = 1, 2 do -- black (4 px, under) then white (2 px)
+            local line = f:CreateTexture(nil, "OVERLAY", nil, pass == 1 and 1 or 2)
+            if pass == 1 then
+                line:SetColorTexture(0, 0, 0, 0.6)
+            else
+                line:SetColorTexture(1, 1, 1, 0.95)
+                f.arms[#f.arms + 1] = line
+            end
+            local w = pass == 1 and 4 or 2
+            local l = len + (pass == 1 and 2 or 0)
+            line:SetSize(horizontal and l or w, horizontal and w or l)
+            line:SetPoint("CENTER", f, "CENTER", dx, dy)
+        end
     end
     return f
+end
+
+local function tip(b, text)
+    b:SetScript("OnEnter", function(self)
+        pcall(function()
+            GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+            GameTooltip:SetText(text)
+            GameTooltip:Show()
+        end)
+    end)
+    b:SetScript("OnLeave", function()
+        pcall(function()
+            GameTooltip:Hide()
+        end)
+    end)
 end
 
 local function button(parent, text, w, x, onClick)
@@ -157,8 +200,8 @@ local function button(parent, text, w, x, onClick)
 end
 
 local function makePanel()
-    local f = CreateFrame("Frame", nil, UIParent)
-    f:SetSize(400, 118)
+    local f = CreateFrame("Frame", nil, UIParent, BackdropTemplateMixin and "BackdropTemplate" or nil)
+    f:SetSize(400, 124)
     f:SetFrameStrata("DIALOG")
     f:SetPoint("TOP", UIParent, "TOP", 0, -80)
     f:SetClampedToScreen(true)
@@ -169,30 +212,37 @@ local function makePanel()
     f:SetScript("OnDragStop", f.StopMovingAndSizing)
     f:EnableMouseWheel(true)
     f:SetScript("OnMouseWheel", function(_, delta)
-        bump(delta > 0 and 1 or -1)
+        bump(delta > 0 and -1 or 1) -- wheel up moves the marker up (the marker sits at -(offset + nudge))
     end)
     local bg = f:CreateTexture(nil, "BACKGROUND")
     bg:SetAllPoints(f)
     bg:SetColorTexture(0, 0, 0, 0.8)
+    if f.SetBackdrop then
+        pcall(f.SetBackdrop, f, { edgeFile = "Interface\Tooltips\UI-Tooltip-Border", edgeSize = 12 })
+        if f.SetBackdropBorderColor then
+            pcall(f.SetBackdropBorderColor, f, 0.8, 0.8, 0.8, 0.8)
+        end
+    end
     local title = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     title:SetPoint("TOPLEFT", f, "TOPLEFT", 12, -10)
-    title:SetText("XP Orbs calibration")
+    title:SetText("XP Orbs Calibration")
     readout = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    readout:SetPoint("TOPRIGHT", f, "TOPRIGHT", -12, -10)
-    local hint = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    readout:SetPoint("TOPLEFT", f, "TOPLEFT", 180, -10)
+    readout:SetJustifyH("LEFT")
+    local hint = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     hint:SetPoint("TOPLEFT", f, "TOPLEFT", 12, -30)
     hint:SetWidth(376)
     hint:SetJustifyH("LEFT")
-    hint:SetText("Target a mob, zoom the camera, nudge until the marker sits on its body, then Save point. "
-        .. "Repeat at another zoom, then Fit.")
-    button(f, "-", 26, 12, function()
-        bump(-1)
-    end)
-    button(f, "+", 26, 44, function()
+    hint:SetText("Nudge the marker onto the target's body (mouse wheel; Shift = 10 px), then Save point. "
+        .. "Repeat at a second zoom, then Fit.")
+    tip(button(f, "Down", 44, 12, function()
         bump(1)
-    end)
-    button(f, "Save point", 90, 76, Calib.SavePoint)
-    button(f, "Fit", 50, 172, Calib.Fit)
+    end), "Shift-click: 10 px")
+    tip(button(f, "Up", 44, 60, function()
+        bump(-1)
+    end), "Shift-click: 10 px")
+    button(f, "Save point", 90, 120, Calib.SavePoint)
+    fitBtn = button(f, "Fit", 50, 216, Calib.Fit)
     button(f, "Close", 60, 328, Calib.Close)
     f:SetScript("OnHide", function()
         f:SetScript("OnUpdate", nil)

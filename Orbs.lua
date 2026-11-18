@@ -89,14 +89,39 @@ local XF_EASE_OUT = 0.25 -- ease-out weight of the crossfade launch (PopEase def
 -- hold: base seconds before the flight; rmin/rmax/drift: ring radius range and extra upward drift of the ring point.
 local XF_PROFILE = { s0 = XF_START, s1 = XF_END, bloom = XF_HOLD, bsize = XF_BLOOM_SIZE, fadeIn = XF_FADE_IN,
     flight = XF_FLIGHT, ease = XF_EASE_OUT, hold = XF_HOLD, rmin = XF_BLOOM_R, rmax = XF_BLOOM_R, drift = 0 }
--- Mob style: one burst of orbs at the mob (like the pop, all born within MOB_BORN), each launching after
--- MOB_HOLD + up to STAGGER_POP seconds, so it reads as one pop and then a stream. The ring radius (POP_R_MIN..MAX plus
--- POP_DRIFT) is per orb; the bloom ends at MOB_HOLD and the orb idles on its ring point until its own launch. The
--- crossfade is early and quick (flight p 0.04..0.20) so a good P-hat makes the hand-off invisible.
-local MOB_HOLD = 0.35
+-- Mob style: one burst of orbs at the mob (like the pop, all born within MOB_BORN). Orbs launch in order, nearest to
+-- the bar first: hold = launch0 + launchSpan * rank / (n - 1) + up to launchJitter. The ring radius (POP_R_MIN..MAX
+-- plus POP_DRIFT) is per orb; the bloom ends at `bloom`, then the orb keeps drifting (dv: up 15 px/s, out 8 px/s along
+-- its ring angle) until its launch, and the flight starts exactly where the drift ends. Flight time jitter is narrow
+-- (jlo + jspan * random) so later orbs don't overtake earlier ones. The crossfade is early and quick (flight p
+-- 0.04..0.20) so a good P-hat makes the hand-off invisible. ring/ang/hold are per-burst scratch arrays (see mobPlan).
 local MOB_BORN = 0.04
-local MOB_PROFILE = { s0 = 0.04, s1 = 0.20, bloom = MOB_HOLD, bsize = 1.4, fadeIn = 0.06, flight = 1.1, ease = 0.35,
-    hold = MOB_HOLD, rmin = POP_R_MIN, rmax = POP_R_MAX, drift = POP_DRIFT }
+local MOB_PROFILE = { s0 = 0.04, s1 = 0.20, bloom = 0.30, bsize = 1.4, fadeIn = 0.06, flight = 1.1, ease = 0.35,
+    hold = 0.30, rmin = POP_R_MIN, rmax = POP_R_MAX, drift = POP_DRIFT, launch0 = 0.30, launchSpan = 0.30,
+    launchJitter = 0.03, jlo = 0.94, jspan = 0.12, driftUp = 15, driftOut = 8, rx = {}, ry = {}, ang = {}, hd = {} }
+
+-- Ring points, angles and launch holds for a mob burst of n orbs around (x, y); ordered by distance to (dx, dy).
+local function mobPlan(n, x, y, dx, dy)
+    local m = MOB_PROFILE
+    local dist, idx = {}, {}
+    for i = 1, n do
+        local ang = OrbMath.RingAngle(i, n, random)
+        local rad = m.rmin + random() * (m.rmax - m.rmin)
+        local rx, ry = x + cos(ang) * rad, y + sin(ang) * rad + random() * m.drift
+        m.rx[i], m.ry[i], m.ang[i] = rx, ry, ang
+        dist[i], idx[i] = (dx - rx) * (dx - rx) + (dy - ry) * (dy - ry), i
+    end
+    table.sort(idx, function(a, b)
+        if dist[a] ~= dist[b] then
+            return dist[a] < dist[b]
+        end
+        return a < b
+    end)
+    local span = max(n - 1, 1)
+    for rank = 0, n - 1 do
+        m.hd[idx[rank + 1]] = m.launch0 + m.launchSpan * rank / span + random() * m.launchJitter
+    end
+end
 -- Temporary A/B test (db.unknownOrigin) for the "mob position unknown" case (est == "default"): the stream starts
 -- somewhere over an ellipse (semi-axes rx * screen width, ry * screen height) instead of one point, and from/to is the
 -- flight p range over which the screen copy is revealed ("late"/"inplace"). One table keeps Burst's upvalues down.
@@ -414,6 +439,7 @@ end
 local function drawHold(o, t)
     local prof = o.prof
     local h = t / prof.bloom
+    local dv = t - prof.bloom
     if h > 1 then
         h = 1
     end
@@ -422,8 +448,14 @@ local function drawHold(o, t)
     local g = o.g
     hideB(o)
     -- the ring point is where copy A itself rests (o.sx, o.sy shift B's start away from it in the unknown-origin tests)
-    local rx, ry = o.x0 - o.sx, o.y0 - o.sy
-    safeA(o, g, o.px + (rx - o.px) * e, o.py + (ry - o.py) * e, o.size * (1 + (prof.bsize - 1) * (1 - e)), a * g.fm)
+    -- (mob orbs: o.dvx/o.dvy drift from the end of the bloom, so the ring point is the launch point minus the drift)
+    local hd = o.hold - prof.bloom
+    local rx, ry = o.x0 - o.sx - o.dvx * hd, o.y0 - o.sy - o.dvy * hd
+    if dv < 0 then
+        dv = 0
+    end
+    safeA(o, g, o.px + (rx - o.px) * e + o.dvx * dv, o.py + (ry - o.py) * e + o.dvy * dv,
+        o.size * (1 + (prof.bsize - 1) * (1 - e)), a * g.fm)
 end
 
 local function drawOrb(o, p, dx, dy)
@@ -1031,6 +1063,9 @@ function Orbs:Burst(p)
     end
     local fadeIn = popped and FADE_IN_POP or FADE_IN
     local flight = xg and prof.flight or 1
+    if mob then
+        mobPlan(n, x, y, dx, dy)
+    end
     local xfCount = 0
     local cur, curLive = nil, false -- the orb being built, and whether it is in `live` yet
     burstSeq = burstSeq + 1
@@ -1047,12 +1082,13 @@ function Orbs:Burst(p)
             local o = newRec()
             cur, curLive = o, false
             o.g, o.hold, o.ew, o.prof = nil, 0, nil, nil
+            o.dvx, o.dvy = 0, 0
             if xg then
                 local k = xfCount * 3
                 if pcall(xfTextures, xg, k, r, g, bl) then
                     xfCount = xfCount + 1
                     o.g, o.k, o.px, o.py = xg, k, px, py
-                    o.hold, o.ew, o.prof = mob and prof.hold + random() * STAGGER_POP or prof.hold, prof.ease, prof
+                    o.hold, o.ew, o.prof = mob and prof.hd[i] or prof.hold, prof.ease, prof
                     xg.refs = xg.refs + 1
                 end
             end
@@ -1060,8 +1096,14 @@ function Orbs:Burst(p)
                 -- the flight starts where the bloom ends: on the ring around P-hat
                 local ang = OrbMath.RingAngle(i, n, random)
                 if mob then
-                    local rad = prof.rmin + random() * (prof.rmax - prof.rmin)
-                    o.x0, o.y0 = x + cos(ang) * rad, y + sin(ang) * rad + random() * prof.drift
+                    -- ring point + drift over the rest of the hold = where the flight starts
+                    ang = prof.ang[i]
+                    if rested then
+                        o.hold = o.hold + RESTED_DELAY -- keep the purple orbs behind the others, born with the rest
+                    end
+                    o.dvx, o.dvy = cos(ang) * prof.driftOut, prof.driftUp + sin(ang) * prof.driftOut
+                    local hd = o.hold - prof.bloom
+                    o.x0, o.y0 = prof.rx[i] + o.dvx * hd, prof.ry[i] + o.dvy * hd
                 else
                     o.x0, o.y0 = x + cos(ang) * prof.rmin, y + sin(ang) * prof.rmin
                 end
@@ -1070,14 +1112,21 @@ function Orbs:Burst(p)
                 o.x0, o.y0 = x + cos(ang) * rad, y + sin(ang) * rad
             end
             placeUnknown(o, uv, x, y)
-            o.c1x, o.c1y = OrbMath.PopControl(i, n, o.x0, o.y0, random, spread, lift)
+            if mob and o.g then
+                -- leave outwards along the ring angle, then curve home (nobody flies back through the middle)
+                local ang, r = prof.ang[i], (45 + random() * 55) * POP_STREAM_SPREAD * 2.2
+                o.c1x, o.c1y = o.x0 + cos(ang) * r, o.y0 + (0.8 * sin(ang) + POP_STREAM_LIFT) * r
+            else
+                o.c1x, o.c1y = OrbMath.PopControl(i, n, o.x0, o.y0, random, spread, lift)
+            end
             local ddx, ddy = dx - o.x0, dy - o.y0
             o.dist0 = sqrt(ddx * ddx + ddy * ddy)
             o.delay = random() * stagger + (rested and not mob and RESTED_DELAY or 0) + extra
-            if mob and rested then
-                o.hold = o.hold + RESTED_DELAY -- keep the purple orbs behind the others without delaying their birth
+            local jlo, jspan = 0.85, 0.3
+            if mob and o.g then
+                jlo, jspan = prof.jlo, prof.jspan
             end
-            o.dur = max(MIN_DUR, d.flightTime * (o.g and flight or 1) * (0.85 + random() * 0.3))
+            o.dur = max(MIN_DUR, d.flightTime * (o.g and flight or 1) * (jlo + random() * jspan))
             o.el = 0
             o.fadeIn = o.g and 0 or fadeIn -- plate-copy orbs fade in during the hold (prof.fadeIn)
             o.rested = rested

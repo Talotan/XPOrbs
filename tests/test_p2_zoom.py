@@ -355,9 +355,9 @@ def test_nudge_save_and_fit_through_the_panel(env):
     g.slash("calib")
     panel = g.ns.Calib.panel
     wheel = panel.scripts.OnMouseWheel
+    wheel(panel, -1)  # +2 (wheel down moves the marker down)
+    wheel(panel, -1)  # +4
     wheel(panel, 1)  # +2
-    wheel(panel, 1)  # +4
-    wheel(panel, -1)  # +2
     g.stub.zoom = 5
     g.slash("calib save")
     assert pts(g) == [(5, pytest.approx(10 + 100 + 2))]
@@ -380,10 +380,97 @@ def test_panel_buttons_call_the_handlers(env):
         for f in lua_list(g.stub.frames)
         if f.kind == "Button"
     }
-    assert {"-", "+", "Save point", "Fit", "Close"} <= set(buttons)
+    assert {"Down", "Up", "Save point", "Fit", "Close"} <= set(buttons)
     g.stub.zoom = 10
     buttons["Save point"].scripts.OnClick(buttons["Save point"])
     assert len(pts(g)) == 1
     buttons["Close"].scripts.OnClick(buttons["Close"])
     assert not g.ns.Calib.panel.shown
     assert updaters(g) == []
+
+
+# ---------------------------------------------------------------- design-review fixes: direction, reticle, readout
+
+
+def panel_texts(g):
+    fs = [f for f in lua_list(g.stub.frames) if f.kind == "FontString" and OWN(g, f.parentFrame, g.ns.Calib.panel)]
+    return {str(f.text)[:4]: f for f in fs if f.text}
+
+
+def panel_buttons(g):
+    return {str(f.text): f for f in lua_list(g.stub.frames) if f.kind == "Button" and f.text}
+
+
+def target_plate(g, zoom=10):
+    plate = restricted_plate(g, hostile=True, cx=700, cy=400)
+    g.stub.plates["target"] = plate
+    g.stub.zoom = zoom
+    return plate
+
+
+def test_up_button_moves_the_marker_up_and_down_moves_it_down(env):
+    g = make(env)
+    target_plate(g)
+    g.slash("calib")
+    b = panel_buttons(g)
+    y0 = marker_anchor(g)[5]
+    b["Up"].scripts.OnClick(b["Up"])
+    y1 = marker_anchor(g)[5]
+    assert y1 == pytest.approx(y0 + 2)  # less negative = higher on screen
+    b["Down"].scripts.OnClick(b["Down"])
+    b["Down"].scripts.OnClick(b["Down"])
+    assert marker_anchor(g)[5] == pytest.approx(y0 - 2)
+    assert (b["Down"].width, b["Up"].width) == (44, 44)
+
+
+def test_mouse_wheel_up_moves_the_marker_up(env):
+    g = make(env)
+    target_plate(g)
+    g.slash("calib")
+    y0 = marker_anchor(g)[5]
+    panel = g.ns.Calib.panel
+    panel.scripts.OnMouseWheel(panel, 1)
+    assert marker_anchor(g)[5] == pytest.approx(y0 + 2)
+    panel.scripts.OnMouseWheel(panel, -1)
+    panel.scripts.OnMouseWheel(panel, -1)
+    assert marker_anchor(g)[5] == pytest.approx(y0 - 2)
+
+
+def test_fit_is_disabled_until_two_points_are_saved(env):
+    g = make(env)
+    target_plate(g)
+    g.slash("calib")
+    fit = panel_buttons(g)["Fit"]
+    assert fit.disabled is True
+    g.stub.zoom = 10
+    g.slash("calib save")
+    assert fit.disabled is True
+    g.stub.zoom = 20
+    g.slash("calib save")
+    assert fit.disabled is False
+    g.slash("calib reset")
+    assert fit.disabled is True
+
+
+def test_readout_says_what_is_missing_without_a_plate(env):
+    g = make(env)
+    plate = target_plate(g, zoom=12)
+    g.slash("calib")
+    assert "offset" in str(panel_texts(g)["zoom"].text) and "target a mob" not in str(panel_texts(g)["zoom"].text)
+    g.stub.plates["target"] = None
+    g.stub.tick(0.2)
+    text = str(panel_texts(g)["zoom"].text)
+    assert "target a mob with its nameplate showing" in text and "zoom 12.0" in text
+    assert not g.ns.Calib.marker.shown
+    assert plate is not None
+
+
+def test_marker_is_a_four_arm_reticle_beyond_the_orb(env):
+    g = make(env)
+    g.slash("calib")
+    arms = list(lua_list(g.ns.Calib.marker.arms))
+    assert len(arms) == 4
+    assert sorted((a.width, a.height) for a in arms) == [(2, 12), (2, 12), (12, 2), (12, 2)]
+    for a in arms:
+        pt = a.points[1]
+        assert max(abs(pt[4]), abs(pt[5])) == 12  # arm centre; arms span 6..18 px from the centre

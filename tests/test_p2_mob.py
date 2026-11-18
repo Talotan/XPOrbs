@@ -9,7 +9,7 @@ from test_migration import load
 from test_p2_zoom import anchor_of
 from test_v09 import burst, chat_lines, make, pop_frames, pop_textures, restricted_plate, stream_textures
 
-BORN, HOLD, STAGGER = 0.04, 0.35, 0.08  # MOB_BORN, MOB_HOLD, STAGGER_POP
+BORN, HOLD, STAGGER = 0.04, 0.315, 0.08  # MOB_BORN, hold of a lone orb at random 0.5 (0.30 + 0.015), STAGGER_POP
 
 
 def mob_burst(g, n=6, **kw):
@@ -105,25 +105,27 @@ def test_orbs_born_together_then_launch_staggered_and_swap_to_copy_b(env):
 
 
 def test_after_the_crossfade_only_copy_b_is_visible(env):
-    g = make(env)  # fixed random 0.5: hold 0.39, dur = flightTime * 1.1 * 1.0
+    g = make(env)  # fixed random 0.5: hold 0.315, dur = flightTime * 1.1 * 1.0
     mob_burst(g, n=1)
     dur = g.db.flightTime * 1.1
-    g.stub.tick(0.02 + HOLD + STAGGER / 2 + 0.12 * dur)  # mid crossfade (p = 0.12 of [0.04, 0.20])
+    g.stub.tick(0.02 + HOLD + 0.12 * dur)  # mid crossfade (p = 0.12 of [0.04, 0.20])
     assert a_orbs(g)[0].alpha == pytest.approx(math.sqrt(0.5), abs=0.02)
     assert b_orbs(g)[0].alpha == pytest.approx(math.sqrt(0.5), abs=0.02)
     g.stub.tick(0.1 * dur)  # p = 0.22
     assert a_orbs(g) == [] and len(b_orbs(g)) == 1
 
 
-def test_bloom_reaches_a_ring_point_between_30_and_55_px_and_idles(env):
+def test_bloom_reaches_a_ring_point_between_30_and_55_px_then_drifts(env):
     g = make(env)
     mob_burst(g, n=1)
-    g.stub.tick(0.02 + HOLD + 0.01)
+    g.stub.tick(0.02 + 0.30)  # the bloom just ended
     (a,) = a_orbs(g)
-    r = math.hypot(a.points[1][4], a.points[1][5])
-    assert 30 <= r <= 55 + 12  # POP_R_MAX plus the upward drift
-    g.stub.tick(0.02)
-    assert math.hypot(a.points[1][4], a.points[1][5]) == pytest.approx(r)  # idling on the ring point
+    x0, y0 = a.points[1][4], a.points[1][5]
+    assert 30 <= math.hypot(x0, y0) <= 55 + 12  # POP_R_MAX plus the upward drift
+    g.stub.tick(0.01)
+    x1, y1 = a.points[1][4], a.points[1][5]
+    assert (x1, y1) != (x0, y0)  # no freeze on the ring: it keeps drifting
+    assert math.hypot(x1 - x0, y1 - y0) == pytest.approx(0.01 * 15, abs=0.01 * 8 + 1e-6)
 
 
 def test_crossfade_keeps_its_own_timings(env):
@@ -200,3 +202,84 @@ def test_driver_allocates_nothing_per_frame_for_a_mob_burst(env):
     assert grown < 4.0, grown
 
 
+
+
+# ---------------------------------------------------------------- launch order, continuity, jitter, direction
+
+
+def recs(g):
+    from test_p2_unknown import live_recs
+
+    return live_recs(g)
+
+
+def seeded(g):
+    from test_p2_unknown import LCG
+
+    g.env.lua.execute(LCG)
+
+
+def test_launch_order_is_nearest_to_the_bar_first_within_the_new_hold_range(env):
+    g = make(env, fixed_random=False)
+    seeded(g)
+    mob_burst(g, n=12)
+    os_ = recs(g)
+    assert len(os_) == 12
+    free = [o for o in os_ if not o.rested]
+    # o.dist0 is measured from the launch point (ring + a few px of drift), so the order matches it closely
+    d = [o.dist0 for o in free]
+    h = [o.hold for o in free]
+    n = len(free)
+    rd = [sorted(d).index(v) for v in d]
+    rh = [sorted(h).index(v) for v in h]
+    rho = 1 - 6 * sum((x - y) ** 2 for x, y in zip(rd, rh)) / (n * (n * n - 1))
+    assert rho > 0.8
+    assert 0.30 <= min(o.hold for o in os_) and max(o.hold for o in os_ if not o.rested) <= 0.60 + 0.03 + 1e-9
+    assert min(o.hold for o in os_) < 0.34 and max(o.hold for o in os_ if not o.rested) > 0.58
+    for o in os_:  # every orb has per-orb drift numbers: 15 px/s up plus 8 px/s outwards
+        assert abs(o.dvx) <= 8 and 7 <= o.dvy <= 23
+
+
+def test_flight_jitter_for_mob_orbs_is_narrow_and_others_keep_theirs(env):
+    g = make(env, fixed_random=False)
+    seeded(g)
+    mob_burst(g, n=30)
+    base = g.db.flightTime * 1.1
+    durs = [o.dur for o in recs(g)]
+    assert min(durs) >= base * 0.94 - 1e-9 and max(durs) <= base * 1.06 + 1e-9
+    assert max(durs) - min(durs) > 0.05 * base
+
+
+def test_c1_leaves_along_the_ring_angle(env):
+    g = make(env, fixed_random=False)
+    seeded(g)
+    mob_burst(g, n=10, x=300, y=300)
+    for o in recs(g):
+        ring = (o.x0 - o.dvx * (o.hold - 0.30) - o.px, o.y0 - o.dvy * (o.hold - 0.30) - o.py)
+        cx, cy = o.c1x - o.x0, o.c1y - o.y0
+        # outwards: c1's horizontal leg points the same way as the ring point from the centre (lift only adds up)
+        assert cx * ring[0] > 0 or abs(ring[0]) < 1e-6
+        assert math.hypot(cx, cy) > 40
+
+
+def test_no_position_jump_between_the_end_of_the_hold_and_the_flight(env):
+    g = make(env)
+    mob_burst(g, n=1)
+    (o,) = recs(g)
+    assert (o.dvx, o.dvy) != (0, 0)
+    g.stub.tick(0.02 + o.hold - 0.001)
+    (a,) = a_orbs(g)
+    before = (a.points[1][4], a.points[1][5])
+    g.stub.tick(0.002)
+    (a,) = a_orbs(g)
+    after = (a.points[1][4], a.points[1][5])
+    assert math.hypot(after[0] - before[0], after[1] - before[1]) < 1.0
+
+
+def test_crossfade_orbs_have_no_drift_and_old_jitter(env):
+    g = make(env, fixed_random=False)
+    seeded(g)
+    plate = restricted_plate(g, cx=700, cy=400)
+    assert burst(g, plate=plate, n=10, x=300, y=300, ex=700, ey=500, kind="kill", style="crossfade") == "crossfade"
+    for o in recs(g):
+        assert (o.dvx, o.dvy) == (0, 0) and o.hold == pytest.approx(0.22)

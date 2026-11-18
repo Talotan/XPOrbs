@@ -12,7 +12,7 @@ from test_p2_mob import a_orbs
 from test_v09 import burst, chat_lines, make, restricted_plate, stream_textures
 
 # (seconds before the flight starts, flight-time multiplier) with math.random fixed at 0.5 and flightTime 1.0
-TIMELINE = {"popstream": (0.34, 1.0), "crossfade": (0.26, 1.2), "mob": (0.41, 1.1)}
+TIMELINE = {"popstream": (0.34, 1.0), "crossfade": (0.26, 1.2), "mob": (0.335, 1.1)}
 PLATE_STYLES = ["popstream", "crossfade", "mob"]
 ORIGIN = (960, 626)
 W, H = 1920, 1080
