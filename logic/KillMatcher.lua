@@ -2,7 +2,9 @@
 local ADDON, ns = ...
 
 -- Pure logic: pairs deaths (position) with chat kill-XP and XP deltas into bursts. Touches no WoW globals.
--- Tiers: 1 = UNIT_DIED match, 2 = plate removed while dead, 3 = target fallback, 4 = no origin (caller falls back).
+-- Tiers: 1 = UNIT_DIED match, 2 = plate removed while dead, 4 = no death matched (caller falls back). Tier 3 (a target
+-- fallback that needed a death position) was retired with the plate measuring in v0.17; the number stays unused so log
+-- lines keep their meaning.
 
 local KillMatcher = {}
 ns.KillMatcher = KillMatcher
@@ -22,19 +24,19 @@ function KillMatcher.New(cfg)
     self.kills = {}
     self.deltas = {}
     self.owed = {}
-    self.stats = { tier1 = 0, tier2 = 0, tier3 = 0, tier4 = 0, dropped = 0, other = 0 }
+    self.stats = { tier1 = 0, tier2 = 0, tier4 = 0, dropped = 0, other = 0 }
     return self
 end
 
--- d = { x, y, tier, name|nil, plate|nil, guid|nil }; guid is opaque (passed through to the burst, never logged)
+-- d = { tier, name|nil, plate|nil, guid|nil, entry|nil }; guid and entry are opaque (passed through to the burst, never
+-- logged; entry is the plate tracker's record of the dead unit)
 function KillMatcher:AddDeath(d)
     self.deaths[#self.deaths + 1] = {
-        x = d.x,
-        y = d.y,
         tier = d.tier or 1,
         name = d.name,
         plate = d.plate,
         guid = d.guid,
+        entry = d.entry,
         t = self.cfg.now(),
     }
 end
@@ -55,7 +57,7 @@ end
 
 function KillMatcher:Stats()
     local s = self.stats
-    return { tier1 = s.tier1, tier2 = s.tier2, tier3 = s.tier3, tier4 = s.tier4, dropped = s.dropped, other = s.other }
+    return { tier1 = s.tier1, tier2 = s.tier2, tier4 = s.tier4, dropped = s.dropped, other = s.other }
 end
 
 -- Each delta claims one equal-amount kill (still pending, or already emitted and owed a delta), FIFO.
@@ -88,7 +90,8 @@ function KillMatcher:_claim()
     end
 end
 
--- Same readable name wins, else the oldest queued death.
+-- With a readable mob name: the oldest death of the same name, else the oldest death whose name is unknown. A death
+-- with a different readable name is never taken (it belongs to another kill). Without a mob name: the oldest death.
 local function findDeath(deaths, mob)
     if mob ~= nil then
         for i, d in ipairs(deaths) do
@@ -96,6 +99,12 @@ local function findDeath(deaths, mob)
                 return i
             end
         end
+        for i, d in ipairs(deaths) do
+            if d.name == nil then
+                return i
+            end
+        end
+        return nil
     end
     if #deaths > 0 then
         return 1
@@ -103,7 +112,7 @@ local function findDeath(deaths, mob)
     return nil
 end
 
--- Returns a list of bursts { x|nil, y|nil, plate|nil, guid|nil, amount, rested, tier, kind = "kill"|"other" }.
+-- Returns a list of bursts { plate|nil, guid|nil, entry|nil, amount, rested, tier, kind = "kill"|"other" }.
 function KillMatcher:Poll()
     local cfg, now, out = self.cfg, self.cfg.now(), {}
     self:_claim()
@@ -116,17 +125,16 @@ function KillMatcher:Poll()
         if di then
             local d = table.remove(self.deaths, di)
             burst = {
-                x = d.x,
-                y = d.y,
                 plate = d.plate,
                 guid = d.guid,
+                entry = d.entry,
                 amount = k.amount,
                 rested = k.rested,
                 tier = d.tier,
                 kind = "kill",
             }
         elseif now - k.t >= cfg.chatWait then
-            burst = { x = nil, y = nil, amount = k.amount, rested = k.rested, tier = 4, kind = "kill" }
+            burst = { amount = k.amount, rested = k.rested, tier = 4, kind = "kill" }
         end
         if burst then
             table.remove(self.kills, i)
@@ -159,7 +167,7 @@ function KillMatcher:Poll()
         if now - d.t >= cfg.deltaWait then
             table.remove(self.deltas, i)
             self.stats.other = self.stats.other + 1
-            out[#out + 1] = { x = nil, y = nil, amount = d.amount, rested = nil, tier = 4, kind = "other" }
+            out[#out + 1] = { amount = d.amount, rested = nil, tier = 4, kind = "other" }
         else
             i = i + 1
         end

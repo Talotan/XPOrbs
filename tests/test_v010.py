@@ -334,7 +334,7 @@ def test_other_xp_keeps_centre_origin_and_no_estimate(env):
     assert (
         b["kind"] == "other"
         and b["ex"] is None
-        and (b["x"], b["y"]) == (960, 1080 * 0.55)
+        and (b["x"], b["y"]) == (960, 1080 * 0.65)
     )
     assert g.has_log("kind=other") and g.has_log("est=none w=0.00")
 

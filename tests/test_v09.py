@@ -241,7 +241,8 @@ def test_corpse_pop_off_means_no_pop(env):
 def test_kind_other_streams_from_centre_without_pop(env):
     g = make(env)
     plate = restricted_plate(g)
-    assert burst(g, plate=plate, n=2, x=100, y=100, kind="other") == "stream"
+    # v1.0.2: no origin given -> the centre; an explicit x/y is honoured (see test_v102)
+    assert burst(g, plate=plate, n=2, kind="other") == "stream"
     assert pop_frames(g) == []
     g.stub.tick(0.2)
     pts = [t.points[1] for t in stream_textures(g)]
@@ -423,6 +424,7 @@ def test_tier4_uses_target_plate(env):
     g.fake_orbs_on()
     plate = g.plate(guid="G1", cx=1, cy=1)
     g.stub.plates["target"] = plate
+    g.stub.units["target"] = g.env.lua.table_from({"dead": True})  # v1.0.2: only a dead target's plate is used
     g.chat()
     g.tick(0.6)
     (b,) = g.bursts()
@@ -446,13 +448,15 @@ def test_disabled_suppresses_bursts(env):
     assert g.bursts() == [] and g.has_log("BURST tier=1 kind=kill")
 
 
-def test_max_level_suppresses_unless_show_at_max(env):
+def test_max_level_no_longer_suppresses_bursts(env):
+    # v1.0.2: the emit-time gate is gone. The game pays no XP at the cap, so it only ever ate the burst of the gain
+    # that reached max level (PLAYER_LEVEL_UP has already run by then). The showAtMax setting itself stays (1.1.0).
     g = make(env)
     g.fake_orbs_on()
     set_level(g, 70, 70)
+    assert g.db.showAtMax is False
     kill_with_secret_pos_plate(g)
-    assert g.bursts() == []
-    g.db.showAtMax = True
+    assert len(g.bursts()) == 1
     g.stub.plates["nameplate1"] = None
     g.stub.addPlate(
         "nameplate2",
@@ -462,7 +466,8 @@ def test_max_level_suppresses_unless_show_at_max(env):
     g.ns.fire("UNIT_DIED", "G2")
     g.chat()
     g.tick(0.1)
-    assert len(g.bursts()) == 1
+    assert len(g.bursts()) == 2
+    assert g.db.showAtMax is False
 
 
 def test_quest_burst_from_screen_centre_without_plate(env):
@@ -472,7 +477,7 @@ def test_quest_burst_from_screen_centre_without_plate(env):
     g.tick(0.6)
     (b,) = g.bursts()
     assert b["kind"] == "other" and b["plate"] is None
-    assert (b["x"], b["y"]) == (960, pytest.approx(1080 * 0.55))
+    assert (b["x"], b["y"]) == (960, pytest.approx(1080 * 0.65))  # v1.0.2: 65% of the height (was 55%)
     assert g.has_log("kind=other") and g.has_log("origin=centre plate=no")
 
 

@@ -228,6 +228,7 @@ def owned_frames(e):
         "Mouseover.frame": e.ns.Mouseover.frame,
         "Target.pickFrame": e.ns.Target.pickFrame,
         "Plates.retryFrame": e.ns.Plates.retryFrame,
+        "Orbs.stressFrame": e.ns.Orbs.stressFrame,  # only exists after /xporbs test stress
         "Options.panel": e.ns.Options.panel,
     }
     return out
@@ -303,7 +304,7 @@ def test_idle_scan_sees_each_owner_when_it_is_busy_and_clears_after(env):
 
 
 def test_every_frame_with_an_onupdate_script_belongs_to_a_known_owner(env):
-    """No stray OnUpdate anywhere: even while busy, only the five named owners ever set one."""
+    """No stray OnUpdate anywhere: even while busy, only the named owners ever set one."""
     e = make(env)
     stub = e.stub
     stub.units["mouseover"] = e.lua.table_from(
@@ -314,9 +315,10 @@ def test_every_frame_with_an_onupdate_script_belongs_to_a_known_owner(env):
     e.stub.addPlate("nameplate1", e.lua.table_from({"name": "Boar"}))
     stub.setXP(40)
     burst(e, n=10, x=500, y=500, kind="other")
+    e.slash("test stress 5")  # v1.0.2: the short-lived stress frame is the sixth owner
     same = e.lua.eval("rawequal")
     known = [f for f in owned_frames(e).values() if f is not None]
     busy = updaters(e)
-    assert len(busy) >= 5
+    assert len(busy) >= 6
     for f in busy:
         assert any(same(f, k) for k in known)

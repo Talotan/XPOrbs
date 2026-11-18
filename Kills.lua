@@ -20,7 +20,7 @@ local parser = ns.XPParse.Build(_G)
 Kills.matcher = matcher
 
 local xpCache = { xp = nil, max = nil }
-local leveled = false
+local xpStale = false -- the last PLAYER_XP_UPDATE was unreadable: the cache can't be trusted until it is re-primed
 local unitDiedRegistered = false
 local pendingChat, pendingDelta -- { amount, t, kind } awaiting their counterpart for AMOUNTCHECK
 local lastDropped = 0
@@ -49,15 +49,19 @@ local function num(v)
     return nil
 end
 
+-- Re-reads the cache. Returns true when both values were readable.
 local function refreshXP()
     local okx, xp = pcall(UnitXP, "player")
     local okm, mx = pcall(UnitXPMax, "player")
-    if okx and num(xp) then
+    local gotX = okx and num(xp) ~= nil
+    local gotM = okm and num(mx) ~= nil
+    if gotX then
         xpCache.xp = xp
     end
-    if okm and num(mx) then
+    if gotM then
         xpCache.max = mx
     end
+    return gotX and gotM
 end
 
 -- Returns raw, state: raw = the API value for logging (nil when not rested or unreadable); state = the pool for
@@ -116,6 +120,8 @@ end
 local poller = CreateFrame("Frame")
 Kills.pollFrame = poller
 
+local NON_KILL_Y = 0.65 -- non-kill XP (quests etc.) streams from the screen centre, at this fraction of its height
+
 local function screenCentre(frac)
     local okw, w = pcall(UIParent.GetWidth, UIParent)
     local okh, h = pcall(UIParent.GetHeight, UIParent)
@@ -125,17 +131,7 @@ local function screenCentre(frac)
     return nil, nil
 end
 
--- True when the player is at the level cap. Unavailable APIs (or errors) count as "not at max".
-local function atMaxLevel()
-    local okl, lvl = pcall(UnitLevel, "player")
-    local okm, mx = pcall(GetMaxPlayerLevel)
-    if okl and okm and num(lvl) and num(mx) then
-        return lvl >= mx
-    end
-    return false
-end
-
--- Stream origin. Non-kill XP (quests etc.) always streams from a little below the centre. Kills: popstream and
+-- Stream origin. Non-kill XP (quests etc.) always streams from the screen centre (NON_KILL_Y). Kills: popstream and
 -- crossfade start at the estimate P-hat when there is one (crossfade flies from P-hat, so the label says so); popstream
 -- falls back to the portrait without one; the stream style uses the target frame (kept from its last good
 -- measurement). Fallback: the screen centre. (ex, ey) = the kill's estimate. Returns x, y, label.
@@ -158,8 +154,26 @@ local function chooseOrigin(b, ex, ey)
         local cx, cy = screenCentre()
         return cx, cy, "centre"
     end
-    local cx, cy = screenCentre(0.55)
+    local cx, cy = screenCentre(NON_KILL_Y)
     return cx, cy, "centre"
+end
+
+-- True when a different live plate entry is anchored to this very plate frame: Blizzard reuses plate frames, so the
+-- dead mob's plate may already belong to another mob and a pop there would land on the wrong one. Identity compare only
+-- (the plate is never measured). `entry` is the dead unit's own record: it never counts as "another".
+local function plateReused(plate, entry)
+    for _, e in pairs(Plates.entries) do
+        if e ~= entry and e.plate == plate then
+            return true
+        end
+    end
+    return false
+end
+
+-- The fallback plate (the current target's) is only trusted when the target is known to be dead.
+local function targetIsDead()
+    local ok, dead = pcall(UnitIsDead, "target")
+    return ok and readable(dead) and dead == true
 end
 
 local function emitBurst(b)
@@ -186,7 +200,13 @@ local function emitBurst(b)
     local x, y, origin = chooseOrigin(b, ex, ey)
     local plate
     if b.kind == "kill" and db.style ~= "stream" then
-        plate = b.plate or ns.Target:TargetPlate()
+        if b.plate ~= nil then
+            if not plateReused(b.plate, b.entry) then
+                plate = b.plate
+            end
+        elseif targetIsDead() then
+            plate = ns.Target:TargetPlate()
+        end
     end
     ns:Log("BURST tier=%d kind=%s amount=%s rested=%s origin=%s plate=%s est=%s w=%.2f restedSrc=%s", b.tier,
         tostring(b.kind), tostring(b.amount), tostring(b.rested), origin, plate and "yes" or "no", est or "none",
@@ -195,9 +215,6 @@ local function emitBurst(b)
         return
     end
     if b.kind ~= "kill" and not db.questBursts then
-        return
-    end
-    if not db.showAtMax and atMaxLevel() then
         return
     end
     local orbs = ns.Orbs
@@ -231,19 +248,24 @@ local function emitBurst(b)
     end
 end
 
+-- Hoisted so the poll creates no closure per frame. Reads the matcher's counters directly: Stats() builds a table.
+local function pollBody()
+    local bursts = matcher:Poll()
+    for _, b in ipairs(bursts) do
+        emitBurst(b)
+    end
+    local s = matcher.stats
+    if #bursts > 0 or s.dropped ~= lastDropped then
+        lastDropped = s.dropped
+        if ns.db and ns.db.debug then
+            ns:Log("STATS tier1=%d tier2=%d tier4=%d dropped=%d other=%d pending=%d", s.tier1, s.tier2, s.tier4,
+                s.dropped, s.other, matcher:Pending())
+        end
+    end
+end
+
 local function onPoll()
-    local ok, err = pcall(function()
-        local bursts = matcher:Poll()
-        for _, b in ipairs(bursts) do
-            emitBurst(b)
-        end
-        local s = matcher:Stats()
-        if #bursts > 0 or s.dropped ~= lastDropped then
-            lastDropped = s.dropped
-            ns:Log("STATS tier1=%d tier2=%d tier3=%d tier4=%d dropped=%d other=%d pending=%d", s.tier1, s.tier2,
-                s.tier3, s.tier4, s.dropped, s.other, matcher:Pending())
-        end
-    end)
+    local ok, err = pcall(pollBody)
     if not ok then
         ns:Log("poll error %s", tostring(err))
     end
@@ -258,6 +280,11 @@ local function ensurePoll()
     end
 end
 
+-- Sizes of the unclaimed-XP-update and early-burst queues (for tests; both are pruned by age).
+function Kills:XPQueueSizes()
+    return #xpEntries, #awaiting
+end
+
 function Kills:PollActive()
     return poller:GetScript("OnUpdate") ~= nil
 end
@@ -269,6 +296,7 @@ local function addDeath(entry, tier, guid)
         name = entry.name,
         plate = entry.plate,
         guid = guid or entry.guid, -- opaque: only used to look up the mouseover estimate, never logged
+        entry = entry, -- opaque: lets emitBurst tell "my plate" from "a plate another mob has taken over"
     })
     ensurePoll()
 end
@@ -353,19 +381,28 @@ function handlers.PLAYER_XP_UPDATE(unit)
     local okx, xp = pcall(UnitXP, "player")
     local okm, mx = pcall(UnitXPMax, "player")
     if not (okx and okm and num(xp) and num(mx)) then
+        xpStale = true -- whatever XP arrives meanwhile is unknown: the next readable update re-primes the cache
         ns:Log("XPUPDATE xpReadable=false")
         return
     end
-    local wasLeveled = leveled
-    leveled = false
     if xpCache.xp == nil or xpCache.max == nil then
         ns:Log("XPUPDATE no cache yet; cache primed")
         xpCache.xp, xpCache.max = xp, mx
+        xpStale = false
         return
     end
-    local delta = OrbMath.XPDelta(xpCache.xp, xpCache.max, xp, mx, wasLeveled)
+    if xpStale then
+        -- a delta across unreadable updates would merge several gains into one phantom burst
+        ns:Log("XPUPDATE stale; cache primed")
+        xpCache.xp, xpCache.max = xp, mx
+        xpStale = false
+        return
+    end
+    local wasLeveled = OrbMath.LeveledUp(xpCache.xp, xpCache.max, xp, mx)
+    local delta = OrbMath.XPDelta(xpCache.xp, xpCache.max, xp, mx)
     xpCache.xp, xpCache.max = xp, mx
     local now = GetTime()
+    pruneExh(now) -- the queues must not grow while no kill claims their entries
     local rawExh, stateExh = readExh()
     local drop = observeExh(stateExh)
     if accumDrop > 0 and now - accumT <= ACCUM_TTL then
@@ -408,13 +445,16 @@ function handlers.UPDATE_EXHAUSTION()
     end
 end
 
+-- Only logs: the level-up wrap is read from the XP numbers themselves (OrbMath.LeveledUp), so it can't depend on
+-- whether this event arrives before or after PLAYER_XP_UPDATE.
 function handlers.PLAYER_LEVEL_UP()
-    leveled = true
     ns:Log("PLAYER_LEVEL_UP")
 end
 
 function handlers.PLAYER_ENTERING_WORLD()
-    refreshXP()
+    if refreshXP() then
+        xpStale = false
+    end
     local _, stateExh = readExh()
     exhCur, accumDrop = stateExh, 0 -- re-baseline: a zone change is not a drop
     ns:Log("PLAYER_ENTERING_WORLD xp cached=%s", tostring(xpCache.xp ~= nil and xpCache.max ~= nil))
@@ -456,7 +496,7 @@ exhCur = select(2, readExh())
 
 table.insert(ns.statusProviders, function()
     local s = matcher:Stats()
-    return string.format("kills: tier1=%d tier2=%d tier3=%d tier4=%d dropped=%d other=%d UNIT_DIED=%s poll=%s",
-        s.tier1, s.tier2, s.tier3, s.tier4, s.dropped, s.other, unitDiedRegistered and "yes" or "no",
+    return string.format("kills: tier1=%d tier2=%d tier4=%d dropped=%d other=%d UNIT_DIED=%s poll=%s",
+        s.tier1, s.tier2, s.tier4, s.dropped, s.other, unitDiedRegistered and "yes" or "no",
         Kills:PollActive() and "active" or "idle")
 end)

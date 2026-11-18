@@ -14,6 +14,20 @@ end
 function UnitXPMax()
     return stub.xpMax
 end
+-- Profiling / memory APIs (deterministic: every debugprofilestop() call advances the clock by 0.25 ms; the memory
+-- functions report 123.4 KB and count their calls).
+stub.prof, stub.memUpdates = 0, 0
+function debugprofilestop()
+    stub.prof = stub.prof + 0.25
+    return stub.prof
+end
+function UpdateAddOnMemoryUsage()
+    stub.memUpdates = stub.memUpdates + 1
+end
+function GetAddOnMemoryUsage()
+    return 123.4
+end
+
 stub.exh = nil -- rested pool: nil (not rested), a number, or stub.SECRET (stubs_m3); stub.exhError makes the call raise
 function GetXPExhaustion()
     if stub.exhError then

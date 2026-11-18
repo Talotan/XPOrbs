@@ -68,6 +68,9 @@ function onRetry(_, elapsed)
     for _, e in pairs(entries) do
         if e.hostile and e.guid == nil then
             e.guid = readString(UnitGUID, e.unit)
+            if e.name == nil then
+                e.name = readString(UnitName, e.unit)
+            end
             if not e.plate and C_NamePlate and C_NamePlate.GetNamePlateForUnit then
                 local ok, p = pcall(C_NamePlate.GetNamePlateForUnit, e.unit) -- the plate can arrive late
                 if ok and p and readable(p) then

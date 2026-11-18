@@ -53,7 +53,7 @@ class Game:
     def stats(self):
         s = self.ns.Kills.matcher.Stats(self.ns.Kills.matcher)
         return {
-            k: s[k] for k in ("tier1", "tier2", "tier3", "tier4", "dropped", "other")
+            k: s[k] for k in ("tier1", "tier2", "tier4", "dropped", "other")
         }
 
     def bursts(self):

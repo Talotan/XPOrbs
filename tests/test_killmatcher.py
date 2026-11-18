@@ -14,8 +14,9 @@ class Rig:
     def tbl(self, **kw):
         return self.env.lua.table_from({k: v for k, v in kw.items() if v is not None})
 
-    def death(self, x=10, y=20, tier=1, name=None):
-        self.m.AddDeath(self.m, self.tbl(x=x, y=y, tier=tier, name=name))
+    def death(self, tag=None, tier=1, name=None):
+        # tag rides along as the opaque guid so a test can tell which death a burst took
+        self.m.AddDeath(self.m, self.tbl(guid=tag, tier=tier, name=name))
 
     def chat(self, amount, mob=None, rested=None):
         self.m.AddKillXP(self.m, self.tbl(amount=amount, mob=mob, rested=rested))
@@ -38,19 +39,12 @@ def rig(env):
     return Rig(env)
 
 
-def test_death_then_chat_tier1_at_death_position(rig):
-    rig.death(x=100, y=200, tier=1)
+def test_death_then_chat_tier1(rig):
+    rig.death("d1", tier=1)
     rig.at(0.1)
     rig.chat(90, rested=40)
     (b,) = rig.poll()
-    assert (b.x, b.y, b.amount, b.rested, b.tier, b.kind) == (
-        100,
-        200,
-        90,
-        40,
-        1,
-        "kill",
-    )
+    assert (b.guid, b.amount, b.rested, b.tier, b.kind) == ("d1", 90, 40, 1, "kill")
     assert rig.stats().tier1 == 1
 
 
@@ -65,9 +59,9 @@ def test_chat_then_death_within_wait_pairs(rig):
     rig.chat(90)
     assert rig.poll() == []
     rig.at(0.3)
-    rig.death(x=5, y=6)
+    rig.death("d1")
     (b,) = rig.poll()
-    assert (b.x, b.y, b.tier) == (5, 6, 1)
+    assert (b.guid, b.tier) == ("d1", 1)
 
 
 def test_chat_without_death_goes_tier4_after_wait(rig):
@@ -76,40 +70,37 @@ def test_chat_without_death_goes_tier4_after_wait(rig):
     assert rig.poll() == []
     rig.at(0.5)
     (b,) = rig.poll()
-    assert (
-        b.x is None
-        and b.y is None
-        and b.tier == 4
-        and b.kind == "kill"
-        and b.amount == 90
-    )
+    assert b.guid is None and b.tier == 4 and b.kind == "kill" and b.amount == 90
     assert rig.stats().tier4 == 1
 
 
 def test_two_deaths_two_chats_paired_by_name(rig):
-    rig.death(x=1, y=1, name="Kobold")
-    rig.death(x=2, y=2, name="Defias Pillager")
+    rig.death("k", name="Kobold")
+    rig.death("d", name="Defias Pillager")
     rig.chat(10, mob="Defias Pillager")  # arrives out of death order
     rig.chat(20, mob="Kobold")
-    bursts = {b.amount: (b.x, b.y) for b in rig.poll()}
-    assert bursts == {10: (2, 2), 20: (1, 1)}
+    bursts = {b.amount: b.guid for b in rig.poll()}
+    assert bursts == {10: "d", 20: "k"}
 
 
 def test_unreadable_names_fall_back_to_fifo(rig):
-    rig.death(x=1, y=1)
+    rig.death("a")
     rig.at(0.1)
-    rig.death(x=2, y=2)
+    rig.death("b")
     rig.chat(10)
     rig.chat(20)
     bursts = rig.poll()
-    assert [(b.amount, b.x) for b in bursts] == [(10, 1), (20, 2)]
+    assert [(b.amount, b.guid) for b in bursts] == [(10, "a"), (20, "b")]
 
 
-def test_name_mismatch_still_pairs_oldest(rig):
-    rig.death(x=1, y=1, name="Wolf")
+def test_name_mismatch_is_never_paired(rig):
+    # v1.0.2: a death whose readable name differs is not taken (it used to pair with the oldest death)
+    rig.death("wolf", name="Wolf")
     rig.chat(10, mob="Kobold")
+    assert rig.poll() == []
+    rig.at(0.5)
     (b,) = rig.poll()
-    assert b.x == 1
+    assert b.tier == 4 and b.guid is None
 
 
 def test_delta_with_matching_chat_is_one_burst(rig):
@@ -164,7 +155,7 @@ def test_lone_delta_is_other_after_wait(rig):
     assert rig.poll() == []
     rig.at(0.4)
     (b,) = rig.poll()
-    assert b.kind == "other" and b.amount == 250 and b.x is None and b.rested is None
+    assert b.kind == "other" and b.amount == 250 and b.guid is None and b.rested is None
     assert rig.stats().other == 1
 
 
@@ -188,13 +179,13 @@ def test_death_without_xp_dropped_after_ttl(rig):
 
 
 def test_expired_death_not_used_by_late_chat(rig):
-    rig.death(x=9, y=9)
+    rig.death("old")
     rig.at(2.0)
     rig.poll()
     rig.chat(10)
     rig.at(2.5)
     (b,) = rig.poll()
-    assert b.tier == 4 and b.x is None
+    assert b.tier == 4 and b.guid is None
 
 
 def test_rested_carried_through_burst(rig):

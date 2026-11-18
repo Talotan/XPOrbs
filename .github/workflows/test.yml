@@ -12,3 +12,5 @@ jobs:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v10.3.3
       - run: uv run pytest -q
+      # pipx is preinstalled on the ubuntu runners; the addon has only 2 notes, so this passes
+      - run: pipx run forever-lint==0.2.0 . --fail-on error --no-color

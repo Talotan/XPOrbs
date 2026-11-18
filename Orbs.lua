@@ -17,10 +17,13 @@ local FLASH_TEX = "Interface\\AddOns\\XPOrbs\\media\\flash"
 local TWO_PI = math.pi * 2
 local HALF_PI = math.pi / 2
 local random = math.random
-local floor, min, sqrt, cos, sin = math.floor, math.min, math.sqrt, math.cos, math.sin
+local floor, min, max, sqrt, cos, sin = math.floor, math.min, math.max, math.sqrt, math.cos, math.sin
 
 -- Tunables (retune here).
-local EXTRAS = 4 -- ceiling formula: cap * (1 + EXTRAS) + 8. Per orb: underlay + sparkle + 2 trail ghosts
+local EXTRAS = 4 -- ceiling formula: cap * (1 + EXTRAS) * 2 + 8. Per orb: orb + underlay + sparkle + 2 trail ghosts
+local MIN_DUR = 0.05 -- shortest allowed flight, so a bad flightTime can never strand an orb
+local STRESS_TIME = 2.0 -- /xporbs test stress spreads its bursts over this many seconds
+local STRESS_DEFAULT, STRESS_MAX = 20, 100
 local GLOW = 2.0 -- the orb art fades to nothing at its rim, so draw it larger than db.size
 local SPARKLE = 1.9
 local SPARKLE_ALPHA = 0.6
@@ -90,12 +93,17 @@ local function db()
     return ns.db
 end
 
+-- Room for two full-cap bursts, so a pull that kills several mobs at once doesn't leave the later kills without orbs.
 local function ceiling()
-    return db().cap * (1 + EXTRAS) + 8
+    return db().cap * (1 + EXTRAS) * 2 + 8
 end
 
 local function readable(v)
     return not issecretvalue or not issecretvalue(v)
+end
+
+local function num(v)
+    return type(v) == "number" and readable(v)
 end
 
 -- The orb colour for the next burst: the player's class colour when db.classColor is on and the API answers, else
@@ -238,10 +246,17 @@ end
 
 local releasePop, dropXf -- defined with the pop code below
 
+-- Gives an orb record and everything it holds back to the pools. Tolerates a half-built record (Burst failed midway).
 local function freeOrb(o)
-    release(o.under)
-    release(o.orb)
-    release(o.spark)
+    if o.under then
+        release(o.under)
+    end
+    if o.orb then
+        release(o.orb)
+    end
+    if o.spark then
+        release(o.spark)
+    end
     if o.g1 then
         release(o.g1)
     end
@@ -385,6 +400,10 @@ local function newPop()
 end
 
 function releasePop(g)
+    if g.free then
+        return -- already back in the pool (a second release would hand the frame out twice)
+    end
+    g.free = true
     local tex = g.tex
     for i = 1, g.used do
         local t = tex[i]
@@ -450,6 +469,7 @@ local function takePopFrame()
     local g = freePop[#freePop]
     if g then
         freePop[#freePop] = nil
+        g.free = false
         return g
     end
     if popsCreated < POP_FRAMES then
@@ -626,7 +646,12 @@ local function updatePops(dt)
     end
 end
 
-local function onUpdate(self, dt)
+-- Perf counters for /xporbs perf: frames the driver ran, their summed and worst time in ms.
+local perfFrames, perfTotal, perfMax = 0, 0, 0
+local driverErrSeen = false
+
+-- One driver frame. Runs under pcall (see onUpdate) and allocates nothing.
+local function drive(self, dt)
     if nPops > 0 then
         updatePops(dt)
     end
@@ -707,6 +732,56 @@ local function onUpdate(self, dt)
     end
 end
 
+-- The driver failed: give every orb, pop and crossfade frame back to its pool, hide the flash and stop, so one bad
+-- frame can never leave orbs hanging on screen with an OnUpdate that throws forever. Logged once per session.
+local function abortDriver(err)
+    if not driverErrSeen then
+        driverErrSeen = true
+        ns:Log("DRIVER_ERR %s", string.sub(tostring(err), 1, 120))
+    end
+    for i = nLive, 1, -1 do
+        pcall(freeOrb, live[i])
+        live[i] = nil
+    end
+    nLive = 0
+    for i = nPops, 1, -1 do
+        pcall(releasePop, pops[i])
+        pops[i] = nil
+    end
+    nPops = 0
+    for i = nXf, 1, -1 do
+        pcall(releasePop, xfs[i])
+        xfs[i] = nil
+    end
+    nXf = 0
+    flashOn, arrivedRecently = false, 0
+    if flash then
+        pcall(flash.Hide, flash)
+    end
+    active = false
+    if driver then
+        driver:SetScript("OnUpdate", nil)
+    end
+end
+
+-- The OnUpdate script. Hoisted (no closure per frame); times each frame when debugprofilestop exists.
+local function onUpdate(self, dt)
+    local prof = debugprofilestop
+    local t0 = prof and prof()
+    local ok, err = pcall(drive, self, dt)
+    if t0 then
+        local ms = prof() - t0
+        perfFrames = perfFrames + 1
+        perfTotal = perfTotal + ms
+        if ms > perfMax then
+            perfMax = ms
+        end
+    end
+    if not ok then
+        abortDriver(err)
+    end
+end
+
 local function lighten(c)
     return c + (1 - c) * SPARKLE_WHITE
 end
@@ -738,8 +813,7 @@ function Orbs:Burst(p)
     local x, y = p.x, p.y
     local style = styleOf(p.style or d.style)
     if p.kind == "other" then
-        x, y = nil, nil -- quest and other XP: always from the screen centre, no pop
-        style = "stream"
+        style = "stream" -- quest and other XP: no pop (Kills passes the origin; the centre is the default)
     end
     if type(x) ~= "number" or type(y) ~= "number" then
         x, y = UIParent:GetWidth() / 2, UIParent:GetHeight() * 0.65
@@ -761,9 +835,24 @@ function Orbs:Burst(p)
     if xg then
         x, y = px, py
     end
-    local trail = d.trail
+    -- Budget the texture pool. A full burst with trails needs 5 textures per orb; when that doesn't fit, the burst
+    -- drops its trail ghosts (3 per orb), then draws fewer orbs. Every burst still gets min(n, 3) orbs while 9
+    -- textures are free, so the later kills of an AoE pull are never starved by the earlier ones.
+    local trail = d.trail and true or false
     local need = trail and 1 + EXTRAS or 3 -- orb + underlay + sparkle (+ 2 ghosts)
     local limit = ceiling() - 1 -- the arrival flash holds one slot
+    local free = limit - texInUse
+    if trail and n * need > free then
+        trail, need = false, 3
+    end
+    local fit = floor(free / need)
+    if fit < 0 then
+        fit = 0
+    end
+    if fit < n then
+        nPurple = floor(nPurple * fit / n + 0.5)
+        n = fit
+    end
     local extra = popped and STREAM_DELAY or 0
     local stagger = (popped or xg) and STAGGER_POP or STAGGER
     local spread, lift = nil, nil -- PopControl defaults
@@ -773,63 +862,102 @@ function Orbs:Burst(p)
     local fadeIn = popped and FADE_IN_POP or FADE_IN
     local flight = xg and XF_FLIGHT or 1
     local xfCount = 0
+    local cur, curLive = nil, false -- the orb being built, and whether it is in `live` yet
 
-    for i = 1, n do
-        if texInUse + need > limit then
-            break
+    local ok, err = pcall(function()
+        for i = 1, n do
+            if texInUse + need > limit then
+                break
+            end
+            local rested = i <= nPurple
+            local c = rested and d.restedColor or normal
+            local r, g, bl = c[1], c[2], c[3]
+            local o = newRec()
+            cur, curLive = o, false
+            o.g, o.hold, o.ew = nil, 0, nil
+            if xg then
+                local k = xfCount * 3
+                if pcall(xfTextures, xg, k, r, g, bl) then
+                    xfCount = xfCount + 1
+                    o.g, o.k, o.px, o.py = xg, k, px, py
+                    o.hold, o.ew = XF_HOLD, XF_EASE_OUT
+                    xg.refs = xg.refs + 1
+                end
+            end
+            if o.g then
+                -- the flight starts where the bloom ends: on the ring around P-hat
+                local ang = OrbMath.RingAngle(i, n, random)
+                o.x0, o.y0 = x + cos(ang) * XF_BLOOM_R, y + sin(ang) * XF_BLOOM_R
+            else
+                local ang, rad = random() * TWO_PI, START_RADIUS * sqrt(random())
+                o.x0, o.y0 = x + cos(ang) * rad, y + sin(ang) * rad
+            end
+            o.c1x, o.c1y = OrbMath.PopControl(i, n, o.x0, o.y0, random, spread, lift)
+            local ddx, ddy = dx - o.x0, dy - o.y0
+            o.dist0 = sqrt(ddx * ddx + ddy * ddy)
+            o.delay = random() * stagger + (rested and RESTED_DELAY or 0) + extra
+            o.dur = max(MIN_DUR, d.flightTime * (o.g and flight or 1) * (0.85 + random() * 0.3))
+            o.el = 0
+            o.fadeIn = o.g and 0 or fadeIn -- crossfade orbs fade in during the hold (XF_FADE_IN)
+            o.rested = rested
+            o.size = d.size * scale * (rested and RESTED_SIZE or 1)
+            o.rot0 = random() * TWO_PI
+            o.under = acquire(ORB_TEX, -1, UNDER_R, UNDER_G, UNDER_B, "BLEND")
+            o.orb = acquire(ORB_TEX, 0, r, g, bl)
+            o.spark = acquire(SPARKLE_TEX, 1, lighten(r), lighten(g), lighten(bl))
+            if trail then
+                o.g1 = acquire(ORB_TEX, 0, r, g, bl)
+                o.g2 = acquire(ORB_TEX, 0, r, g, bl)
+            end
+            nLive = nLive + 1
+            live[nLive] = o
+            curLive = true
         end
-        local rested = i <= nPurple
-        local c = rested and d.restedColor or normal
-        local r, g, bl = c[1], c[2], c[3]
-        local o = newRec()
-        o.g, o.hold, o.ew = nil, 0, nil
+    end)
+    if not ok then
+        -- Undo what this burst started, so nothing is left holding a pool slot: the half-built orb, every orb that
+        -- shares the crossfade frame, and the pop frame (the newest entry of `pops`).
+        if cur and not curLive then
+            pcall(freeOrb, cur)
+        end
         if xg then
-            local k = xfCount * 3
-            if pcall(xfTextures, xg, k, r, g, bl) then
-                xfCount = xfCount + 1
-                o.g, o.k, o.px, o.py = xg, k, px, py
-                o.hold, o.ew = XF_HOLD, XF_EASE_OUT
-                xg.refs = xg.refs + 1
+            local i = 1
+            while i <= nLive do
+                local o = live[i]
+                if o.g == xg then
+                    pcall(freeOrb, o)
+                    live[i] = live[nLive]
+                    live[nLive] = nil
+                    nLive = nLive - 1
+                else
+                    i = i + 1
+                end
             end
         end
-        if o.g then
-            -- the flight starts where the bloom ends: on the ring around P-hat
-            local ang = OrbMath.RingAngle(i, n, random)
-            o.x0, o.y0 = x + cos(ang) * XF_BLOOM_R, y + sin(ang) * XF_BLOOM_R
-        else
-            local ang, rad = random() * TWO_PI, START_RADIUS * sqrt(random())
-            o.x0, o.y0 = x + cos(ang) * rad, y + sin(ang) * rad
+        if popped and nPops > 0 then
+            local g = pops[nPops]
+            pops[nPops] = nil
+            nPops = nPops - 1
+            releasePop(g)
         end
-        o.c1x, o.c1y = OrbMath.PopControl(i, n, o.x0, o.y0, random, spread, lift)
-        local ddx, ddy = dx - o.x0, dy - o.y0
-        o.dist0 = sqrt(ddx * ddx + ddy * ddy)
-        o.delay = random() * stagger + (rested and RESTED_DELAY or 0) + extra
-        o.dur = d.flightTime * (o.g and flight or 1) * (0.85 + random() * 0.3)
-        o.el = 0
-        o.fadeIn = o.g and 0 or fadeIn -- crossfade orbs fade in during the hold (XF_FADE_IN)
-        o.rested = rested
-        o.size = d.size * scale * (rested and RESTED_SIZE or 1)
-        o.rot0 = random() * TWO_PI
-        o.under = acquire(ORB_TEX, -1, UNDER_R, UNDER_G, UNDER_B, "BLEND")
-        o.orb = acquire(ORB_TEX, 0, r, g, bl)
-        o.spark = acquire(SPARKLE_TEX, 1, lighten(r), lighten(g), lighten(bl))
-        if trail then
-            o.g1 = acquire(ORB_TEX, 0, r, g, bl)
-            o.g2 = acquire(ORB_TEX, 0, r, g, bl)
-        end
-        nLive = nLive + 1
-        live[nLive] = o
     end
-    if xg and xg.refs <= 0 then
-        -- no orb got a plate-space copy: give the frame back
+    if xg and (not ok or xg.refs <= 0) and xg.xf then
+        -- no orb got a plate-space copy (or the burst failed): give the frame back
         dropXf(xg)
         releasePop(xg)
+    end
+    if not ok then
+        xg = nil
+    elseif xg and not xg.xf then
         xg = nil
     end
 
     if (nLive > 0 or nPops > 0) and not active then
         active = true
         driver:SetScript("OnUpdate", onUpdate)
+    end
+    if not ok then
+        error(err, 0) -- Kills logs it; everything above is already back in its pool
     end
     if xg then
         return "crossfade"
@@ -870,7 +998,8 @@ function Orbs:PoolInfo()
 end
 
 -- Stream origin for /xporbs test. popstream follows the kill rule (Target:StreamOrigin: the estimate P-hat, the
--- portrait only without one); otherwise target frame, else the cursor, else the screen centre. Returns x, y, label.
+-- portrait only without one); otherwise target frame, else the cursor, else the screen centre. Every read is
+-- checked for secrecy and pcall'd. Returns x, y, label (x, y nil only when even the screen size is unreadable).
 local function testOrigin(popstream, ex, ey)
     if popstream then
         local sx, sy, sl = Target:StreamOrigin(ex, ey)
@@ -884,31 +1013,23 @@ local function testOrigin(popstream, ex, ey)
     end
     local okc, cx, cy = pcall(GetCursorPosition)
     local oks, sc = pcall(UIParent.GetEffectiveScale, UIParent)
-    if okc and oks and type(cx) == "number" and type(cy) == "number" and type(sc) == "number" and sc > 0 then
+    if okc and oks and num(cx) and num(cy) and num(sc) and sc > 0 then
         return cx / sc, cy / sc, "cursor"
     end
-    return UIParent:GetWidth() / 2, UIParent:GetHeight() / 2, "centre"
+    local okw, w = pcall(UIParent.GetWidth, UIParent)
+    local okh, h = pcall(UIParent.GetHeight, UIParent)
+    if okw and okh and num(w) and num(h) then
+        return w / 2, h / 2, "centre"
+    end
+    return nil, nil, "centre"
 end
 
--- /xporbs test [pct] [rested] [popstream|crossfade|stream]  (the old "frame" / "plate" words are ignored)
-function ns.commands.test(arg)
+-- Fires one test burst of pct % of a level. Returns the numbers the /xporbs test report prints.
+local function fireTest(pct, rested, force)
     local d = db()
-    local pct, rested, force = 5, false, nil
-    for tok in string.gmatch(arg or "", "%S+") do
-        if tok == "rested" then
-            rested = true
-        elseif tok == "popstream" or tok == "crossfade" or tok == "stream" then
-            force = tok
-        elseif tok ~= "frame" and tok ~= "plate" then
-            local v = tonumber(tok)
-            if v and v > 0 then
-                pct = min(v, 1000)
-            end
-        end
-    end
     local okm, xpMax = pcall(UnitXPMax, "player")
-    if not okm or type(xpMax) ~= "number" or xpMax <= 0 then
-        xpMax = 1000 -- max level or no data: any positive number gives the same orb count
+    if not okm or not num(xpMax) or xpMax <= 0 then
+        xpMax = 1000 -- max level, no data or a secret value: any positive number gives the same orb count
     end
     local gain = pct / 100 * xpMax
     local n, scale = OrbMath.Count(gain, xpMax, d.density, d.cap)
@@ -939,6 +1060,71 @@ function ns.commands.test(arg)
         est = est,
         estW = estW,
     })
+    return n, scale, nPurple, est, estW, mode, label
+end
+
+-- /xporbs test stress [n]: n test bursts (1-15 % of a level each) spread over STRESS_TIME seconds, from one short-lived
+-- OnUpdate frame that removes its own script when the last burst has fired.
+local stressFrame
+local stressN, stressFired, stressEl = 0, 0, 0
+
+local function stressStop()
+    if stressFrame then
+        stressFrame:SetScript("OnUpdate", nil)
+    end
+end
+
+local function stressTick(_, dt)
+    stressEl = stressEl + (num(dt) and dt or 0)
+    while stressFired < stressN and stressEl >= stressFired * STRESS_TIME / stressN do
+        stressFired = stressFired + 1
+        local ok, err = pcall(fireTest, 1 + floor(random() * 15), false, nil)
+        if not ok then
+            ns:Log("stress error %s", tostring(err))
+            stressStop()
+            return
+        end
+    end
+    if stressFired >= stressN then
+        stressStop()
+    end
+end
+
+local function startStress(arg)
+    local n = floor(tonumber(arg) or STRESS_DEFAULT)
+    n = max(1, min(STRESS_MAX, n))
+    if not stressFrame then
+        stressFrame = CreateFrame("Frame")
+        Orbs.stressFrame = stressFrame
+    end
+    stressN, stressFired, stressEl = n, 0, 0
+    stressFrame:SetScript("OnUpdate", stressTick)
+    ns.Print(string.format("stress: %d test bursts over about %g s", n, STRESS_TIME))
+end
+
+-- /xporbs test [pct] [rested] [popstream|crossfade|stream]  (the old "frame" / "plate" words are ignored)
+-- /xporbs test stress [n]
+function ns.commands.test(arg)
+    local first, count = string.match(arg or "", "^%s*(%S+)%s*(%S*)")
+    if first == "stress" then
+        startStress(count)
+        return
+    end
+    local d = db()
+    local pct, rested, force = 5, false, nil
+    for tok in string.gmatch(arg or "", "%S+") do
+        if tok == "rested" then
+            rested = true
+        elseif tok == "popstream" or tok == "crossfade" or tok == "stream" then
+            force = tok
+        elseif tok ~= "frame" and tok ~= "plate" then
+            local v = tonumber(tok)
+            if v and v > 0 then
+                pct = min(v, 1000)
+            end
+        end
+    end
+    local n, scale, nPurple, est, estW, mode, label = fireTest(pct, rested, force)
     local used = mode == "pop+stream" and "popstream" or mode
     if mode == "crossfade" then
         label = "estimated"
@@ -946,6 +1132,33 @@ function ns.commands.test(arg)
     ns.Print(string.format("test: %g%% of a level -> %d orbs (%d purple), scale %.2f, est=%s w=%.2f pop=%s stream=%s"
         .. " style=%s", pct, n, nPurple, scale, est or "none", estW or 0, mode == "pop+stream" and "yes" or "no",
         label, used))
+end
+
+-- /xporbs perf [reset]: addon memory, driver frame time, pool usage.
+function ns.commands.perf(arg)
+    if arg == "reset" then
+        perfFrames, perfTotal, perfMax = 0, 0, 0
+        ns.Print("perf counters reset")
+        return
+    end
+    local mem = "n/a"
+    if UpdateAddOnMemoryUsage and GetAddOnMemoryUsage then
+        local ok1 = pcall(UpdateAddOnMemoryUsage)
+        local ok2, kb = pcall(GetAddOnMemoryUsage, ADDON)
+        if ok1 and ok2 and num(kb) then
+            mem = string.format("%.1f KB", kb)
+        end
+    end
+    ns.Print("perf: memory " .. mem)
+    if perfFrames == 0 and not debugprofilestop then
+        ns.Print("perf: driver timing n/a")
+    else
+        ns.Print(string.format("perf: driver frames=%d avg=%.3f ms max=%.3f ms", perfFrames,
+            perfFrames > 0 and perfTotal / perfFrames or 0, perfMax))
+    end
+    ns.Print(string.format("perf: textures created=%d in use=%d ceiling=%d", texCreated, texInUse, ceiling()))
+    ns.Print(string.format("perf: pop frames created=%d (cap %d)", popsCreated, POP_FRAMES))
+    ns.Print(string.format("perf: live orbs=%d", nLive))
 end
 
 local function refreshPanel()

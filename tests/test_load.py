@@ -57,12 +57,14 @@ def test_log_ring_and_debug_gate(env):
     env.ns.Log(env.ns, "ignored %d", 1)
     assert env.G.XPOrbsDB.log is None
     env.G.XPOrbsDB.debug = True
-    for i in range(520):
+    for i in range(720):
         env.ns.Log(env.ns, "entry %d", i)
     env.ns.Log(env.ns, "bad %d", "notanumber")
     log = env.G.XPOrbsDB.log
-    assert len(log) == 500
-    assert "log format error" in log[500]
+    # v1.0.2: the ring is trimmed back to 500 in one pass once it is 100 over, so its length is 500..600
+    assert 500 <= len(log) <= 600
+    assert "log format error" in log[len(log)]
+    assert "entry 0" not in log[1] and "entry 719" in log[len(log) - 1]
 
 
 def test_slash_commands(env):

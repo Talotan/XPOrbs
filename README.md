@@ -51,6 +51,8 @@ Settings are saved per account in `XPOrbsDB`. The options panel is under Esc > O
 | `/xporbs options` | Open the options panel. |
 | `/xporbs status` | Print the version, the settings that matter, and the state of each part of the addon. |
 | `/xporbs test [pct] [rested] [popstream\|crossfade\|stream]` | Fire a test burst. `pct` is the percent of a level it represents (default 5, up to 1000). `rested` colours part of it as rested. A style name overrides the saved style for this burst. |
+| `/xporbs test stress [n]` | Fire `n` test bursts (default 20, up to 100) spread over about 2 seconds, to see how a big pull looks and runs. |
+| `/xporbs perf [reset]` | Print the addon's memory use, the average and worst time of an orb frame, and how much of the orb pool is in use. `reset` zeroes the frame timings. |
 | `/xporbs style popstream\|crossfade\|stream` | Set the kill style. With no argument, print the current one. |
 | `/xporbs pop on\|off` | Shortcut: `on` sets `popstream`, `off` sets `stream`. |
 | `/xporbs pick` | Arm the frame picker, then left-click the XP bar. Right-click or wait 15 s to cancel. |
@@ -156,7 +158,7 @@ screen. "Quest bursts" turns this off.
 `/xporbs status` shows the version, the destination frame in use, how many kills each matching tier has caught, and
 whether each part of the addon is idle or running.
 
-`/xporbs debug on` records a ring of the last 500 log lines in `XPOrbsDB.log`. The game writes it to
+`/xporbs debug on` records a ring of the last 500 or so log lines in `XPOrbsDB.log`. The game writes it to
 `WTF\Account\<account>\SavedVariables\XPOrbs.lua` on `/reload` or logout. The log holds counts, flags and timings
 only: it never records mob names or GUIDs.
 

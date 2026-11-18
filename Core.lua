@@ -24,10 +24,23 @@ ns.defaults = {
     glowOffsetY = 0,
 }
 
+-- Slider ranges { min, max, step }: the options panel builds its sliders from these and InitDB clamps saved values
+-- to them, so a hand-edited or corrupt SavedVariables file can't feed the renderer nonsense.
+ns.ranges = {
+    density = { 25, 400, 25 },
+    cap = { 5, 80, 1 },
+    size = { 8, 32, 1 },
+    flightTime = { 0.4, 1.5, 0.05 },
+    glowOffsetX = { -100, 100, 1 },
+    glowOffsetY = { -100, 100, 1 },
+    glowIntensity = { 25, 200, 5 },
+}
+
 -- Modules add lines to /xporbs status by appending functions that return a string (or nil).
 ns.statusProviders = {}
 
 local LOG_MAX = 500
+local LOG_SLACK = 100 -- the ring is trimmed back to LOG_MAX in one pass once it is this far over
 
 local function deepFill(dst, src)
     for k, v in pairs(src) do
@@ -81,14 +94,87 @@ local function migrate(db)
     end
 end
 
+local BOOLEANS = { "enabled", "classColor", "restedTint", "trail", "questBursts", "showAtMax", "debug", "glow" }
+local COLOURS = { "color", "restedColor" }
+
+local function copyColour(c)
+    return { c[1], c[2], c[3] }
+end
+
+local function validColour(c)
+    if type(c) ~= "table" then
+        return false
+    end
+    for i = 1, 3 do
+        local v = c[i]
+        if type(v) ~= "number" or v ~= v then
+            return false
+        end
+    end
+    return true
+end
+
+-- Forces every saved setting into a form the renderer can use: numbers clamped to their slider range (a non-number
+-- becomes the default), colours three numbers in 0..1, enums one of their allowed words, flags real booleans. Never
+-- throws and never touches the version, the log or unknown keys.
+local function sanitize(db)
+    local defaults, Snap = ns.defaults, ns.OrbMath.Snap
+    for key, r in pairs(ns.ranges) do
+        local v = Snap(db[key], r[1], r[2], r[3])
+        if v == nil then
+            v = defaults[key]
+        end
+        db[key] = v
+    end
+    for _, key in ipairs(COLOURS) do
+        local c = db[key]
+        if validColour(c) then
+            for i = 1, 3 do
+                c[i] = math.max(0, math.min(1, c[i]))
+            end
+        else
+            db[key] = copyColour(defaults[key])
+        end
+    end
+    if db.style ~= "popstream" and db.style ~= "crossfade" and db.style ~= "stream" then
+        db.style = defaults.style
+    end
+    if db.glowShape ~= "bar" and db.glowShape ~= "round" then
+        db.glowShape = defaults.glowShape
+    end
+    for _, key in ipairs(BOOLEANS) do
+        if type(db[key]) ~= "boolean" then
+            db[key] = defaults[key]
+        end
+    end
+    if db.targetFrame ~= nil and type(db.targetFrame) ~= "string" then
+        db.targetFrame = nil
+    end
+end
+
 function ns:InitDB()
     if type(XPOrbsDB) ~= "table" then
         XPOrbsDB = {}
     end
     migrate(XPOrbsDB)
     deepFill(XPOrbsDB, ns.defaults)
-    XPOrbsDB.version = SCHEMA
+    sanitize(XPOrbsDB)
+    -- a save from a newer addon version keeps its number (stamping it down would make the next upgrade re-migrate)
+    if type(XPOrbsDB.version) ~= "number" or XPOrbsDB.version < SCHEMA then
+        XPOrbsDB.version = SCHEMA
+    end
     ns.db = XPOrbsDB
+end
+
+-- True when the player is at the level cap. Unavailable APIs, errors and secret values count as "not at max".
+function ns.AtMaxLevel()
+    local okl, lvl = pcall(UnitLevel, "player")
+    local okm, mx = pcall(GetMaxPlayerLevel)
+    if okl and okm and type(lvl) == "number" and type(mx) == "number"
+        and not (issecretvalue and (issecretvalue(lvl) or issecretvalue(mx))) then
+        return lvl >= mx
+    end
+    return false
 end
 
 function ns:Log(fmt, ...)
@@ -105,9 +191,17 @@ function ns:Log(fmt, ...)
         log = {}
         db.log = log
     end
-    log[#log + 1] = GetTime() .. " " .. text
-    while #log > LOG_MAX do
-        table.remove(log, 1)
+    local n = #log + 1
+    log[n] = GetTime() .. " " .. text
+    if n > LOG_MAX + LOG_SLACK then
+        -- trim in one pass instead of shifting the whole array for every line over the limit
+        local drop = n - LOG_MAX
+        for i = 1, LOG_MAX do
+            log[i] = log[i + drop]
+        end
+        for i = LOG_MAX + 1, n do
+            log[i] = nil
+        end
     end
 end
 
@@ -126,6 +220,8 @@ function commands.help()
     say("/xporbs debug on|off - toggle debug logging")
     say("/xporbs status - show addon state")
     say("/xporbs test [pct] [rested] [style] - fire a test burst on your target")
+    say("/xporbs test stress [n] - fire n test bursts over about 2 seconds (default 20, max 100)")
+    say("/xporbs perf [reset] - addon memory, driver frame time and pool usage")
     say("/xporbs style popstream|crossfade|stream - kill burst style")
     say("/xporbs pop on|off - alias: popstream / stream")
     say("/xporbs pick [clear] - click to pick the XP bar frame (clear = auto-detect)")
@@ -182,6 +278,7 @@ function commands.reset()
         end
     end
     deepFill(db, ns.defaults)
+    sanitize(db)
     if ns.Options and ns.Options.Refresh then
         ns.Options:Refresh()
     end

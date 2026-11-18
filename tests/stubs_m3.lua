@@ -29,6 +29,13 @@ C_NamePlate = {
     GetNamePlateForUnit = function(unit)
         return stub.plates[unit]
     end,
+    GetNamePlates = function()
+        local out = {}
+        for _, p in pairs(stub.plates) do
+            out[#out + 1] = p
+        end
+        return out
+    end,
 }
 
 local function field(unit, key, default)

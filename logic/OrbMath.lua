@@ -138,10 +138,18 @@ function OrbMath.FillEdge(left, bottom, width, height, xp, xpMax)
     return left + width * frac, bottom + height / 2
 end
 
+-- Did the bar wrap between two readings? A level-up leaves less XP than before, or changes the maximum while the XP
+-- moved. Reading it from the numbers means the answer doesn't depend on whether PLAYER_LEVEL_UP arrived before or after
+-- the update. A new maximum with the same XP is the second half of a split level-up update (the wrap was already
+-- counted), not another level.
+function OrbMath.LeveledUp(oldXP, oldMax, newXP, newMax)
+    return newXP < oldXP or (newMax ~= oldMax and newXP ~= oldXP)
+end
+
 -- XP gained between two PLAYER_XP_UPDATE readings; wraps across a level-up. Never negative.
-function OrbMath.XPDelta(oldXP, oldMax, newXP, newMax, leveled)
+function OrbMath.XPDelta(oldXP, oldMax, newXP, newMax)
     local delta
-    if leveled or newXP < oldXP then
+    if OrbMath.LeveledUp(oldXP, oldMax, newXP, newMax) then
         delta = (oldMax - oldXP) + newXP
     else
         delta = newXP - oldXP
@@ -213,12 +221,13 @@ function OrbMath.GlowIntensity(percent)
 end
 
 -- Landing point plus the user's offset (UIParent px). Non-numeric offsets count as 0.
-function OrbMath.ApplyOffset(x, y, ox, oy)
-    local function n(v)
-        if type(v) == "number" and v == v and v ~= math.huge and v ~= -math.huge then
-            return v
-        end
-        return 0
+local function finiteOr0(v)
+    if type(v) == "number" and v == v and v ~= math.huge and v ~= -math.huge then
+        return v
     end
-    return x + n(ox), y + n(oy)
+    return 0
+end
+
+function OrbMath.ApplyOffset(x, y, ox, oy)
+    return x + finiteOr0(ox), y + finiteOr0(oy)
 end

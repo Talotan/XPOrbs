@@ -412,7 +412,9 @@ local function attachValueEdit(row, key, val, lo, hi, step, unit)
     Options.valueButtons[key] = hit
 end
 
-local function slider(y, key, labelStr, lo, hi, step, fmt, unit)
+-- The range (min, max, step) comes from ns.ranges (Core.lua), the same table InitDB clamps saved values with.
+local function slider(y, key, labelStr, fmt, unit)
+    local lo, hi, step = ns.ranges[key][1], ns.ranges[key][2], ns.ranges[key][3]
     local row = newRow(y, 32)
     label(row, labelStr, LABEL_X)
     local s = newSlider(row)
@@ -613,12 +615,12 @@ local function build()
 
     y = header("Look", y + 14)
     for _, c in ipairs({
-        { "density", "Orb quantity multiplier", 25, 400, 25, "%d%%", "%" },
-        { "cap", "Max orbs per burst", 5, 80, 1, "%d", "" },
-        { "size", "Orb size", 8, 32, 1, "%d", "" },
-        { "flightTime", "Flight time", 0.4, 1.5, 0.05, "%.2f s", " s" },
+        { "density", "Orb quantity multiplier", "%d%%", "%" },
+        { "cap", "Max orbs per burst", "%d", "" },
+        { "size", "Orb size", "%d", "" },
+        { "flightTime", "Flight time", "%.2f s", " s" },
     }) do
-        slider(y, c[1], c[2], c[3], c[4], c[5], c[6], c[7])
+        slider(y, c[1], c[2], c[3], c[4])
         y = y + 32
     end
 
@@ -706,9 +708,9 @@ local function build()
 
     -- the shape and offsets describe the target frame, so they stay live with Show glow off; only the intensity dims
     y = y + 62
-    slider(y, "glowOffsetX", "Target offset X", -100, 100, 1, "%d px", " px")
+    slider(y, "glowOffsetX", "Target offset X", "%d px", " px")
     y = y + 32
-    slider(y, "glowOffsetY", "Target offset Y", -100, 100, 1, "%d px", " px")
+    slider(y, "glowOffsetY", "Target offset Y", "%d px", " px")
     y = y + 36
     local od = text(child, "GameFontHighlight", OFFSET_DESC, LABEL_X, -y, 490)
     od:SetTextColor(GREY, GREY, GREY)
@@ -716,7 +718,7 @@ local function build()
     y = y + 22
     checkbox(y, "glow", "Show glow")
     y = y + 28
-    slider(y, "glowIntensity", "Glow intensity", 25, 200, 5, "%d%%", "%")
+    slider(y, "glowIntensity", "Glow intensity", "%d%%", "%")
     postRefresh[#postRefresh + 1] = function()
         setDim(Options.rows.glowIntensity, { Options.controls.glowIntensity }, D().glow ~= false)
     end

@@ -59,7 +59,7 @@ def test_ten_bursts_never_exceed_ceiling(m2):
     for _ in range(10):
         m2.burst(x=300, y=600, n=40)
     _, in_use, created, ceiling = m2.info()
-    assert ceiling == 40 * 5 + 8  # cap * (1 + EXTRAS) + 8, EXTRAS = 4
+    assert ceiling == 40 * 5 * 2 + 8  # cap * (1 + EXTRAS) * 2 + 8, EXTRAS = 4 (room for two full-cap bursts, v1.0.2)
     assert created <= ceiling
     assert m2.stub.allTextures() <= ceiling
     peak = 0

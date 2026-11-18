@@ -13,6 +13,7 @@ local FALLBACK_Y = 20
 
 Target.lastName = nil -- frame name used by the last GetDestination() call (nil on fallback)
 Target.lastOk = false
+Target.lastXP, Target.lastXPMax = nil, nil -- the last readable XP pair: aimed at when the current reading is secret
 
 local function readable(v)
     return not issecretvalue or not issecretvalue(v)
@@ -68,6 +69,8 @@ local function tryFrame(name, xp, xpMax, centre)
 end
 
 -- Returns x, y, ok. ok is false when no bar frame was usable and the bottom-centre fallback was returned.
+-- With a secret XP reading the last readable pair is used (cached in Target.lastXP / lastXPMax); with none, the frame
+-- centre.
 -- Target.lastW / lastH are the destination frame's size in UIParent units (nil on the fallback).
 -- centre = true aims at the middle of the frame instead of the XP fill edge (a round target such as a portrait has
 -- no fill edge).
@@ -76,11 +79,14 @@ end
 function Target:GetDestination(centre)
     local okxp, xp = pcall(UnitXP, "player")
     local okmax, xpMax = pcall(UnitXPMax, "player")
-    if not okxp then
-        xp = 0
-    end
-    if not okmax then
-        xpMax = 0
+    if okxp and okmax and num(xp) and num(xpMax) then
+        self.lastXP, self.lastXPMax = xp, xpMax
+    else
+        -- unreadable (secret) right now: aim where the bar's fill edge was last known to be, else the frame centre
+        xp, xpMax = self.lastXP, self.lastXPMax
+        if xp == nil or xpMax == nil then
+            centre = true
+        end
     end
     local x, y, fw, fh
     local name = ns.db and ns.db.targetFrame
@@ -191,6 +197,29 @@ local function isOurs(f)
         or (Opt ~= nil and f == Opt.panel)
 end
 
+-- The live nameplate frames (array), or nil. Used for identity compares only: a plate is never measured.
+local function plateList()
+    if not (C_NamePlate and C_NamePlate.GetNamePlates) then
+        return nil
+    end
+    local ok, t = pcall(C_NamePlate.GetNamePlates)
+    if ok and type(t) == "table" and readable(t) then
+        return t
+    end
+    return nil
+end
+
+local function isPlateFrame(f, plates)
+    if plates then
+        for i = 1, #plates do
+            if rawequal(plates[i], f) then
+                return true
+            end
+        end
+    end
+    return false
+end
+
 local function mouseFocus()
     local f
     if GetMouseFoci then
@@ -209,24 +238,36 @@ local function mouseFocus()
 end
 
 -- Name (and the frame itself) of the first frame at or above f (walking GetParent) that has a readable, non-empty
--- name. nil when the chain has none, or reaches UIParent, the WorldFrame or one of our own frames first.
+-- name. nil when the chain has none, or reaches UIParent, the WorldFrame or one of our own frames first, or when the
+-- frame or any ancestor is a nameplate.
 function Target.PickName(f)
+    local plates = plateList()
+    local foundName, foundFrame
     for _ = 1, PICK_DEPTH do
         if type(f) ~= "table" or not readable(f) then
-            return nil
+            break
         end
         if f == UIParent or f == _G.WorldFrame or isOurs(f) then
-            return nil
+            break
         end
         local ok, name = pcall(f.GetName, f)
-        if ok and type(name) == "string" and readable(name) and name ~= "" then
-            return name, f
+        local named = ok and type(name) == "string" and readable(name) and name ~= ""
+        -- The whole chain is checked, even once a name is found: nothing on or inside a nameplate may be picked (the
+        -- picker would anchor a frame to it). Identity and name checks only; a plate is never measured.
+        if (named and string.sub(name, 1, 9) == "NamePlate") or isPlateFrame(f, plates) then
+            return nil
+        end
+        if named and not foundName then
+            foundName, foundFrame = name, f
         end
         local okp, parent = pcall(f.GetParent, f)
         if not okp then
-            return nil
+            break
         end
         f = parent
+    end
+    if foundName then
+        return foundName, foundFrame
     end
     return nil
 end
@@ -300,6 +341,11 @@ local function updateHighlight()
     end
     if frame == hlFor or frame == hlBad then
         return -- unchanged (or known not to anchor): nothing to do
+    end
+    if isPlateFrame(frame, plateList()) then
+        hideHighlight() -- never anchor to a plate
+        hlBad = frame
+        return
     end
     ensureHighlight()
     local ok = pcall(function()

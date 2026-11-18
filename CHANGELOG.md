@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.0.2 (unreleased)
+
+- Big pulls now show orbs for every kill: the orb pool holds two full bursts, and a crowded burst drops its trails or
+  draws fewer orbs instead of leaving the later kills with none.
+- Fixed the rare pop that appeared on the wrong mob, and the doubled orbs after XP was briefly unreadable.
+- The gain that takes you to max level now shows its orbs.
+- Level-ups are now read from the XP bar itself, so they no longer depend on event order.
+- Damaged or hand-edited saved settings are repaired when the game loads them, and a failing frame can no longer
+  leave orbs stuck on screen.
+- The frame picker no longer picks nameplates.
+- New `/xporbs perf` (memory and frame time) and `/xporbs test stress [n]` for checking performance.
+
 ## 1.0.1 (2026-11-15)
 
 - The addon now shows as "XP Orbs" in the AddOns list and the options panel. The folder, `/xporbs` and saved settings
