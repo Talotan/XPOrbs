@@ -677,7 +677,7 @@ local function playChime(key)
     if not n then
         return
     end
-    local ok, willPlay = pcall(PlaySoundFile, (VOICE_PATHS[ns.db.soundVoice] or VOICE_PATHS.coin)[n], "SFX")
+    local ok, willPlay = pcall(PlaySoundFile, (VOICE_PATHS[ns.db.soundVoice] or VOICE_PATHS.glass)[n], "SFX")
     if not ok or willPlay == false then
         soundDead = true
         ns:Log("SOUND_ERR %s", ok and "the client won't play the file" or string.sub(tostring(willPlay), 1, 120))

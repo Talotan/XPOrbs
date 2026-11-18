@@ -39,7 +39,7 @@ local SHAPE_DESC = "Horizontal: orbs land on the bar's fill edge. Circular: orbs
 local MAX_TIP = "At max level, each kill sends a small burst of orbs to your portrait."
 local SOUND_TIP = "Coin: a soft coin clink. Glass: a glassy tink. One per arriving orb (up to six per burst). "
     .. "Off by default."
-local VOICES = { "coin", "glass" }
+local VOICES = { "glass", "coin" }
 local VOICE_NAME = { coin = "Coin", glass = "Glass" }
 local OFFSET_DESC = "Moves where orbs land and the glow appears (pixels)."
 local PICK_HINT = "Use this if another addon replaces the default XP bar, or to send the orbs somewhere else, such as "
