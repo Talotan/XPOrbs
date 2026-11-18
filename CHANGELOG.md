@@ -1,13 +1,13 @@
 # Changelog
 
-## 1.1.0 (unreleased)
+## 1.1.0 (2026-11-18)
 
 - Orbs now match the XP bar's colours: purple normally, blue when rested. Saved colours that were still the old
   defaults update automatically; colours you changed are kept.
 - The default flight time is now 1 s (it was 0.75 s, and a saved 0.75 s updates too).
 - "Kill orbs at max level" now sends a small burst of orbs to your portrait when you kill something you were fighting.
 - New optional chime as orbs arrive (off by default), with two sounds, glass (the default) and coin: pick one in
-  the options panel or with `/xporbs sound coin|glass`. Both are quiet and wobble a little in pitch.
+  the options panel or with `/xporbs sound glass|coin`. Both are quiet and wobble a little in pitch.
 - Big pulls now show orbs for every kill: the orb pool holds two full bursts, and a crowded burst drops its trails or
   draws fewer orbs instead of leaving the later kills with none.
 - Fixed the rare pop that appeared on the wrong mob, and the doubled orbs after XP was briefly unreadable.
@@ -17,6 +17,7 @@
   leave orbs stuck on screen.
 - The frame picker no longer picks nameplates.
 - New `/xporbs perf` (memory and frame time) and `/xporbs test stress [n]` for checking performance.
+- Now also on Wago.
 
 ## 1.0.1 (2026-11-15)
 

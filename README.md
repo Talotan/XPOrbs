@@ -22,9 +22,9 @@ trivial one.
 
 ### CurseForge
 
-Open the CurseForge app, choose the WoW Forever flavor (instance), and search for XP Orbs. Some users had to reinstall
-the CurseForge app before the Forever flavor appeared.
-<!-- TODO: link to CurseForge page -->
+Open the CurseForge app, choose the WoW Forever flavor (instance), and search for XP Orbs, or use the
+[CurseForge page](https://www.curseforge.com/wow/addons/xp-orbs). Some users had to reinstall the CurseForge app before
+the Forever flavor appeared.
 
 ### Wago
 

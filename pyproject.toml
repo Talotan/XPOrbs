@@ -1,6 +1,6 @@
 [project]
 name = "xporbs"
-version = "1.0.1"
+version = "1.1.0"
 description = "Dev tooling for the XPOrbs WoW addon (tests only; the addon itself is Lua)"
 requires-python = ">=3.12"
 dependencies = []

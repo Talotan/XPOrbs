@@ -909,7 +909,7 @@ def test_docs_mention_the_new_features():
     for needle in ("/xporbs sound", r"coin\|glass", "/xporbs debug maxlevel", "portrait"):
         assert needle in readme, needle
     log = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
-    assert "## 1.1.0 (unreleased)" in log and "## 1.0.2 (unreleased)" not in log
+    assert "## 1.1.0 (" in log and "## 1.0.2 (unreleased)" not in log
     assert "chime" in log.lower() and "portrait" in log
     assert "coin" in log and "glass" in log
 

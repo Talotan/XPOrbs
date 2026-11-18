@@ -4,7 +4,8 @@
 ## Author: Talotan
 ## X-License: GPL-3.0-or-later
 ## X-Curse-Project-ID: 1807336
-## Version: 1.0.1
+## X-Wago-ID: ZKbqJJ61
+## Version: 1.1.0
 ## SavedVariables: XPOrbsDB
 
 Core.lua
