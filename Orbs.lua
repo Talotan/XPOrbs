@@ -97,6 +97,10 @@ local MOB_HOLD = 0.35
 local MOB_BORN = 0.04
 local MOB_PROFILE = { s0 = 0.04, s1 = 0.20, bloom = MOB_HOLD, bsize = 1.4, fadeIn = 0.06, flight = 1.1, ease = 0.35,
     hold = MOB_HOLD, rmin = POP_R_MIN, rmax = POP_R_MAX, drift = POP_DRIFT }
+-- Temporary A/B test (db.unknownOrigin) for the "mob position unknown" case (est == "default"): the stream starts
+-- somewhere over an ellipse (semi-axes rx * screen width, ry * screen height) instead of one point, and from/to is the
+-- flight p range over which the screen copy is revealed ("late"/"inplace"). One table keeps Burst's upvalues down.
+local UNKNOWN = { rx = 0.08, ry = 0.05, from = 0.25, to = 0.40, level = { off = 0, wide = 1, late = 2, inplace = 3 } }
 
 local overlay, driver, flash, flashShape
 local freeTex, texCreated, texInUse = {}, 0, 0
@@ -356,8 +360,8 @@ local function freeOrb(o)
     freeRec[#freeRec + 1] = o
 end
 
-local function smoothstep(p, prof)
-    local t = (p - prof.s0) / (prof.s1 - prof.s0)
+local function smoothstep(p, s0, s1)
+    local t = (p - s0) / (s1 - s0)
     if t <= 0 then
         return 0
     elseif t >= 1 then
@@ -417,8 +421,9 @@ local function drawHold(o, t)
     local a = t < prof.fadeIn and t / prof.fadeIn or 1
     local g = o.g
     hideB(o)
-    safeA(o, g, o.px + (o.x0 - o.px) * e, o.py + (o.y0 - o.py) * e, o.size * (1 + (prof.bsize - 1) * (1 - e)),
-        a * g.fm)
+    -- the ring point is where copy A itself rests (o.sx, o.sy shift B's start away from it in the unknown-origin tests)
+    local rx, ry = o.x0 - o.sx, o.y0 - o.sy
+    safeA(o, g, o.px + (rx - o.px) * e, o.py + (ry - o.py) * e, o.size * (1 + (prof.bsize - 1) * (1 - e)), a * g.fm)
 end
 
 local function drawOrb(o, p, dx, dy)
@@ -434,13 +439,34 @@ local function drawOrb(o, p, dx, dy)
     local a = p < fi and p / fi or 1
     local g = o.g
     if g then
-        local w = smoothstep(p, o.prof) -- position of the crossfade; equal power keeps the sum of the two copies steady
-        safeA(o, g, ex, ey, s, w >= 1 and 0 or a * cos(w * HALF_PI) * g.fm) -- cos(pi/2) is not exactly 0
+        local sx, sy = o.sx, o.sy -- 0 unless an unknown-origin variant moved B's start away from A's ring point
+        -- position of the crossfade; equal power keeps the sum of the two copies steady
+        local w = smoothstep(p, o.s0, o.s1)
+        if o.ip then
+            -- "inplace": A stays on its ring point and just fades out before B is revealed from where it started
+            local fa = 1 - p / o.s0
+            safeA(o, g, x0 - sx, y0 - sy, s, fa > 0 and a * fa * g.fm or 0)
+            if w <= 0 then
+                hideB(o)
+                return
+            end
+            a = a * w
+        else
+            safeA(o, g, ex - sx, ey - sy, s, w >= 1 and 0 or a * cos(w * HALF_PI) * g.fm) -- cos(pi/2) is not exactly 0
+            if w <= 0 then
+                hideB(o)
+                return
+            end
+            a = a * sin(w * HALF_PI)
+        end
+    elseif o.s1 > 0 then
+        -- plain stream orb in a "late" variant: revealed over [s0, s1]
+        local w = smoothstep(p, o.s0, o.s1)
         if w <= 0 then
             hideB(o)
             return
         end
-        a = a * sin(w * HALF_PI)
+        a = a * w
     end
     place(o.under, ex, ey, s * GLOW * UNDER_SIZE, a * UNDER_ALPHA)
     place(o.orb, ex, ey, s * GLOW, a)
@@ -891,6 +917,33 @@ local function styleOf(v)
     return "popstream"
 end
 
+-- Per-orb unknown-origin state, set for every orb (so a pooled record never leaks an old burst's values): o.sx, o.sy =
+-- B's start minus A's own ring point, o.s0/o.s1 = crossfade window (or the stream's reveal window, 0 = none),
+-- o.ip = plate copy fades in place. o.x0, o.y0 hold the ring point on entry and B's start on exit.
+local function placeUnknown(o, uv, x, y)
+    local prof = o.prof
+    o.sx, o.sy, o.ip = 0, 0, false
+    if prof then
+        o.s0, o.s1 = prof.s0, prof.s1
+    else
+        o.s0, o.s1 = 0, 0
+    end
+    if uv == 0 then
+        return
+    end
+    local ang, rad = random() * TWO_PI, sqrt(random()) -- sqrt: uniform over the ellipse, not clustered at the centre
+    local bx = x + cos(ang) * rad * UNKNOWN.rx * UIParent:GetWidth()
+    local by = y + sin(ang) * rad * UNKNOWN.ry * UIParent:GetHeight()
+    if prof then
+        o.sx, o.sy = bx - o.x0, by - o.y0
+        o.ip = uv == 3
+    end
+    o.x0, o.y0 = bx, by
+    if uv >= 2 then
+        o.s0, o.s1 = UNKNOWN.from, UNKNOWN.to
+    end
+end
+
 -- Burst{ x=, y= (stream origin, UIParent coords; nil -> screen centre), n=, scale= (default 1), nPurple= (default 0),
 -- kind=, plate= (optional nameplate of the dead mob), style= (optional override of db.style),
 -- ex=, ey= (P-hat, the estimated mob position in UIParent coords; default = MobEstimate.Default), est=, estW= (source
@@ -926,8 +979,16 @@ function Orbs:Burst(p)
     end
     local popped, xg = false, nil
     local zy = p.plate ~= nil and zoomAnchorY(d) or nil
+    -- unknown-origin A/B test: only when nobody hovered the mob and a plate-space pop or copy is really drawn
+    local uv = 0
+    if p.est == "default" and p.kind ~= "other" and p.plate ~= nil and style ~= "stream" then
+        uv = UNKNOWN.level[d.unknownOrigin] or 0
+    end
     if p.plate ~= nil and style == "popstream" then
         local ux, uy = OrbMath.ExitVector(x, y, px, py, dx, dy)
+        if uv == 3 then
+            ux, uy = 0, 0 -- the pop blooms and fades at the plate instead of drifting towards the stream
+        end
         popped = startPop(p.plate, n, scale, nPurple, ux, uy, zy)
     elseif p.plate ~= nil and (style == "crossfade" or style == "mob") then
         xg = startXf(p.plate, zy)
@@ -935,6 +996,10 @@ function Orbs:Burst(p)
     if xg then
         x, y = px, py
     end
+    if not (popped or xg) then
+        uv = 0
+    end
+    Orbs.lastUnknown = uv > 0 and d.unknownOrigin or nil
     -- Budget the texture pool. A full burst with trails needs 5 textures per orb; when that doesn't fit, the burst
     -- drops its trail ghosts (3 per orb), then draws fewer orbs. Every burst still gets min(n, 3) orbs while 9
     -- textures are free, so the later kills of an AoE pull are never starved by the earlier ones.
@@ -1004,6 +1069,7 @@ function Orbs:Burst(p)
                 local ang, rad = random() * TWO_PI, START_RADIUS * sqrt(random())
                 o.x0, o.y0 = x + cos(ang) * rad, y + sin(ang) * rad
             end
+            placeUnknown(o, uv, x, y)
             o.c1x, o.c1y = OrbMath.PopControl(i, n, o.x0, o.y0, random, spread, lift)
             local ddx, ddy = dx - o.x0, dy - o.y0
             o.dist0 = sqrt(ddx * ddx + ddy * ddy)
@@ -1241,6 +1307,7 @@ function ns.commands.test(arg)
             end
         end
     end
+    Orbs.lastUnknown = nil
     local n, scale, nPurple, est, estW, mode, label = fireTest(pct, rested, force)
     local used = mode == "pop+stream" and "popstream" or mode
     if mode == "crossfade" or mode == "mob" then
@@ -1248,7 +1315,7 @@ function ns.commands.test(arg)
     end
     ns.Print(string.format("test: %g%% of a level -> %d orbs (%d purple), scale %.2f, est=%s w=%.2f pop=%s stream=%s"
         .. " style=%s", pct, n, nPurple, scale, est or "none", estW or 0, mode == "pop+stream" and "yes" or "no",
-        label, used))
+        label, used) .. (Orbs.lastUnknown and " unknown=" .. Orbs.lastUnknown or ""))
 end
 
 -- /xporbs perf [reset]: addon memory, driver frame time, pool usage.
@@ -1332,6 +1399,19 @@ function ns.commands.style(arg)
     ns.Print("kill style: " .. styleOf(db().style))
 end
 
+-- /xporbs unknown off|wide|late|inplace: temporary A/B test of where the stream starts when the mob is not located
+function ns.commands.unknown(arg)
+    local w = string.match(arg or "", "%S+")
+    if w ~= nil and UNKNOWN.level[w] == nil then
+        ns.Print("unknown: use off, wide, late or inplace (now " .. tostring(db().unknownOrigin) .. ")")
+        return
+    end
+    if w ~= nil then
+        db().unknownOrigin = w
+    end
+    ns.Print("unknown origin: " .. tostring(db().unknownOrigin))
+end
+
 function ns.commands.pop(arg)
     local w = string.match(arg or "", "%S+")
     if w == "on" then
@@ -1362,4 +1442,8 @@ table.insert(ns.statusProviders, function()
         popsCreated,
         POP_FRAMES
     )
+end)
+
+table.insert(ns.statusProviders, function()
+    return "unknown origin: " .. tostring(db().unknownOrigin)
 end)

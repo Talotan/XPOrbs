@@ -19,6 +19,7 @@ ns.defaults = {
     sound = false, -- chime as orbs arrive
     soundVoice = "glass", -- which chime: "coin" or "glass" (media/coin1-6.ogg, media/glass1-6.ogg)
     debug = false,
+    unknownOrigin = "off", -- temporary A/B test: "off", "wide", "late" or "inplace" (see Orbs.lua UNKNOWN)
     style = "popstream", -- kill style: "popstream" (pop at the nameplate, then stream), "crossfade", "stream" or "mob"
     glow = true, -- arrival flash on/off
     glowShape = "bar", -- "bar" (horizontal flash on the fill edge) or "round" (circular glow at the frame centre)
@@ -173,6 +174,10 @@ local function sanitize(db)
         and db.style ~= "mob" then
         db.style = defaults.style
     end
+    if db.unknownOrigin ~= "off" and db.unknownOrigin ~= "wide" and db.unknownOrigin ~= "late"
+        and db.unknownOrigin ~= "inplace" then
+        db.unknownOrigin = defaults.unknownOrigin
+    end
     if db.glowShape ~= "bar" and db.glowShape ~= "round" then
         db.glowShape = defaults.glowShape
     end
@@ -293,6 +298,7 @@ function commands.help()
     say("/xporbs perf [reset] - addon memory, driver frame time and pool usage")
     say("/xporbs style popstream|crossfade|stream|mob - kill burst style")
     say("/xporbs pop on|off - alias: popstream / stream")
+    say("/xporbs unknown off|wide|late|inplace - A/B test: where orbs start when the mob's position is unknown")
     say("/xporbs pick [clear|FrameName] - click to pick the XP bar frame, or name it (clear = auto-detect)")
     say("/xporbs zoomanchor on|off - anchor orbs on the mob's body using the camera zoom (no arg: show state)")
     say("/xporbs calib [off|reset|fit|save] - calibrate the zoom anchor on a targeted mob")
