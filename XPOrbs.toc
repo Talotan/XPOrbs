@@ -6,7 +6,16 @@
 ## X-Curse-Project-ID: 1807336
 ## X-Wago-ID: ZKbqJJ61
 ## Version: 1.1.0
+## IconTexture: Interface\AddOns\XPOrbs\media\icon
+## AddonCompartmentFunc: XPOrbs_OnAddonCompartmentClick
+## AddonCompartmentFuncOnEnter: XPOrbs_OnAddonCompartmentEnter
+## AddonCompartmentFuncOnLeave: XPOrbs_OnAddonCompartmentLeave
 ## SavedVariables: XPOrbsDB
+
+Libs\LibStub\LibStub.lua
+Libs\CallbackHandler-1.0\CallbackHandler-1.0.lua
+Libs\LibDataBroker-1.1\LibDataBroker-1.1.lua
+Libs\LibDBIcon-1.0\LibDBIcon-1.0.lua
 
 Core.lua
 logic\XPParse.lua
@@ -21,3 +30,4 @@ Mouseover.lua
 Orbs.lua
 Kills.lua
 Options.lua
+Minimap.lua

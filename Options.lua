@@ -299,21 +299,31 @@ local function addReset(row, name, keys, describe)
     return btn
 end
 
+-- opts.get() / opts.set(bool) replace the flat ns.db[key] read and write (the minimap row lives in a nested table);
+-- such a row has no per-row reset button (the global reset covers it).
 local function checkbox(y, key, labelStr, opts)
     opts = opts or {}
     local row = newRow(y, 28)
     label(row, labelStr, opts.labelX or LABEL_X)
     local cb = newCheck(row, CTRL_X - 3)
+    local get = opts.get or function()
+        return D()[key]
+    end
+    local set = opts.set or function(v)
+        D()[key] = v
+    end
     cb:SetScript("OnClick", function(self)
-        D()[key] = self:GetChecked() and true or false
+        set(self:GetChecked() and true or false)
         changed()
     end)
     refreshers[#refreshers + 1] = function()
-        cb:SetChecked(D()[key] and true or false)
+        cb:SetChecked(get() and true or false)
     end
-    addReset(row, key, { key }, function()
-        return onOff(ns.defaults[key])
-    end)
+    if not opts.set then
+        addReset(row, key, { key }, function()
+            return onOff(ns.defaults[key])
+        end)
+    end
     if opts.tip then
         cb:SetScript("OnEnter", function(self)
             showTip(self, opts.tip)
@@ -687,6 +697,19 @@ local function build()
         y = y + 28
     end
     soundVoiceRow(y)
+    y = y + 28
+    checkbox(y, "minimap", "Show minimap button", {
+        get = function()
+            return not D().minimap.hide
+        end,
+        set = function(v)
+            if ns.Minimap then
+                ns.Minimap.SetShown(v)
+            else
+                D().minimap.hide = not v
+            end
+        end,
+    })
     y = y + 28
 
     y = header("Look", y + 14)

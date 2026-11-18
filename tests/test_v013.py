@@ -257,8 +257,8 @@ def test_scroll_frame_exists_with_the_specified_anchors_and_content_height(m):
     assert pts[0][0] == "TOPLEFT" and (pts[0][3], pts[0][4]) == (0, -40)
     assert pts[1][0] == "BOTTOMRIGHT" and (pts[1][3], pts[1][4]) == (-28, 44)
     assert o.child.width == 584 and o.child.height == pytest.approx(
-        1132, abs=2
-    )  # v0.14: 894 + 176; +28 for the 1.1.0 chime checkbox, +28 for its Sound row
+        1160, abs=2
+    )  # v0.14: 894 + 176; +28 for the 1.1.0 chime checkbox, +28 for its Sound row, +28 for the P2a minimap checkbox
 
 
 def test_scroll_template_falls_back(env):
@@ -288,20 +288,21 @@ def test_scroll_frame_without_any_template_still_scrolls(env):
         ("showAtMax", 118),
         ("sound", 146),
         ("soundVoice", 174),
-        ("density", 242),
-        ("cap", 274),
-        ("size", 306),
-        ("flightTime", 338),
-        ("color", 370),
-        ("restedTint", 398),
-        ("restedColor", 426),
-        ("glow", 672),
-        ("glowShape", 494),
-        ("style_popstream", 772),
-        ("style_crossfade", 818),
-        ("style_stream", 864),
-        ("targetFrame", 950),
-        ("debug", 1088),
+        ("minimap", 202),
+        ("density", 270),
+        ("cap", 302),
+        ("size", 334),
+        ("flightTime", 366),
+        ("color", 398),
+        ("restedTint", 426),
+        ("restedColor", 454),
+        ("glow", 700),
+        ("glowShape", 522),
+        ("style_popstream", 800),
+        ("style_crossfade", 846),
+        ("style_stream", 892),
+        ("targetFrame", 978),
+        ("debug", 1116),
     ],
 )
 def test_row_positions_follow_the_spec(m, key, y):
@@ -414,9 +415,9 @@ def test_style_radios_use_the_radio_template_and_each_has_a_description(m):
 def test_style_description_positions(m):
     d = m.opt.descs
     for st, y in (
-        ("popstream", 772 + 24),
-        ("crossfade", 818 + 24),
-        ("stream", 864 + 24),
+        ("popstream", 800 + 24),
+        ("crossfade", 846 + 24),
+        ("stream", 892 + 24),
     ):
         pt = d[st].points[1]
         assert (pt[4], pt[5]) == (56, -y) and d[

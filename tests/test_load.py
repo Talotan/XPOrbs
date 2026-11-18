@@ -1,6 +1,12 @@
-from conftest import RUNTIME_NAME, toc_files
+from conftest import RUNTIME_NAME, addon_files
 
-ALLOWED_NEW_GLOBALS = {"XPOrbsDB", "SLASH_XPORBS1"}
+ALLOWED_NEW_GLOBALS = {
+    "XPOrbsDB",
+    "SLASH_XPORBS1",
+    "XPOrbs_OnAddonCompartmentClick",
+    "XPOrbs_OnAddonCompartmentEnter",
+    "XPOrbs_OnAddonCompartmentLeave",
+}
 
 
 def global_keys(G):
@@ -12,7 +18,7 @@ def test_runtime_is_lua51_family():
 
 
 def test_toc_lists_files():
-    files = toc_files()
+    files = addon_files()
     assert files and files[0] == "Core.lua"
 
 

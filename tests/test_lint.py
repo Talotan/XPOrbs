@@ -5,9 +5,15 @@ records every global write. Only XPOrbsDB and SLASH_XPORBS1 may be created.
 """
 
 import pytest
-from conftest import ROOT, TESTS, make_runtime, toc_files
+from conftest import ROOT, TESTS, addon_files, make_runtime
 
-ALLOWED_WRITES = {"XPOrbsDB", "SLASH_XPORBS1"}
+ALLOWED_WRITES = {
+    "XPOrbsDB",
+    "SLASH_XPORBS1",
+    "XPOrbs_OnAddonCompartmentClick",
+    "XPOrbs_OnAddonCompartmentEnter",
+    "XPOrbs_OnAddonCompartmentLeave",
+}
 
 SANDBOX = """
 return function(fns, ns, fire)
@@ -30,10 +36,10 @@ end
 
 
 def addon_lua_files():
-    files = [ROOT / p for p in toc_files() if p.endswith(".lua")]
+    files = [ROOT / p for p in addon_files() if p.endswith(".lua")]
     for extra in ROOT.glob("**/*.lua"):
         rel = extra.relative_to(ROOT)
-        if rel.parts[0] in ("tests", ".venv", "tools"):
+        if rel.parts[0] in ("tests", ".venv", "tools", "Libs"):
             continue
         if extra not in files:
             files.append(extra)  # catches files that exist but aren't in the toc yet
@@ -53,7 +59,7 @@ def test_syntax(path):
 def test_no_accidental_globals():
     lua, ns, load_chunk = make_runtime()
     load_chunk(TESTS / "wowstub.lua", "wowstub.lua")(ns)
-    fns = lua.table_from([load_chunk(ROOT / rel, rel) for rel in toc_files() if rel.endswith(".lua")])
+    fns = lua.table_from([load_chunk(ROOT / rel, rel) for rel in addon_files() if rel.endswith(".lua")])
     sandbox = lua.execute(SANDBOX)
     writes = set(sandbox(fns, ns, ns.fire).values())
     assert writes <= ALLOWED_WRITES, f"unexpected global writes: {sorted(writes - ALLOWED_WRITES)}"

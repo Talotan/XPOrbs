@@ -10,7 +10,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 NAME = "XPOrbs"
-EXTRA = ["LICENSE", "README.md", "CHANGELOG.md"]
+EXTRA = ["LICENSE", "README.md", "CHANGELOG.md", "Libs/README.md"]
 
 
 def toc_version(toc: Path) -> str:

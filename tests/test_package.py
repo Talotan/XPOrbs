@@ -31,7 +31,18 @@ def test_toc_files_present(zip_names_and_toc):
         assert f"XPOrbs/{rel}" in names
 
 
-@pytest.mark.parametrize("rel", ["media/orb.tga", "media/sparkle.tga", "media/flash.tga", "LICENSE"])
+@pytest.mark.parametrize("rel", [
+        "media/orb.tga",
+        "media/sparkle.tga",
+        "media/flash.tga",
+        "media/icon.tga",
+        "LICENSE",
+        "Libs/README.md",
+        "Libs/LibStub/LibStub.lua",
+        "Libs/CallbackHandler-1.0/CallbackHandler-1.0.lua",
+        "Libs/LibDataBroker-1.1/LibDataBroker-1.1.lua",
+        "Libs/LibDBIcon-1.0/LibDBIcon-1.0.lua",
+    ])
 def test_required_files(zip_names_and_toc, rel):
     assert f"XPOrbs/{rel}" in zip_names_and_toc[0]
 

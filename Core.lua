@@ -25,6 +25,8 @@ ns.defaults = {
     glowIntensity = 100, -- arrival flash strength in percent (25-200): scales its alpha and, a little, its size
     glowOffsetX = 0, -- UIParent px added to the landing point (where orbs aim and the glow is drawn)
     glowOffsetY = 0,
+    -- the minimap button (Minimap.lua); LibDBIcon also keeps its own minimapPos in here, so unknown keys must survive
+    minimap = { hide = false },
 }
 
 -- Slider ranges { min, max, step }: the options panel builds its sliders from these and InitDB clamps saved values
@@ -169,6 +171,11 @@ local function sanitize(db)
             db[key] = defaults[key]
         end
     end
+    if type(db.minimap) ~= "table" then
+        db.minimap = { hide = defaults.minimap.hide }
+    elseif type(db.minimap.hide) ~= "boolean" then
+        db.minimap.hide = defaults.minimap.hide -- other keys (LibDBIcon's minimapPos) are left alone
+    end
     if db.targetFrame ~= nil and type(db.targetFrame) ~= "string" then
         db.targetFrame = nil
     end
@@ -254,6 +261,7 @@ function commands.help()
     say("/xporbs pop on|off - alias: popstream / stream")
     say("/xporbs pick [clear|FrameName] - click to pick the XP bar frame, or name it (clear = auto-detect)")
     say("/xporbs reset - restore default settings")
+    say("/xporbs minimap on|off - show or hide the minimap button")
     say("/xporbs options - open the settings panel")
 end
 
@@ -314,12 +322,23 @@ end
 function commands.reset()
     local db = ns.db
     for k in pairs(db) do
-        if k ~= "version" and k ~= "log" and k ~= "debug" then
+        if k ~= "version" and k ~= "log" and k ~= "debug" and k ~= "minimap" then
             db[k] = nil
         end
     end
+    -- LibDBIcon holds the minimap table itself, so it is emptied in place rather than replaced
+    if type(db.minimap) == "table" then
+        for k in pairs(db.minimap) do
+            db.minimap[k] = nil
+        end
+    else
+        db.minimap = nil
+    end
     deepFill(db, ns.defaults)
     sanitize(db)
+    if ns.Minimap then
+        ns.Minimap.Reapply()
+    end
     if ns.Options and ns.Options.Refresh then
         ns.Options:Refresh()
     end

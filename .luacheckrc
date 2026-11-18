@@ -5,6 +5,9 @@ globals = {
     "XPOrbsDB",
     "SLASH_XPORBS1",
     "SlashCmdList.XPORBS",
+    "XPOrbs_OnAddonCompartmentClick",
+    "XPOrbs_OnAddonCompartmentEnter",
+    "XPOrbs_OnAddonCompartmentLeave",
     "StaticPopupDialogs", -- we only add one entry (XPORBS_RESET_ALL), never replace the table
 }
 
@@ -17,6 +20,7 @@ read_globals = {
     "UnitClass",
     "RAID_CLASS_COLORS",
     "GameTooltip",
+    "LibStub",
     "StaticPopup_Show",
     "ColorPickerFrame",
     "CreateFrame",
@@ -63,7 +67,7 @@ read_globals = {
     "_G",
 }
 
-exclude_files = { "tests/" }
+exclude_files = { "tests/", "Libs/" }
 
 -- Pure logic must not touch any WoW global.
 files["logic/"] = { read_globals = {} }

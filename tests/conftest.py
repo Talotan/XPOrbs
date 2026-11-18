@@ -29,6 +29,11 @@ def toc_files():
     return out
 
 
+def addon_files():
+    """toc_files() minus the bundled third-party libraries (Libs/): they are neither loaded nor linted here."""
+    return [f for f in toc_files() if not f.startswith("Libs/")]
+
+
 def make_runtime():
     lua = lupa_rt.LuaRuntime(unpack_returned_tuples=True)
     ns = lua.table()
@@ -58,7 +63,7 @@ def env():
     e.G = lua.globals()
 
     def load_addon():
-        for rel in toc_files():
+        for rel in addon_files():
             load_chunk(ROOT / rel, rel)("XPOrbs", ns)
 
     e.load_addon = load_addon
