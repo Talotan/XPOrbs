@@ -234,7 +234,8 @@ end
 
 -- ---------------------------------------------------------------- v0.13 extensions
 -- scroll frames, enable/disable, edit boxes, tooltip, static popups, atlas, class colours.
-for _, name in ipairs({ "SetHighlightTexture", "EnableMouseWheel", "RegisterForClicks", "SetAutoFocus", "SetMaxLetters" }) do
+for _, name in ipairs({ "SetHighlightTexture", "EnableMouseWheel", "SetMovable", "RegisterForDrag", "SetClampedToScreen",
+    "StartMoving", "StopMovingAndSizing", "RegisterForClicks", "SetAutoFocus", "SetMaxLetters" }) do
     fm[name] = function(self, ...)
         self.calls = self.calls or {}
         self.calls[name] = { ... }

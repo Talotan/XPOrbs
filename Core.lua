@@ -27,7 +27,16 @@ ns.defaults = {
     glowOffsetY = 0,
     -- the minimap button (Minimap.lua); LibDBIcon also keeps its own minimapPos in here, so unknown keys must survive
     minimap = { hide = false },
+    -- opt-in zoom-aware mob anchor (Orbs.lua): orbs sit (zoomA + zoomB / max(cameraZoom, zoomMin)) px below the plate.
+    -- Not in ns.ranges on purpose: these are calibrated with /xporbs calib, not sliders.
+    zoomAnchor = false,
+    zoomA = 10,
+    zoomB = 500,
+    zoomMin = 2,
+    zoomPoints = {}, -- calibration samples { z = camera zoom, off = px below the plate }, newest last, at most 8
 }
+
+local ZOOM_POINTS_MAX = 8
 
 -- Slider ranges { min, max, step }: the options panel builds its sliders from these and InitDB clamps saved values
 -- to them, so a hand-edited or corrupt SavedVariables file can't feed the renderer nonsense.
@@ -114,8 +123,11 @@ local function migrate(db)
     end
 end
 
-local BOOLEANS =
-    { "enabled", "classColor", "restedTint", "trail", "questBursts", "showAtMax", "debug", "glow", "sound" }
+local BOOLEANS = {
+    "enabled", "classColor", "restedTint", "trail", "questBursts", "showAtMax", "debug", "glow", "sound", "zoomAnchor",
+}
+local ZOOM_RANGES = { zoomA = { -100, 300 }, zoomB = { 0, 3000 }, zoomMin = { 0.5, 10 } }
+ns.zoomRanges = ZOOM_RANGES -- { min, max } per key; Calib.lua clamps fitted values with these
 local COLOURS = { "color", "restedColor" }
 
 local function copyColour(c)
@@ -176,6 +188,27 @@ local function sanitize(db)
     elseif type(db.minimap.hide) ~= "boolean" then
         db.minimap.hide = defaults.minimap.hide -- other keys (LibDBIcon's minimapPos) are left alone
     end
+    for key, r in pairs(ZOOM_RANGES) do
+        local v = db[key]
+        if type(v) == "number" and v == v and v ~= math.huge and v ~= -math.huge then
+            db[key] = math.max(r[1], math.min(r[2], v))
+        else
+            db[key] = defaults[key]
+        end
+    end
+    local pts, clean = db.zoomPoints, {}
+    if type(pts) == "table" then
+        for _, p in ipairs(pts) do
+            if type(p) == "table" and type(p.z) == "number" and p.z == p.z and p.z > 0 and p.z ~= math.huge
+                and type(p.off) == "number" and p.off == p.off and math.abs(p.off) ~= math.huge then
+                clean[#clean + 1] = { z = p.z, off = p.off }
+            end
+        end
+    end
+    while #clean > ZOOM_POINTS_MAX do
+        table.remove(clean, 1) -- oldest dropped
+    end
+    db.zoomPoints = clean
     if db.targetFrame ~= nil and type(db.targetFrame) ~= "string" then
         db.targetFrame = nil
     end
@@ -260,6 +293,8 @@ function commands.help()
     say("/xporbs style popstream|crossfade|stream - kill burst style")
     say("/xporbs pop on|off - alias: popstream / stream")
     say("/xporbs pick [clear|FrameName] - click to pick the XP bar frame, or name it (clear = auto-detect)")
+    say("/xporbs zoomanchor on|off - anchor orbs on the mob's body using the camera zoom (no arg: show state)")
+    say("/xporbs calib [off|reset|fit|save] - calibrate the zoom anchor on a targeted mob")
     say("/xporbs reset - restore default settings")
     say("/xporbs minimap on|off - show or hide the minimap button")
     say("/xporbs options - open the settings panel")

@@ -332,7 +332,8 @@ def test_status_shows_pop_and_no_anchor_line(env):
         "orbs: driver=" in ln and "style=popstream" in ln and "pops=0" in ln
         for ln in lines
     )
-    assert not any("anchor:" in ln for ln in lines)
+    # the old origin "anchor:" line stays gone; only the zoom anchor line (p2) may use the word
+    assert not any("anchor:" in ln and "anchor: zoom=" not in ln for ln in lines)
     assert not any("origin=" in ln for ln in lines)
 
 

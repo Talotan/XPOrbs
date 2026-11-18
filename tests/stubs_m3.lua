@@ -12,6 +12,16 @@ function issecretvalue(v)
     return stub.secretAll or rawequal(v, stub.SECRET)
 end
 
+-- Camera zoom: stub.zoom is what GetCameraZoom returns (a number, or stub.SECRET to emulate a secret value). Tests
+-- make the API absent with _G.GetCameraZoom = nil or make it raise with stub.zoomError = true.
+stub.zoom = 15
+function GetCameraZoom()
+    if stub.zoomError then
+        error("GetCameraZoom unavailable")
+    end
+    return stub.zoom
+end
+
 local frameMethods = getmetatable(UIParent)
 local baseRegister = frameMethods.RegisterEvent
 function frameMethods:RegisterEvent(event)

@@ -12,6 +12,7 @@ MobEstimate.__index = MobEstimate
 -- default mob height as a fraction of screen height (target plates sat at 0.55-0.62); the only place this is defined
 MobEstimate.ASSUMED_MOB_Y = 0.58
 MobEstimate.HEAD_OFFSET = 40 -- a hovered mob's cursor sits on the body; the plate/head is about this far above (px)
+MobEstimate.BODY_OFFSET = 0 -- with the zoom anchor the orbs aim at the body itself, which is where the cursor sits
 
 local DEFAULTS = {
     cap = 20, -- max remembered GUIDs (oldest evicted)
@@ -110,8 +111,9 @@ end
 -- Estimated screen point of the mob with this guid. (cursorX, cursorY) may be nil; (w, h) is the screen size in the
 -- same units. Returns x, y, source, w_m with source "mouseover" (w_m > 0) | "cursor" | "default" (nil, nil without a
 -- usable screen size).
---   P = w_m * (sample + (0, HEAD_OFFSET)) + (1 - w_m) * (cursorWeight * cursor + (1 - cursorWeight) * default)
-function MobEstimate:Estimate(guid, cursorX, cursorY, w, h)
+--   P = w_m * (sample + (0, headOffset)) + (1 - w_m) * (cursorWeight * cursor + (1 - cursorWeight) * default)
+-- headOffset defaults to HEAD_OFFSET (aim at the plate); the zoom anchor passes BODY_OFFSET (aim at the body).
+function MobEstimate:Estimate(guid, cursorX, cursorY, w, h, headOffset)
     if type(w) ~= "number" or type(h) ~= "number" or w <= 0 or h <= 0 then
         return nil, nil, "default", 0
     end
@@ -122,10 +124,13 @@ function MobEstimate:Estimate(guid, cursorX, cursorY, w, h)
     if cw > 0 and type(cursorX) == "number" and type(cursorY) == "number" then
         bx, by, source = cw * cursorX + (1 - cw) * dx, cw * cursorY + (1 - cw) * dy, "cursor"
     end
+    if type(headOffset) ~= "number" then
+        headOffset = MobEstimate.HEAD_OFFSET
+    end
     local s = type(guid) == "string" and self.samples[guid] or nil
     local wm = s and self:Weight(self.cfg.now() - s.t) or 0
     if wm > 0 then
-        return wm * s.x + (1 - wm) * bx, wm * (s.y + MobEstimate.HEAD_OFFSET) + (1 - wm) * by, "mouseover", wm
+        return wm * s.x + (1 - wm) * bx, wm * (s.y + headOffset) + (1 - wm) * by, "mouseover", wm
     end
     return bx, by, source, 0
 end

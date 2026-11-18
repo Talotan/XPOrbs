@@ -244,3 +244,53 @@ end
 function OrbMath.ApplyOffset(x, y, ox, oy)
     return x + finiteOr0(ox), y + finiteOr0(oy)
 end
+
+-- Zoom-aware mob anchor. A mob's body sits below its nameplate by a distance that shrinks as the camera zooms out, so
+-- the offset (px below the plate's BOTTOM) is modelled as a + b / zoom, with zoom floored at zMin so a camera pushed
+-- into first person can't send the anchor off to infinity. nil when any input is not a finite number.
+local function finite(v)
+    return type(v) == "number" and v == v and v ~= math.huge and v ~= -math.huge
+end
+
+function OrbMath.ZoomOffset(z, a, b, zMin)
+    if not (finite(z) and finite(a) and finite(b) and finite(zMin)) then
+        return nil
+    end
+    return a + b / max(z, zMin)
+end
+
+-- Least-squares fit of off = a + b * x with x = 1 / max(z, zMin) over calibration points { z = , off = } (entries
+-- that aren't two finite numbers with z > 0 are skipped). Returns a, b, or nil with fewer than two usable points or
+-- when every point shares one x (nothing to fit a slope to). A negative slope (zooming out would push the anchor
+-- further down) is noise, so it falls back to the flat mean with b = 0.
+function OrbMath.FitZoom(points, zMin)
+    if type(points) ~= "table" or not finite(zMin) or zMin <= 0 then
+        return nil
+    end
+    local n, sx, sy, sxx, sxy = 0, 0, 0, 0, 0
+    local xs = {}
+    for _, p in ipairs(points) do
+        if type(p) == "table" and finite(p.z) and finite(p.off) and p.z > 0 then
+            local x = 1 / max(p.z, zMin)
+            n = n + 1
+            xs[n] = x
+            sx, sy, sxx, sxy = sx + x, sy + p.off, sxx + x * x, sxy + x * p.off
+        end
+    end
+    if n < 2 then
+        return nil
+    end
+    local det = n * sxx - sx * sx
+    local lo, hi = xs[1], xs[1]
+    for i = 2, n do
+        lo, hi = min(lo, xs[i]), max(hi, xs[i])
+    end
+    if hi - lo < 1e-9 then
+        return nil
+    end
+    local b = (n * sxy - sx * sy) / det
+    if b < 0 then
+        return sy / n, 0
+    end
+    return (sy - b * sx) / n, b
+end

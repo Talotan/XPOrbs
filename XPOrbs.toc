@@ -28,6 +28,7 @@ Plates.lua
 Target.lua
 Mouseover.lua
 Orbs.lua
+Calib.lua
 Kills.lua
 Options.lua
 Minimap.lua

@@ -98,7 +98,9 @@ function Mouseover:Estimate(guid)
     if not okC then
         cx, cy = nil, nil
     end
-    local ok, x, y, source, wm = pcall(est.Estimate, est, guid, cx, cy, w, h)
+    -- the zoom anchor puts orbs on the body, so the hovered point needs no lift towards the plate
+    local lift = ns.db and ns.db.zoomAnchor and ns.MobEstimate.BODY_OFFSET or nil
+    local ok, x, y, source, wm = pcall(est.Estimate, est, guid, cx, cy, w, h, lift)
     if not ok then
         return nil, nil, "default", 0
     end

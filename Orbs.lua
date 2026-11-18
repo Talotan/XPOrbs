@@ -11,6 +11,7 @@ local OrbMath = ns.OrbMath
 local Target = ns.Target
 
 local ORB_TEX = "Interface\\AddOns\\XPOrbs\\media\\orb"
+Orbs.ORB_TEX = ORB_TEX -- Calib.lua draws its marker with the same art
 local SPARKLE_TEX = "Interface\\AddOns\\XPOrbs\\media\\sparkle"
 local FLASH_TEX = "Interface\\AddOns\\XPOrbs\\media\\flash"
 -- the six notes of each chime voice (built once: nothing is concatenated while orbs fly)
@@ -117,6 +118,43 @@ end
 
 local function num(v)
     return type(v) == "number" and readable(v)
+end
+
+-- Zoom anchor. The camera zoom as a readable number, or nil (API missing, errors, secret, not a number).
+function Orbs.ReadZoom()
+    if type(GetCameraZoom) ~= "function" then
+        return nil
+    end
+    local ok, z = pcall(GetCameraZoom)
+    if ok and num(z) and z == z then
+        return z
+    end
+    return nil
+end
+
+-- Decided once per burst, never per frame: the y offset (negative, px below the plate's BOTTOM) of the body anchor, or
+-- nil when the option is off or the zoom can't be read (every frame then keeps its own default anchor). Also keeps
+-- the last zoom/offset for /xporbs status.
+local function zoomAnchorY(d)
+    if not d.zoomAnchor then
+        return nil
+    end
+    local z = Orbs.ReadZoom()
+    local off = z and OrbMath.ZoomOffset(z, d.zoomA, d.zoomB, d.zoomMin)
+    if not off then
+        return nil
+    end
+    Orbs.lastZoom, Orbs.lastOffset = z, off
+    return -off
+end
+
+-- (relPoint, y) of a plate-anchored frame's single anchor: the body anchor when zy is set, else the caller's default.
+-- Shared by the pop, the crossfade copy and any later style that hangs a frame off a plate.
+local function plateAnchor(zy, relPoint, y)
+    if zy then
+        return "BOTTOM", zy
+    end
+    return relPoint, y
 end
 
 -- The orb colour for the next burst: the player's class colour when db.classColor is on and the API answers, else
@@ -441,11 +479,12 @@ function releasePop(g)
 end
 
 -- Fills g for m orbs (rested: the first nP). Anchors g.f to the plate with a single point. Errors propagate (pcall'd).
-local function setupPop(g, plate, m, scale, nP, rc, bc, ux, uy)
+local function setupPop(g, plate, m, scale, nP, rc, bc, ux, uy, zy)
     local d = ns.db
     local f, tex = g.f, g.tex
     f:ClearAllPoints()
-    f:SetPoint("CENTER", plate, "CENTER", 0, POP_Y)
+    local rel, y = plateAnchor(zy, "CENTER", POP_Y)
+    f:SetPoint("CENTER", plate, rel, 0, y)
     f:Show()
     for i = 1, m * 3 do
         if not tex[i] then
@@ -507,7 +546,7 @@ local function takePopFrame()
 end
 
 -- Returns true when a pop was started. Never throws; every failure just means "no pop".
-local function startPop(plate, n, scale, nPurple, ux, uy)
+local function startPop(plate, n, scale, nPurple, ux, uy, zy)
     if type(plate) ~= "table" or not readable(plate) then
         return false
     end
@@ -518,7 +557,7 @@ local function startPop(plate, n, scale, nPurple, ux, uy)
     local d = ns.db
     local m = min(n, POP_MAX)
     local nP = nPurple > 0 and floor(nPurple * m / n + 0.5) or 0
-    local ok, err = pcall(setupPop, g, plate, m, scale, nP, d.restedColor, normalC, ux, uy)
+    local ok, err = pcall(setupPop, g, plate, m, scale, nP, d.restedColor, normalC, ux, uy, zy)
     if not ok then
         if not popErrSeen then
             popErrSeen = true
@@ -534,7 +573,7 @@ local function startPop(plate, n, scale, nPurple, ux, uy)
 end
 
 -- Crossfade: a pop frame anchored to the plate's BOTTOM that will carry copy A of every orb. Returns the frame or nil.
-local function startXf(plate)
+local function startXf(plate, zy)
     if type(plate) ~= "table" or not readable(plate) then
         return nil
     end
@@ -545,7 +584,8 @@ local function startXf(plate)
     local f = g.f
     local ok, err = pcall(function()
         f:ClearAllPoints()
-        f:SetPoint("CENTER", plate, "BOTTOM", 0, 0)
+        local rel, y = plateAnchor(zy, "BOTTOM", 0)
+        f:SetPoint("CENTER", plate, rel, 0, y)
         f:Show()
     end)
     if not ok then
@@ -869,11 +909,12 @@ function Orbs:Burst(p)
         px, py = ns.MobEstimate.Default(UIParent:GetWidth(), UIParent:GetHeight())
     end
     local popped, xg = false, nil
+    local zy = p.plate ~= nil and zoomAnchorY(d) or nil
     if p.plate ~= nil and style == "popstream" then
         local ux, uy = OrbMath.ExitVector(x, y, px, py, dx, dy)
-        popped = startPop(p.plate, n, scale, nPurple, ux, uy)
+        popped = startPop(p.plate, n, scale, nPurple, ux, uy, zy)
     elseif p.plate ~= nil and style == "crossfade" then
-        xg = startXf(p.plate)
+        xg = startXf(p.plate, zy)
     end
     if xg then
         x, y = px, py

@@ -230,6 +230,7 @@ def owned_frames(e):
         "Plates.retryFrame": e.ns.Plates.retryFrame,
         "Orbs.stressFrame": e.ns.Orbs.stressFrame,  # only exists after /xporbs test stress
         "Options.panel": e.ns.Options.panel,
+        "Calib.panel": getattr(e.ns.Calib, "panel", None),  # only exists after /xporbs calib
     }
     return out
 
