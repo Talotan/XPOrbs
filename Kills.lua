@@ -186,6 +186,9 @@ local MAXLEVEL_ORBS = 6 -- orbs in the burst an engaged kill sends to the portra
 local function emitBurst(b)
     local db = ns.db
     local ex, ey, est, wm
+    if b.secret then
+        ns:Log("SECRETPAIR tier=%d amount=%s", b.tier, tostring(b.amount))
+    end
     if b.kind == "kill" then
         ex, ey, est, wm = ns.Mouseover:Estimate(b.guid) -- once per burst; b.guid is never logged
     end
@@ -272,8 +275,8 @@ local function pollBody()
     if #bursts > 0 or s.dropped ~= lastDropped then
         lastDropped = s.dropped
         if ns.db and ns.db.debug then
-            ns:Log("STATS tier1=%d tier2=%d tier4=%d dropped=%d other=%d pending=%d", s.tier1, s.tier2, s.tier4,
-                s.dropped, s.other, matcher:Pending())
+            ns:Log("STATS tier1=%d tier2=%d tier4=%d dropped=%d other=%d secret=%d pending=%d", s.tier1,
+                s.tier2, s.tier4, s.dropped, s.other, s.secret, matcher:Pending())
         end
     end
 end
@@ -447,6 +450,11 @@ function handlers.CHAT_MSG_COMBAT_XP_GAIN(msg)
     ns:Log("CHAT msgReadable=%s kind=%s amount=%s rested=%s penalty=%s%s", tostring(isReadable),
         tostring(r.kind or "none"), tostring(r.amount), tostring(r.rested), tostring(r.penalty),
         isReadable and string.format(' tail="%s"', tail) or "")
+    if not isReadable then
+        -- Instances: no amount or name, but one kill's XP delta follows. Mark it so it is not quest XP.
+        matcher:AddSecretChat()
+        ensurePoll()
+    end
     if not res then
         return
     end

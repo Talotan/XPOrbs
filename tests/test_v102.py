@@ -356,7 +356,7 @@ def test_stats_log_line_and_status_drop_tier3(env):
     env.ns.fire("UNIT_DIED", "G1")
     g.chat()
     g.tick(0.1)
-    assert g.has_log("STATS tier1=1 tier2=0 tier4=0 dropped=0 other=0")
+    assert g.has_log("STATS tier1=1 tier2=0 tier4=0 dropped=0 other=0 secret=0")
     assert not g.has_log("tier3")
     g.env.G.SlashCmdList.XPORBS("status")
     said = " ".join(str(g.stub.chat[i]) for i in range(1, len(g.stub.chat) + 1))

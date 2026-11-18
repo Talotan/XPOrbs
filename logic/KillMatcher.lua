@@ -5,6 +5,9 @@ local ADDON, ns = ...
 -- Tiers: 1 = UNIT_DIED match, 2 = plate removed while dead, 4 = no death matched (caller falls back). Tier 3 (a target
 -- fallback that needed a death position) was retired with the plate measuring in v0.17; the number stays unused so log
 -- lines keep their meaning.
+-- When the chat line is a secret value (instances) there is no amount or name to match on. The caller then registers a
+-- marker (AddSecretChat); a marker pairs the oldest queued death with the oldest unclaimed XP delta, FIFO, as a kill.
+-- Without a marker an unclaimed delta is still "other" (a quest turn-in near a grey-mob death must not become a kill).
 
 local KillMatcher = {}
 ns.KillMatcher = KillMatcher
@@ -18,13 +21,15 @@ function KillMatcher.New(cfg)
         chatWait = cfg.chatWait or 0.5,
         deltaWait = cfg.deltaWait or 0.4,
         owedTTL = cfg.owedTTL or 1.0, -- how long an emitted kill waits for its (late) XP delta
+        secretTTL = cfg.secretTTL or 1.0, -- how long a secret-chat marker waits for its death and delta
         now = cfg.now,
     }
     self.deaths = {}
     self.kills = {}
     self.deltas = {}
     self.owed = {}
-    self.stats = { tier1 = 0, tier2 = 0, tier4 = 0, dropped = 0, other = 0 }
+    self.secret = {}
+    self.stats = { tier1 = 0, tier2 = 0, tier4 = 0, dropped = 0, other = 0, secret = 0 }
     return self
 end
 
@@ -50,14 +55,19 @@ function KillMatcher:AddDelta(amount)
     self.deltas[#self.deltas + 1] = { amount = amount, t = self.cfg.now() }
 end
 
+-- A kill-XP chat line arrived but was unreadable (secret): remember that one kill's worth of XP is on its way.
+function KillMatcher:AddSecretChat()
+    self.secret[#self.secret + 1] = { t = self.cfg.now() }
+end
+
 -- Anything queued? Lets the caller stop its OnUpdate when idle.
 function KillMatcher:Pending()
-    return #self.deaths + #self.kills + #self.deltas + #self.owed
+    return #self.deaths + #self.kills + #self.deltas + #self.owed + #self.secret
 end
 
 function KillMatcher:Stats()
     local s = self.stats
-    return { tier1 = s.tier1, tier2 = s.tier2, tier4 = s.tier4, dropped = s.dropped, other = s.other }
+    return { tier1 = s.tier1, tier2 = s.tier2, tier4 = s.tier4, dropped = s.dropped, other = s.other, secret = s.secret }
 end
 
 -- Each delta claims one equal-amount kill (still pending, or already emitted and owed a delta), FIFO.
@@ -112,7 +122,9 @@ local function findDeath(deaths, mob)
     return nil
 end
 
--- Returns a list of bursts { plate|nil, guid|nil, entry|nil, amount, rested, tier, kind = "kill"|"other" }.
+-- Returns a list of bursts { plate|nil, guid|nil, entry|nil, amount, rested, tier, kind = "kill"|"other", secret|nil }.
+-- Order: claim deltas, emit readable kills, expire stale secret markers, pair markers with (oldest death, oldest
+-- unclaimed delta), then expire deaths and deltas. Pairing precedes expiry so a pair is never split by the clock.
 function KillMatcher:Poll()
     local cfg, now, out = self.cfg, self.cfg.now(), {}
     self:_claim()
@@ -147,6 +159,33 @@ function KillMatcher:Poll()
         else
             i = i + 1
         end
+    end
+
+    i = 1
+    while i <= #self.secret do
+        if now - self.secret[i].t >= cfg.secretTTL then
+            table.remove(self.secret, i)
+        else
+            i = i + 1
+        end
+    end
+    while #self.deltas > 0 and #self.secret > 0 and #self.deaths > 0 do
+        local delta = table.remove(self.deltas, 1)
+        table.remove(self.secret, 1)
+        local d = table.remove(self.deaths, 1) -- no name to match on: the oldest death
+        out[#out + 1] = {
+            plate = d.plate,
+            guid = d.guid,
+            entry = d.entry,
+            amount = delta.amount,
+            rested = nil,
+            tier = d.tier,
+            kind = "kill",
+            secret = true,
+        }
+        local key = "tier" .. d.tier
+        self.stats[key] = (self.stats[key] or 0) + 1
+        self.stats.secret = self.stats.secret + 1
     end
 
     -- Deaths nobody paid XP for (grey mob, tapped by others) expire silently.
