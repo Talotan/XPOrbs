@@ -1,6 +1,6 @@
 ## Interface: 16001
 ## Title: XP Orbs
-## Notes: Blue orbs fly from a killed mob to your XP bar, scaled to the XP gained.
+## Notes: Orbs fly from a killed mob to your XP bar, scaled to the XP gained.
 ## Author: Talotan
 ## X-License: GPL-3.0-or-later
 ## X-Curse-Project-ID: 1807336
@@ -12,6 +12,8 @@ logic\XPParse.lua
 logic\OrbMath.lua
 logic\KillMatcher.lua
 logic\MobEstimate.lua
+logic\Engaged.lua
+logic\Chime.lua
 Plates.lua
 Target.lua
 Mouseover.lua

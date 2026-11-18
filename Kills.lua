@@ -16,6 +16,8 @@ end
 local Plates = ns.Plates
 local OrbMath = ns.OrbMath
 local matcher = ns.KillMatcher.New({ now = GetTime })
+local engaged = ns.Engaged.New({ now = GetTime, window = 10, cap = 40 }) -- GUIDs the player was fighting (max level)
+Kills.engaged = engaged
 local parser = ns.XPParse.Build(_G)
 Kills.matcher = matcher
 
@@ -176,6 +178,11 @@ local function targetIsDead()
     return ok and readable(dead) and dead == true
 end
 
+local MAXLEVEL_ORBS = 6 -- orbs in the burst an engaged kill sends to the portrait at max level
+
+-- A burst is { tier, kind, guid, plate, entry, amount, rested } from the matcher, or (max level) a fixed orb count
+-- { tier, kind = "kill", maxlevel = true, n = N, guid, plate, entry } that has no XP behind it: no rested split, the
+-- orb count is n and the log line says kind=maxlevel amount=0.
 local function emitBurst(b)
     local db = ns.db
     local ex, ey, est, wm
@@ -185,7 +192,9 @@ local function emitBurst(b)
     local now = GetTime()
     local chatRested, exhDrop = b.rested, nil
     local restedAmt, restedSrc
-    if b.kind == "kill" then
+    if b.n then
+        restedAmt, restedSrc = nil, "none"
+    elseif b.kind == "kill" then
         exhDrop = claimDrop(b.amount, now)
         local rawNow = readExh()
         restedAmt, restedSrc = OrbMath.RestedFallback(b.amount, chatRested, exhDrop, rawNow)
@@ -209,8 +218,8 @@ local function emitBurst(b)
         end
     end
     ns:Log("BURST tier=%d kind=%s amount=%s rested=%s origin=%s plate=%s est=%s w=%.2f restedSrc=%s", b.tier,
-        tostring(b.kind), tostring(b.amount), tostring(b.rested), origin, plate and "yes" or "no", est or "none",
-        wm or 0, restedSrc)
+        b.maxlevel and "maxlevel" or tostring(b.kind), tostring(b.amount or 0), tostring(b.rested), origin,
+        plate and "yes" or "no", est or "none", wm or 0, restedSrc)
     if not db.enabled or x == nil then
         return
     end
@@ -221,12 +230,17 @@ local function emitBurst(b)
     if not (orbs and orbs.Burst) then
         return
     end
-    local n, scale = OrbMath.Count(b.amount, xpCache.max, db.density, db.cap)
+    local n, scale
+    if b.n then
+        n, scale = b.n, 1
+    else
+        n, scale = OrbMath.Count(b.amount, xpCache.max, db.density, db.cap)
+    end
     if n <= 0 then
         return
     end
     local nPurple = 0
-    if db.restedTint and b.rested then
+    if not b.n and db.restedTint and b.rested then
         local _, p = OrbMath.RestedSplit(n, b.amount, b.rested)
         nPurple = p
     end
@@ -289,13 +303,52 @@ function Kills:PollActive()
     return poller:GetScript("OnUpdate") ~= nil
 end
 
+-- True when the dead unit is the current hostile target (a long fight outlives the 10 s engaged window).
+local function isHostileTarget(guid)
+    local okg, tg = pcall(UnitGUID, "target")
+    if not (okg and readable(tg) and tg == guid) then
+        return false
+    end
+    local okc, can = pcall(UnitCanAttack, "player", "target")
+    return okc and readable(can) and can == true
+end
+
+-- At max level the game pays no XP, so a kill can't be paired with chat: an engaged hostile's death sends a small
+-- burst straight out (never through the matcher, where it would wait for XP forever and count as dropped).
+local function maxLevelDeath(entry, tier, guid)
+    if not (readable(guid) and type(guid) == "string") then
+        return
+    end
+    if not (engaged:IsEngaged(guid) or isHostileTarget(guid)) then
+        return
+    end
+    emitBurst({
+        tier = tier,
+        kind = "kill",
+        maxlevel = true,
+        n = MAXLEVEL_ORBS,
+        plate = entry.plate,
+        guid = guid,
+        entry = entry,
+    })
+end
+
 local function addDeath(entry, tier, guid)
     entry.deathAdded = true
+    guid = guid or entry.guid -- opaque: only used to look up estimates and the engaged set, never logged
+    local db = ns.db
+    if db and db.showAtMax and ns.AtMaxLevel() then
+        local ok, err = pcall(maxLevelDeath, entry, tier, guid)
+        if not ok then
+            ns:Log("Kills error maxlevel: %s", tostring(err))
+        end
+        return
+    end
     matcher:AddDeath({
         tier = tier,
         name = entry.name,
         plate = entry.plate,
-        guid = guid or entry.guid, -- opaque: only used to look up the mouseover estimate, never logged
+        guid = guid,
         entry = entry, -- opaque: lets emitBurst tell "my plate" from "a plate another mob has taken over"
     })
     ensurePoll()
@@ -344,6 +397,39 @@ function handlers.UNIT_DIED(guid)
         return
     end
     addDeath(entry, 1, guid)
+end
+
+-- Engaged-set feeders (max level only: they return at once while the option is off). Every read is guarded and no GUID
+-- is ever logged.
+function handlers.PLAYER_TARGET_CHANGED()
+    if not (ns.db and ns.db.showAtMax) then
+        return
+    end
+    local okc, can = pcall(UnitCanAttack, "player", "target")
+    if not (okc and readable(can) and can == true) then
+        return
+    end
+    local okg, guid = pcall(UnitGUID, "target")
+    if okg and readable(guid) then
+        engaged:Mark(guid)
+    end
+end
+
+function handlers.UNIT_THREAT_LIST_UPDATE(unit)
+    if not (ns.db and ns.db.showAtMax) then
+        return
+    end
+    if not (readable(unit) and type(unit) == "string" and string.sub(unit, 1, 9) == "nameplate") then
+        return
+    end
+    local ok, threat = pcall(UnitThreatSituation, "player", unit)
+    if not (ok and threat ~= nil and readable(threat)) then
+        return -- not on the threat list, or a secret value: skip
+    end
+    local okg, guid = pcall(UnitGUID, unit)
+    if okg and readable(guid) then
+        engaged:Mark(guid)
+    end
 end
 
 function handlers.CHAT_MSG_COMBAT_XP_GAIN(msg)
@@ -477,6 +563,8 @@ frame:RegisterEvent("PLAYER_ENTERING_WORLD")
 frame:RegisterEvent("CHAT_MSG_COMBAT_XP_GAIN")
 frame:RegisterEvent("PLAYER_XP_UPDATE")
 frame:RegisterEvent("PLAYER_LEVEL_UP")
+frame:RegisterEvent("PLAYER_TARGET_CHANGED")
+Kills.threatRegistered = pcall(frame.RegisterEvent, frame, "UNIT_THREAT_LIST_UPDATE") and true or false
 unitDiedRegistered = pcall(frame.RegisterEvent, frame, "UNIT_DIED") and true or false
 Kills.unitDiedRegistered = unitDiedRegistered
 Kills.exhaustionRegistered = pcall(frame.RegisterEvent, frame, "UPDATE_EXHAUSTION") and true or false

@@ -9,9 +9,8 @@ from test_m5 import armed, build, chain, ctl, panel_texts, show
 
 DASH = "–"
 PINK = (0.96, 0.55, 0.73)
-BLUE = (0.20, 0.50, 1.00)
-RESTED = (1.0, 0.30, 0.85)
-UNDER = (0.02, 0.08, 0.30)
+NORMAL = (0.85, 0.38, 1.00)  # 1.1.0: purple, like the XP bar
+RESTED = (0.15, 0.38, 1.00)  # 1.1.0: blue, like the rested XP bar
 
 
 @pytest.fixture
@@ -62,10 +61,11 @@ def orb_colours(m):
             f.calls and f.calls["SetTexture"],
             f.calls and f.calls["SetVertexColor"],
         )
-        if st and vc and "media\\orb" in st[1]:
-            c = tuple(round(vc[i], 3) for i in (1, 2, 3))
-            if c != tuple(round(x, 3) for x in UNDER):
-                out.add(c)
+        blend = f.calls and f.calls["SetBlendMode"]
+        if (
+            st and vc and "media\\orb" in st[1] and not (blend and blend[1] == "BLEND")
+        ):  # BLEND = the underlay
+            out.add(tuple(round(vc[i], 3) for i in (1, 2, 3)))
     return out
 
 
@@ -134,8 +134,8 @@ def test_defaults_exist_and_a_v4_db_is_deep_filled_without_a_bump(env):
     env.ns.fire("ADDON_LOADED", "XPOrbs")
     db = env.G.XPOrbsDB
     assert (
-        db.version == 4
-    )  # InitDB's deep-fill adds the new keys: no schema bump needed
+        db.version == 5
+    )  # InitDB's deep-fill adds the new keys; the version is the current schema
     assert db.classColor is False and db.glow is True and db.glowShape == "bar"
     assert db.cap == 7 and db.style == "crossfade"
 
@@ -157,7 +157,7 @@ def test_stored_new_values_survive_a_reload(env):
 def test_class_colour_off_by_default_orbs_are_blue(m):
     m.stub.setClass("PALADIN", *PINK)
     m.slash("test 5")
-    assert orb_colours(m) == {BLUE}
+    assert orb_colours(m) == {NORMAL}
 
 
 def test_class_colour_orbs_sparkle_and_trail(m):
@@ -209,7 +209,7 @@ def test_class_colour_falls_back_to_db_colour(m, how):
         m.G.UnitClass = None
     m.db.classColor = True
     m.slash("test 5")  # no error
-    assert orb_colours(m) == {BLUE}
+    assert orb_colours(m) == {NORMAL}
 
 
 def test_class_colour_with_a_throwing_api_falls_back(m):
@@ -217,7 +217,7 @@ def test_class_colour_with_a_throwing_api_falls_back(m):
     m.G.C_ClassColor = m.lua.eval("{ GetClassColor = function() error('boom') end }")
     m.db.classColor = True
     m.slash("test 5")
-    assert orb_colours(m) == {BLUE}
+    assert orb_colours(m) == {NORMAL}
 
 
 def test_class_colour_checkbox_disables_the_swatch(m):
@@ -256,7 +256,9 @@ def test_scroll_frame_exists_with_the_specified_anchors_and_content_height(m):
     ]
     assert pts[0][0] == "TOPLEFT" and (pts[0][3], pts[0][4]) == (0, -40)
     assert pts[1][0] == "BOTTOMRIGHT" and (pts[1][3], pts[1][4]) == (-28, 44)
-    assert o.child.width == 584 and o.child.height == pytest.approx(1076, abs=2)  # v0.14: 894 + 176
+    assert o.child.width == 584 and o.child.height == pytest.approx(
+        1104, abs=2
+    )  # v0.14: 894 + 176; +28 for the 1.1.0 chime checkbox
 
 
 def test_scroll_template_falls_back(env):
@@ -284,20 +286,21 @@ def test_scroll_frame_without_any_template_still_scrolls(env):
         ("trail", 62),
         ("questBursts", 90),
         ("showAtMax", 118),
-        ("density", 186),
-        ("cap", 218),
-        ("size", 250),
-        ("flightTime", 282),
-        ("color", 314),
-        ("restedTint", 342),
-        ("restedColor", 370),
-        ("glow", 616),
-        ("glowShape", 438),
-        ("style_popstream", 716),
-        ("style_crossfade", 762),
-        ("style_stream", 808),
-        ("targetFrame", 894),
-        ("debug", 1032),
+        ("sound", 146),
+        ("density", 214),
+        ("cap", 246),
+        ("size", 278),
+        ("flightTime", 310),
+        ("color", 342),
+        ("restedTint", 370),
+        ("restedColor", 398),
+        ("glow", 644),
+        ("glowShape", 466),
+        ("style_popstream", 744),
+        ("style_crossfade", 790),
+        ("style_stream", 836),
+        ("targetFrame", 922),
+        ("debug", 1060),
     ],
 )
 def test_row_positions_follow_the_spec(m, key, y):
@@ -363,7 +366,8 @@ def test_label_rename(m):
         "Enabled",
         "Trail",
         "Quest bursts",
-        "Show at max level",
+        "Kill orbs at max level",
+        "Chime when orbs arrive",
         "Orb colour",
         "Class colour",
         "Rested tint",
@@ -398,7 +402,10 @@ def test_style_radios_use_the_radio_template_and_each_has_a_description(m):
     )
     for st in descs:
         assert ctl(m, "style_" + st).template == "UIRadioButtonTemplate"
-        assert (ctl(m, "style_" + st).width, ctl(m, "style_" + st).height) == (20, 20)  # v0.14 review: 20 px radios
+        assert (ctl(m, "style_" + st).width, ctl(m, "style_" + st).height) == (
+            20,
+            20,
+        )  # v0.14 review: 20 px radios
     # the old run-together hint line is gone
     assert not any("popstream: a burst" in t for t in panel_texts(m))
 
@@ -406,12 +413,14 @@ def test_style_radios_use_the_radio_template_and_each_has_a_description(m):
 def test_style_description_positions(m):
     d = m.opt.descs
     for st, y in (
-        ("popstream", 716 + 24),
-        ("crossfade", 762 + 24),
-        ("stream", 808 + 24),
+        ("popstream", 744 + 24),
+        ("crossfade", 790 + 24),
+        ("stream", 836 + 24),
     ):
         pt = d[st].points[1]
-        assert (pt[4], pt[5]) == (56, -y) and d[st].width == 490  # flush with the label (x + 24)
+        assert (pt[4], pt[5]) == (56, -y) and d[
+            st
+        ].width == 490  # flush with the label (x + 24)
         assert [d[st].textColor[i] for i in (1, 2, 3)] == pytest.approx([0.7, 0.7, 0.7])
 
 
@@ -437,7 +446,9 @@ def test_glow_shape_radios(m):
         ctl(m, "glowShape_round")
     )  # clicking the selected one keeps it selected
     assert ctl(m, "glowShape_round").checked
-    assert m.opt.shapeDesc.text.startswith("Horizontal: orbs land on the bar's fill edge.")  # v0.14 wording
+    assert m.opt.shapeDesc.text.startswith(
+        "Horizontal: orbs land on the bar's fill edge."
+    )  # v0.14 wording
 
 
 # ---------------------------------------------------------------- dimming
@@ -516,14 +527,14 @@ def test_slider_reset_logic_and_action(m):
     m.stub.click(m.opt.resets["cap"])
     assert m.db.cap == 40 and ctl(m, "cap").value == 40 and not reset_shown(m, "cap")
     # floats compare within 1e-4
-    m.db.flightTime = 0.75 + 5e-5
+    m.db.flightTime = 1.0 + 5e-5
     show(m)
     assert not reset_shown(m, "flightTime")
-    m.db.flightTime = 0.75 + 5e-4
+    m.db.flightTime = 1.0 + 5e-4
     show(m)
     assert reset_shown(m, "flightTime")
     m.stub.click(m.opt.resets["flightTime"])
-    assert m.db.flightTime == pytest.approx(0.75)
+    assert m.db.flightTime == pytest.approx(1.0)
 
 
 def test_colour_reset_tolerance_and_action(m):
@@ -554,12 +565,12 @@ def test_swatch_change_through_the_picker_shows_the_reset(m):
 def test_orb_colour_row_reset_covers_colour_and_class_colour(m):
     show(m)
     m.stub.click(ctl(m, "classColor"))
-    assert (
-        reset_shown(m, "color") and raw(m)(m.opt.resets["classColor"], m.opt.resets["color"])
+    assert reset_shown(m, "color") and raw(m)(
+        m.opt.resets["classColor"], m.opt.resets["color"]
     )
     m.db.color = m.lua.table_from([0.9, 0.9, 0.1])
     m.stub.click(m.opt.resets["color"])
-    assert m.db.classColor is False and rgb(m.db.color) == pytest.approx(BLUE)
+    assert m.db.classColor is False and rgb(m.db.color) == pytest.approx(NORMAL)
     assert not ctl(m, "classColor").checked and ctl(m, "color").IsEnabled(
         ctl(m, "color")
     )
@@ -650,13 +661,13 @@ def test_hidden_reset_buttons_keep_their_space(m):
         ),
         (
             "flightTime",
-            lambda m: m.stub.slide(ctl(m, "flightTime"), 1.0),
-            "Reset to default: 0.75 s",
+            lambda m: m.stub.slide(ctl(m, "flightTime"), 0.8),
+            "Reset to default: 1.00 s",
         ),
         (
             "color",
             lambda m: m.stub.click(ctl(m, "classColor")),
-            "Reset to default: #3380FF, class colour off",
+            "Reset to default: #D961FF, class colour off",
         ),
         (
             "style",
@@ -761,7 +772,7 @@ def test_reset_all_asks_first_then_resets_on_accept(m):
         True,
         False,
     )
-    assert m.db.debug is True and m.db.log[1] == "x" and m.db.version == 4
+    assert m.db.debug is True and m.db.log[1] == "x" and m.db.version == 5
     assert (
         ctl(m, "cap").value == 40
         and not reset_shown(m, "cap")

@@ -653,7 +653,7 @@ def test_crossfade_cleanup_and_idle_and_no_measuring(env):
     plate = restricted_plate(g)
     burst(g, plate=plate, n=15, kind="kill", style="crossfade")
     (G,) = pop_frames(g)
-    for _ in range(60):
+    for _ in range(100):  # 1.1.0: the default flight is 1.0 s (crossfade flights run 1.2x)
         g.stub.tick(0.03)
     assert g.stub.restrictedHits == 0
     assert G.shown is False and len(G.points) == 0

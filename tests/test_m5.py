@@ -208,7 +208,7 @@ def test_flight_time_changes_the_next_burst(m5):
     m5.run(1.0)
     assert m5.orbs.Info(m5.orbs)[
         0
-    ]  # still flying well past the default 0.75 s flight + stagger
+    ]  # still flying well past the default 1.0 s flight + stagger
 
 
 def test_enabled_checkbox_writes_the_flag_kills_read(m5):
@@ -311,9 +311,9 @@ def test_reset_restores_defaults_and_refreshes_controls(m5):
         True,
         "popstream",
     )
-    assert [m5.db.color[i] for i in (1, 2, 3)] == pytest.approx([0.2, 0.5, 1.0])
+    assert [m5.db.color[i] for i in (1, 2, 3)] == pytest.approx([0.85, 0.38, 1.0])
     assert m5.db.targetFrame is None
-    assert m5.db.debug is True and m5.db.log[1] == "x" and m5.db.version == 4
+    assert m5.db.debug is True and m5.db.log[1] == "x" and m5.db.version == 5
     assert ctl(m5, "cap").value == 40 and ctl(m5, "density").value == 100
     assert ctl(m5, "trail").checked is True and ctl(m5, "style_popstream").checked
     assert "settings reset" in m5.say()[-1]

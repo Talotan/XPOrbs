@@ -13,6 +13,11 @@ local Target = ns.Target
 local ORB_TEX = "Interface\\AddOns\\XPOrbs\\media\\orb"
 local SPARKLE_TEX = "Interface\\AddOns\\XPOrbs\\media\\sparkle"
 local FLASH_TEX = "Interface\\AddOns\\XPOrbs\\media\\flash"
+-- the six chime notes (built once: nothing is concatenated while orbs fly)
+local CHIME_PATHS = {}
+for i = 1, 6 do
+    CHIME_PATHS[i] = "Interface\\AddOns\\XPOrbs\\media\\chime" .. i .. ".ogg"
+end
 
 local TWO_PI = math.pi * 2
 local HALF_PI = math.pi / 2
@@ -41,7 +46,7 @@ local POP_STREAM_SPREAD, POP_STREAM_LIFT = 0.45, 0.10
 local GHOST_STEP = 0.015 -- in p, before easing
 local GHOST1_ALPHA, GHOST1_SIZE = 0.55, 0.85
 local GHOST2_ALPHA, GHOST2_SIZE = 0.30, 0.70
-local UNDER_R, UNDER_G, UNDER_B = 0.02, 0.08, 0.30 -- dark underlay so bright orbs keep their hue
+local UNDER_K = 0.25 -- dark underlay = this fraction of the orb's own colour, so bright orbs keep their hue
 local UNDER_ALPHA, UNDER_SIZE = 0.45, 1.25
 local FLASH_TIME = 0.4
 local FLASH_WHITE = 0.45 -- arrival flash tint = lerp(colour, white, this)
@@ -85,6 +90,12 @@ local freePop, popsCreated = {}, 0
 local pops, nPops = {}, 0
 local popErrSeen = false
 local xfs, nXf = {}, 0 -- crossfade pop frames alive (their orbs are driven from the stream loop)
+local portraitMode = false -- decided once per Burst (Target:PortraitMode): orbs aim at the portrait centre, round flash
+local chime = ns.Chime.New({ now = GetTime, gap = 0.07, perBurst = 6, reset = 0.5 })
+local soundDead = false -- the first sound failure switches the chime off for the session
+Orbs.chime = chime -- exposed for tests
+local burstSeq = 0 -- burst key counter; every orb carries its burst's key (o.bk)
+local burstLeft = {} -- burst key -> orbs of that burst still alive (the chime forgets a burst when it hits 0)
 
 local function db()
     if not ns.db then
@@ -153,7 +164,7 @@ end
 -- Circular shape = the destination is a round frame (a portrait): the orbs aim at its centre, not the XP fill edge.
 -- Independent of Show glow (v0.14): the shape describes the target frame, not just the flash.
 local function aimCentre(d)
-    return d.glowShape == "round"
+    return portraitMode or d.glowShape == "round"
 end
 
 local function ensureFrames()
@@ -248,6 +259,17 @@ local releasePop, dropXf -- defined with the pop code below
 
 -- Gives an orb record and everything it holds back to the pools. Tolerates a half-built record (Burst failed midway).
 local function freeOrb(o)
+    local bk = o.bk
+    if bk then
+        o.bk = nil
+        local left = (burstLeft[bk] or 1) - 1
+        if left > 0 then
+            burstLeft[bk] = left
+        else
+            burstLeft[bk] = nil
+            chime:Done(bk)
+        end
+    end
     if o.under then
         release(o.under)
     end
@@ -437,7 +459,7 @@ local function setupPop(g, plate, m, scale, nP, rc, bc, ux, uy)
         u:SetTexture(ORB_TEX)
         u:SetBlendMode("BLEND")
         u:SetDrawLayer("ARTWORK", -1)
-        u:SetVertexColor(UNDER_R, UNDER_G, UNDER_B)
+        u:SetVertexColor(r * UNDER_K, gg * UNDER_K, b * UNDER_K)
         o:SetTexture(ORB_TEX)
         o:SetBlendMode("ADD")
         o:SetDrawLayer("ARTWORK", 0)
@@ -561,7 +583,7 @@ local function xfTextures(g, k, r, gg, b)
     u:SetTexture(ORB_TEX)
     u:SetBlendMode("BLEND")
     u:SetDrawLayer("ARTWORK", -1)
-    u:SetVertexColor(UNDER_R, UNDER_G, UNDER_B)
+    u:SetVertexColor(r * UNDER_K, gg * UNDER_K, b * UNDER_K)
     o:SetTexture(ORB_TEX)
     o:SetBlendMode("ADD")
     o:SetDrawLayer("ARTWORK", 0)
@@ -646,6 +668,20 @@ local function updatePops(dt)
     end
 end
 
+-- An orb arrived: asks the chime for a note and plays it. The first failure (an error, or the client saying the file
+-- won't play) logs SOUND_ERR once and silences the chime for the session. Allocates nothing.
+local function playChime(key)
+    local n = chime:Arrive(key)
+    if not n then
+        return
+    end
+    local ok, willPlay = pcall(PlaySoundFile, CHIME_PATHS[n], "SFX")
+    if not ok or willPlay == false then
+        soundDead = true
+        ns:Log("SOUND_ERR %s", ok and "the client won't play the file" or string.sub(tostring(willPlay), 1, 120))
+    end
+end
+
 -- Perf counters for /xporbs perf: frames the driver ran, their summed and worst time in ms.
 local perfFrames, perfTotal, perfMax = 0, 0, 0
 local driverErrSeen = false
@@ -662,7 +698,7 @@ local function drive(self, dt)
             g.fm = g.fadeEl >= POP_FADE_OUT and 0 or 1 - g.fadeEl / POP_FADE_OUT
         end
     end
-    local dx, dy = Target:GetDestination(aimCentre(ns.db))
+    local dx, dy = Target:GetDestination(aimCentre(ns.db), portraitMode)
     local i = 1
     while i <= nLive do
         local o = live[i]
@@ -676,6 +712,9 @@ local function drive(self, dt)
             else
                 local p = ft / o.dur
                 if p >= 1 then
+                    if ns.db.sound and not soundDead then
+                        playChime(o.bk)
+                    end
                     if ns.db.glow ~= false then
                         arrivedRecently = arrivedRecently + 1
                         flashAge, flashOn, flashRested = 0, true, o.rested
@@ -705,7 +744,7 @@ local function drive(self, dt)
             local c = flashRested and ns.db.restedColor or normalC
             local kA, kS = OrbMath.GlowIntensity(ns.db.glowIntensity)
             local a = min(1, min(1, FLASH_ALPHA + FLASH_STEP * arrivedRecently) * (1 - flashAge / FLASH_TIME) * kA)
-            local shape = ns.db.glowShape == "round" and "round" or "bar"
+            local shape = (portraitMode or ns.db.glowShape == "round") and "round" or "bar"
             if shape ~= flashShape then
                 flashShape = shape
                 flash:SetTexture(shape == "round" and ORB_TEX or FLASH_TEX) -- orb.tga is a radial gradient
@@ -818,7 +857,8 @@ function Orbs:Burst(p)
     if type(x) ~= "number" or type(y) ~= "number" then
         x, y = UIParent:GetWidth() / 2, UIParent:GetHeight() * 0.65
     end
-    local dx, dy = Target:GetDestination(aimCentre(d))
+    portraitMode = Target:PortraitMode() == true -- once per burst, never per frame
+    local dx, dy = Target:GetDestination(aimCentre(d), portraitMode)
     local normal = resolveNormal(d)
     -- P-hat: our best guess of where the mob is on screen (Kills passes the mouseover/cursor estimate)
     local px, py = p.ex, p.ey
@@ -863,6 +903,8 @@ function Orbs:Burst(p)
     local flight = xg and XF_FLIGHT or 1
     local xfCount = 0
     local cur, curLive = nil, false -- the orb being built, and whether it is in `live` yet
+    burstSeq = burstSeq + 1
+    local bk = burstSeq
 
     local ok, err = pcall(function()
         for i = 1, n do
@@ -902,7 +944,7 @@ function Orbs:Burst(p)
             o.rested = rested
             o.size = d.size * scale * (rested and RESTED_SIZE or 1)
             o.rot0 = random() * TWO_PI
-            o.under = acquire(ORB_TEX, -1, UNDER_R, UNDER_G, UNDER_B, "BLEND")
+            o.under = acquire(ORB_TEX, -1, r * UNDER_K, g * UNDER_K, bl * UNDER_K, "BLEND")
             o.orb = acquire(ORB_TEX, 0, r, g, bl)
             o.spark = acquire(SPARKLE_TEX, 1, lighten(r), lighten(g), lighten(bl))
             if trail then
@@ -911,6 +953,8 @@ function Orbs:Burst(p)
             end
             nLive = nLive + 1
             live[nLive] = o
+            o.bk = bk
+            burstLeft[bk] = (burstLeft[bk] or 0) + 1
             curLive = true
         end
     end)
@@ -1165,6 +1209,29 @@ local function refreshPanel()
     if ns.Options and ns.Options.Refresh then
         ns.Options:Refresh()
     end
+end
+
+-- /xporbs sound on|off: the arrival chime. Turning it on also clears a SOUND_ERR shutdown, so it can be retried.
+function ns.commands.sound(arg)
+    local w = string.match(arg or "", "%S+")
+    if w == "on" then
+        db().sound = true
+        soundDead = false
+        refreshPanel()
+    elseif w == "off" then
+        db().sound = false
+        refreshPanel()
+    elseif w ~= nil then
+        ns.Print("sound: use on or off")
+        return
+    end
+    local note = soundDead and " (switched off this session: the client wouldn't play the file)" or ""
+    ns.Print("chime: " .. (db().sound and "on" or "off") .. note)
+end
+
+-- true once a sound failure has switched the chime off for this session
+function Orbs:SoundDisabled()
+    return soundDead
 end
 
 -- /xporbs style popstream|crossfade|stream  (/xporbs pop on|off = alias for popstream|stream)

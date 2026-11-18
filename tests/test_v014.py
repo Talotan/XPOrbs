@@ -42,7 +42,7 @@ def test_new_defaults_are_deep_filled_without_a_bump(env):
     m = build(env)
     d = m.db
     assert (d.glowIntensity, d.glowOffsetX, d.glowOffsetY) == (100, 0, 0)
-    assert d.glow is False and d.version == 4
+    assert d.glow is False and d.version == 5
 
 
 def test_stored_new_values_survive_a_reload(env):
@@ -267,12 +267,12 @@ def test_round_flash_lands_on_the_centre_plus_offset(m):
 @pytest.mark.parametrize(
     "key,y,h",
     [
-        ("glowShape", 438, 24),
-        ("glowShapeDesc", 464, 56),
-        ("glowOffsetX", 526, 32),
-        ("glowOffsetY", 558, 32),
-        ("glow", 616, 28),
-        ("glowIntensity", 644, 32),
+        ("glowShape", 466, 24),
+        ("glowShapeDesc", 492, 56),
+        ("glowOffsetX", 554, 32),
+        ("glowOffsetY", 586, 32),
+        ("glow", 644, 28),
+        ("glowIntensity", 672, 32),
     ],
 )
 def test_new_rows_follow_the_grid(m, key, y, h):
@@ -299,7 +299,7 @@ def test_new_sliders_use_the_slider_columns_and_ranges(m):
 def test_offset_description_line(m):
     d = m.opt.offsetDesc
     assert d.text == "Moves where orbs land and the glow appears (pixels)."
-    assert (d.points[1][4], d.points[1][5]) == (32, -594)
+    assert (d.points[1][4], d.points[1][5]) == (32, -622)
     assert [d.textColor[i] for i in (1, 2, 3)] == pytest.approx([0.7, 0.7, 0.7])
 
 
@@ -392,16 +392,16 @@ def test_picker_hint_fontstring(m):
     )
     assert [h.textColor[i] for i in (1, 2, 3)] == pytest.approx([0.7, 0.7, 0.7])
     assert h.width == 520 and h.calls["SetWordWrap"][1] is True
-    assert (h.points[1][4], h.points[1][5]) == (32, -964)
+    assert (h.points[1][4], h.points[1][5]) == (32, -992)
     assert h.text in panel_texts(m)
 
 
 def test_content_height_grew_and_rows_below_moved(m):
-    assert m.opt.CONTENT_H == 1076 and m.opt.child.height == 1076
-    assert m.opt.rows["debug"].points[1][5] == -1032
-    assert 1032 + 28 + 16 == m.opt.CONTENT_H
+    assert m.opt.CONTENT_H == 1104 and m.opt.child.height == 1104
+    assert m.opt.rows["debug"].points[1][5] == -1060
+    assert 1060 + 28 + 16 == m.opt.CONTENT_H
     # the blocks above stack without overlap
-    assert 594 + 16 <= 616 and 930 + 30 <= 964 and 964 + 28 <= 1006
+    assert 622 + 16 <= 644 and 958 + 30 <= 992 and 992 + 28 <= 1034
 
 
 # ---------------------------------------------------------------- design-review fixes (docs/review-v013)

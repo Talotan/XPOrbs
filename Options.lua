@@ -36,6 +36,8 @@ local SHAPES = { "bar", "round" }
 local SHAPE_NAME = { bar = "Horizontal", round = "Circular" }
 local SHAPE_DESC = "Horizontal: orbs land on the bar's fill edge. Circular: orbs land on the centre of a round frame "
     .. "such as a portrait."
+local MAX_TIP = "At max level, each kill sends a small burst of orbs to your portrait."
+local SOUND_TIP = "A soft bell note as each orb arrives (up to six per burst). Off by default."
 local OFFSET_DESC = "Moves where orbs land and the glow appears (pixels)."
 local PICK_HINT = "Use this if another addon replaces the default XP bar, or to send the orbs somewhere else, such as "
     .. "your portrait with the Circular shape."
@@ -309,6 +311,12 @@ local function checkbox(y, key, labelStr, opts)
     addReset(row, key, { key }, function()
         return onOff(ns.defaults[key])
     end)
+    if opts.tip then
+        cb:SetScript("OnEnter", function(self)
+            showTip(self, opts.tip)
+        end)
+        cb:SetScript("OnLeave", hideTip)
+    end
     Options.controls[key] = cb
     Options.rows[key] = row
     return row, cb
@@ -607,9 +615,10 @@ local function build()
         { "enabled", "Enabled" },
         { "trail", "Trail" },
         { "questBursts", "Quest bursts" },
-        { "showAtMax", "Show at max level" },
+        { "showAtMax", "Kill orbs at max level", { tip = MAX_TIP } },
+        { "sound", "Chime when orbs arrive", { tip = SOUND_TIP } },
     }) do
-        checkbox(y, c[1], c[2])
+        checkbox(y, c[1], c[2], c[3])
         y = y + 28
     end
 

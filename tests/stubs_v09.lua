@@ -77,6 +77,20 @@ function stub.setTargetFrame(cx, cy, visible)
     return portrait
 end
 
+-- A player unit frame with PlayerFrameContainer.PlayerPortrait centred at (cx, cy), 60 x 60 px. visible=false hides
+-- the portrait. Returns the portrait.
+function stub.setPlayerPortrait(cx, cy, visible)
+    local pf = CreateFrame("Frame")
+    local portrait = CreateFrame("Frame")
+    portrait.left, portrait.bottom, portrait.width, portrait.height = cx - 30, cy - 30, 60, 60
+    portrait.cx, portrait.cy = cx, cy
+    portrait.shown = visible ~= false
+    pf.PlayerFrameContainer = { PlayerPortrait = portrait }
+    pf.left, pf.bottom, pf.width, pf.height = cx - 100, cy - 40, 200, 80
+    _G.PlayerFrame = pf
+    return portrait
+end
+
 function stub.clearTargetFrame()
     _G.TargetFrame = nil
 end

@@ -53,11 +53,7 @@ local function frameEdge(f, xp, xpMax, centre)
     return x, y, w, h
 end
 
-local function tryFrame(name, xp, xpMax, centre)
-    if type(name) ~= "string" or name == "" then
-        return nil
-    end
-    local f = _G[name]
+local function tryObject(f, xp, xpMax, centre)
     if type(f) ~= "table" then
         return nil
     end
@@ -68,6 +64,36 @@ local function tryFrame(name, xp, xpMax, centre)
     return nil
 end
 
+local function tryFrame(name, xp, xpMax, centre)
+    if type(name) ~= "string" or name == "" then
+        return nil
+    end
+    return tryObject(_G[name], xp, xpMax, centre)
+end
+
+local PORTRAIT_NAME = "PlayerPortrait" -- Target.lastName when the player portrait was the destination
+
+-- The player portrait frame to aim at: PlayerFrame.PlayerFrameContainer.PlayerPortrait (pcall'd walk), else the
+-- PlayerPortrait global, else PlayerFrame itself. Returns the candidates in that order (some may be nil).
+local function playerPortraitCandidates()
+    local ok, port = pcall(function()
+        local pf = _G.PlayerFrame
+        local c = type(pf) == "table" and pf.PlayerFrameContainer or nil
+        return type(c) == "table" and c.PlayerPortrait or nil
+    end)
+    return ok and port or nil, _G.PlayerPortrait, _G.PlayerFrame
+end
+
+-- At max level the XP bar is idle, so with no frame picked by the user the orbs fly to the player portrait instead.
+-- A user's pick (db.targetFrame) always wins. Never throws.
+function Target:PortraitMode()
+    local d = ns.db
+    if d and type(d.targetFrame) == "string" and d.targetFrame ~= "" then
+        return false
+    end
+    return ns.AtMaxLevel() == true
+end
+
 -- Returns x, y, ok. ok is false when no bar frame was usable and the bottom-centre fallback was returned.
 -- With a secret XP reading the last readable pair is used (cached in Target.lastXP / lastXPMax); with none, the frame
 -- centre.
@@ -76,7 +102,12 @@ end
 -- no fill edge).
 -- db.glowOffsetX / glowOffsetY (UIParent px) are added to every result, the fallback included: the offset is the
 -- user's "land here" nudge, so it moves the landing point wherever it would otherwise be. lastW / lastH are unaffected.
-function Target:GetDestination(centre)
+-- portrait = true (the caller decided once per burst, see Target:PortraitMode) tries the player portrait first and aims
+-- at its centre; nil asks PortraitMode itself, so only per-frame callers should pass it.
+function Target:GetDestination(centre, portrait)
+    if portrait == nil then
+        portrait = self:PortraitMode()
+    end
     local okxp, xp = pcall(UnitXP, "player")
     local okmax, xpMax = pcall(UnitXPMax, "player")
     if okxp and okmax and num(xp) and num(xpMax) then
@@ -89,8 +120,26 @@ function Target:GetDestination(centre)
         end
     end
     local x, y, fw, fh
-    local name = ns.db and ns.db.targetFrame
-    x, y, fw, fh = tryFrame(name, xp, xpMax, centre)
+    local name
+    if portrait then
+        local c1, c2, c3 = playerPortraitCandidates()
+        x, y, fw, fh = tryObject(c1, xp, xpMax, true)
+        if not x then
+            x, y, fw, fh = tryObject(c2, xp, xpMax, true)
+        end
+        if not x then
+            x, y, fw, fh = tryObject(c3, xp, xpMax, true)
+        end
+        name = PORTRAIT_NAME
+        if not x then
+            -- no usable portrait: the usual bar frames, with the shape the user chose (the caller's `centre` was
+            -- forced on for the portrait)
+            centre = (ns.db ~= nil and ns.db.glowShape == "round") or xp == nil or xpMax == nil
+        end
+    else
+        name = ns.db and ns.db.targetFrame
+        x, y, fw, fh = tryFrame(name, xp, xpMax, centre)
+    end
     if not x then
         for i = 1, #BAR_FRAMES do
             name = BAR_FRAMES[i]

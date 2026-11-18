@@ -61,6 +61,20 @@ end
 function UnitCanAttack(_, unit)
     return field(unit, "canAttack", true)
 end
+-- Threat on a unit: units[unit].threat = a number 0..3, stub.SECRET, or nil (not on the threat list).
+function UnitThreatSituation(_, unit)
+    return field(unit, "threat", nil)
+end
+-- PlaySoundFile records every call in stub.sounds ({ path, channel }). stub.soundMode: nil = plays, "false" = the
+-- client says it won't play (returns false), "error" = raises.
+stub.sounds = {}
+function PlaySoundFile(path, channel)
+    stub.sounds[#stub.sounds + 1] = { path, channel }
+    if stub.soundMode == "error" then
+        error("PlaySoundFile unavailable")
+    end
+    return stub.soundMode ~= "false", 1
+end
 function UnitExists(unit)
     return field(unit, "exists", true)
 end

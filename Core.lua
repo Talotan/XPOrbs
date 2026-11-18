@@ -6,15 +6,17 @@ ns.defaults = {
     density = 100, -- orb multiplier in % (100 = normal), see OrbMath.Count
     cap = 40,
     size = 14,
-    flightTime = 0.75,
-    color = { 0.20, 0.50, 1.00 },
+    flightTime = 1.0,
+    -- the Forever XP bar is purple (blue when rested); orbs are additive, so these are full-brightness versions
+    color = { 0.85, 0.38, 1.00 },
     classColor = false, -- true: normal (non-rested) orbs use the player's class colour instead of `color`
     restedTint = true,
-    restedColor = { 1.0, 0.30, 0.85 },
+    restedColor = { 0.15, 0.38, 1.00 },
     trail = true,
     questBursts = true,
     targetFrame = nil,
-    showAtMax = false,
+    showAtMax = false, -- at max level: a small burst of orbs flies to the portrait when an engaged hostile dies
+    sound = false, -- chime as orbs arrive (media/chime1-6.ogg)
     debug = false,
     style = "popstream", -- kill style: "popstream" (pop at the nameplate, then stream), "crossfade" or "stream"
     glow = true, -- arrival flash on/off
@@ -55,8 +57,10 @@ local function deepFill(dst, src)
     end
 end
 
-local SCHEMA = 4
+local SCHEMA = 5
 local OLD_COLOR, OLD_RESTED = { 0.35, 0.65, 1.0 }, { 0.7, 0.45, 1.0 }
+-- the 1.0.x defaults, replaced by the schema-5 ones when a save still holds them
+local V4_COLOR, V4_RESTED, V4_FLIGHT = { 0.20, 0.50, 1.00 }, { 1.0, 0.30, 0.85 }, 0.75
 
 local function sameColour(c, ref)
     if type(c) ~= "table" then
@@ -73,6 +77,8 @@ end
 -- v2: new default colours. Only colours still equal to the old defaults are replaced (deepFill re-adds them).
 -- v3: kills go live; the probe-only mode is gone (v0.17 also drops a stored `probe` key at every load).
 -- v4: the stream origin is always the target frame (then the screen centre); the origin option is gone.
+-- v5: purple/blue orbs to match the XP bar and a 1.0 s flight: only values still equal to the 1.0.x defaults are
+-- replaced (a custom colour or flight time is kept).
 -- v0.13 added classColor / glow / glowShape and v0.14 added glowIntensity / glowOffsetX / glowOffsetY: no schema bump,
 -- deepFill adds the missing keys (a stored false or an existing value is never overwritten, a missing key gets the
 -- default).
@@ -92,9 +98,21 @@ local function migrate(db)
         db.corpsePop = nil
         db.style = "popstream"
     end
+    if v < 5 then
+        if sameColour(db.color, V4_COLOR) then
+            db.color = nil
+        end
+        if sameColour(db.restedColor, V4_RESTED) then
+            db.restedColor = nil
+        end
+        if type(db.flightTime) == "number" and math.abs(db.flightTime - V4_FLIGHT) <= 0.005 then
+            db.flightTime = nil
+        end
+    end
 end
 
-local BOOLEANS = { "enabled", "classColor", "restedTint", "trail", "questBursts", "showAtMax", "debug", "glow" }
+local BOOLEANS =
+    { "enabled", "classColor", "restedTint", "trail", "questBursts", "showAtMax", "debug", "glow", "sound" }
 local COLOURS = { "color", "restedColor" }
 
 local function copyColour(c)
@@ -167,7 +185,11 @@ function ns:InitDB()
 end
 
 -- True when the player is at the level cap. Unavailable APIs, errors and secret values count as "not at max".
+-- /xporbs debug maxlevel on sets ns.debugForceMax (session only, never saved) so this can be tested below the cap.
 function ns.AtMaxLevel()
+    if ns.debugForceMax then
+        return true
+    end
     local okl, lvl = pcall(UnitLevel, "player")
     local okm, mx = pcall(GetMaxPlayerLevel)
     if okl and okm and type(lvl) == "number" and type(mx) == "number"
@@ -218,6 +240,8 @@ function commands.help()
     say("commands:")
     say("/xporbs help - this list")
     say("/xporbs debug on|off - toggle debug logging")
+    say("/xporbs debug maxlevel on|off - pretend to be at max level (this session only)")
+    say("/xporbs sound on|off - chime when orbs arrive")
     say("/xporbs status - show addon state")
     say("/xporbs test [pct] [rested] [style] - fire a test burst on your target")
     say("/xporbs test stress [n] - fire n test bursts over about 2 seconds (default 20, max 100)")
@@ -230,12 +254,25 @@ function commands.help()
 end
 
 function commands.debug(arg)
+    local force = string.match(arg or "", "^maxlevel%s*(%S*)")
+    if force then
+        if force == "on" then
+            ns.debugForceMax = true
+        elseif force == "off" then
+            ns.debugForceMax = nil
+        else
+            say("usage: /xporbs debug maxlevel on|off (currently " .. (ns.debugForceMax and "on" or "off") .. ")")
+            return
+        end
+        say("debug maxlevel " .. (ns.debugForceMax and "on" or "off") .. " (this session only)")
+        return
+    end
     if arg == "on" then
         ns.db.debug = true
     elseif arg == "off" then
         ns.db.debug = false
     else
-        say("usage: /xporbs debug on|off (currently " .. (ns.db.debug and "on" or "off") .. ")")
+        say("usage: /xporbs debug on|off|maxlevel on|off (currently " .. (ns.db.debug and "on" or "off") .. ")")
         return
     end
     say("debug " .. (ns.db.debug and "on" or "off"))

@@ -34,7 +34,7 @@ def test_burst_40_finishes_and_goes_idle(m2):
     active, in_use, created, ceiling = m2.info()
     assert active and in_use > 0
     assert m2.orbs.driver.scripts.OnUpdate is not None
-    m2.run(0.75 * 1.15 + 0.15 + 0.12 + 0.5)  # flight + stagger + flash
+    m2.run(1.0 * 1.15 + 0.15 + 0.12 + 0.5)  # flight + stagger + flash
     active, in_use, created, ceiling = m2.info()
     assert not active
     assert in_use == 0
@@ -186,7 +186,8 @@ def test_underlay_is_blend_below_orb_and_dark(m2):
     texs = [f for f in m2.stub.frames.values() if f.kind == "Texture" and f.calls and "SetDrawLayer" in f.calls]
     under = [f for f in texs if f.calls["SetBlendMode"][1] == "BLEND"]
     assert len(under) == 1
-    assert tuple(under[0].calls["SetVertexColor"].values()) == (0.02, 0.08, 0.30)
+    # 1.1.0: a dark tint of the orb's own colour (0.25 x the default purple), not a fixed navy
+    assert tuple(under[0].calls["SetVertexColor"].values()) == pytest.approx((0.85 * 0.25, 0.38 * 0.25, 0.25))
     assert under[0].calls["SetDrawLayer"][2] == -1
     layers = sorted(f.calls["SetDrawLayer"][2] for f in texs)
     assert layers == [-1, 0, 0, 0, 1]  # underlay, orb + 2 ghosts, sparkle
@@ -216,7 +217,7 @@ def test_rested_orbs_start_later_and_bigger(m2):
 def test_arrival_flash_bumps_and_decays(m2):
     m2.burst(x=300, y=600, n=3)
     flash = [f for f in m2.stub.frames.values() if f.kind == "Texture"][0]
-    m2.run(0.75 * 1.15 + 0.25 + 0.01)
+    m2.run(1.0 * 1.15 + 0.25 + 0.01)
     # all orbs have landed: flash was shown at some point and driver stays active until it decays
     m2.run(0.5)
     assert not m2.info()[0]

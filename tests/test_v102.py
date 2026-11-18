@@ -87,7 +87,7 @@ def test_good_values_survive_and_are_snapped(env):
     db = load_db(
         env,
         {
-            "version": 4,
+            "version": 5,  # a schema-4 save would have its old-default 0.75 reset to 1.0
             "cap": 25,
             "flightTime": 0.75,
             "density": 150,
@@ -121,13 +121,13 @@ def test_bad_enums_and_booleans_reset(env):
 
 def test_bad_colours_reset_and_good_ones_clamp(env):
     db = load_db(env, {"version": 4, "color": "red", "restedColor": [2, -1, 0.5]})
-    assert rgb(db.color) == (0.20, 0.50, 1.00)  # a string: the default
+    assert rgb(db.color) == (0.85, 0.38, 1.00)  # a string: the default
     assert rgb(db.restedColor) == (1, 0, 0.5)  # clamped to 0..1
 
 
 def test_colour_with_non_numbers_resets(env):
     db = load_db(env, {"version": 4, "color": [0.1, "x", 0.3]})
-    assert rgb(db.color) == (0.20, 0.50, 1.00)
+    assert rgb(db.color) == (0.85, 0.38, 1.00)
 
 
 def test_future_schema_version_is_left_alone(env):
@@ -135,7 +135,7 @@ def test_future_schema_version_is_left_alone(env):
 
 
 def test_current_and_old_versions_stamp_to_schema(env):
-    assert load_db(env, {"version": 2}).version == 4
+    assert load_db(env, {"version": 2}).version == 5
 
 
 def test_reset_command_sanitises_and_restores_defaults(env):
@@ -143,7 +143,7 @@ def test_reset_command_sanitises_and_restores_defaults(env):
     db = env.G.XPOrbsDB
     db.cap = -5
     env.G.SlashCmdList.XPORBS("reset")
-    assert db.cap == 40 and db.flightTime == 0.75 and db.version == 4
+    assert db.cap == 40 and db.flightTime == 1.0 and db.version == 5
 
 
 def test_burst_with_bad_saved_flight_time_finishes(env):
