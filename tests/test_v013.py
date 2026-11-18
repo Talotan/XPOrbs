@@ -257,7 +257,7 @@ def test_scroll_frame_exists_with_the_specified_anchors_and_content_height(m):
     assert pts[0][0] == "TOPLEFT" and (pts[0][3], pts[0][4]) == (0, -40)
     assert pts[1][0] == "BOTTOMRIGHT" and (pts[1][3], pts[1][4]) == (-28, 44)
     assert o.child.width == 584 and o.child.height == pytest.approx(
-        1160, abs=2
+        1206, abs=2
     )  # v0.14: 894 + 176; +28 for the 1.1.0 chime checkbox, +28 for its Sound row, +28 for the P2a minimap checkbox
 
 
@@ -301,8 +301,8 @@ def test_scroll_frame_without_any_template_still_scrolls(env):
         ("style_popstream", 800),
         ("style_crossfade", 846),
         ("style_stream", 892),
-        ("targetFrame", 978),
-        ("debug", 1116),
+        ("targetFrame", 1024),
+        ("debug", 1162),
     ],
 )
 def test_row_positions_follow_the_spec(m, key, y):

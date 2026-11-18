@@ -19,7 +19,7 @@ ns.defaults = {
     sound = false, -- chime as orbs arrive
     soundVoice = "glass", -- which chime: "coin" or "glass" (media/coin1-6.ogg, media/glass1-6.ogg)
     debug = false,
-    style = "popstream", -- kill style: "popstream" (pop at the nameplate, then stream), "crossfade" or "stream"
+    style = "popstream", -- kill style: "popstream" (pop at the nameplate, then stream), "crossfade", "stream" or "mob"
     glow = true, -- arrival flash on/off
     glowShape = "bar", -- "bar" (horizontal flash on the fill edge) or "round" (circular glow at the frame centre)
     glowIntensity = 100, -- arrival flash strength in percent (25-200): scales its alpha and, a little, its size
@@ -169,7 +169,8 @@ local function sanitize(db)
             db[key] = copyColour(defaults[key])
         end
     end
-    if db.style ~= "popstream" and db.style ~= "crossfade" and db.style ~= "stream" then
+    if db.style ~= "popstream" and db.style ~= "crossfade" and db.style ~= "stream"
+        and db.style ~= "mob" then
         db.style = defaults.style
     end
     if db.glowShape ~= "bar" and db.glowShape ~= "round" then
@@ -290,7 +291,7 @@ function commands.help()
     say("/xporbs test [pct] [rested] [style] - fire a test burst on your target")
     say("/xporbs test stress [n] - fire n test bursts over about 2 seconds (default 20, max 100)")
     say("/xporbs perf [reset] - addon memory, driver frame time and pool usage")
-    say("/xporbs style popstream|crossfade|stream - kill burst style")
+    say("/xporbs style popstream|crossfade|stream|mob - kill burst style")
     say("/xporbs pop on|off - alias: popstream / stream")
     say("/xporbs pick [clear|FrameName] - click to pick the XP bar frame, or name it (clear = auto-detect)")
     say("/xporbs zoomanchor on|off - anchor orbs on the mob's body using the camera zoom (no arg: show state)")

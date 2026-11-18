@@ -82,6 +82,21 @@ local XF_BLOOM_SIZE = 1.5 -- start-size multiplier during the hold, easing to 1.
 local XF_FADE_IN = 0.06 -- s: alpha fade-in at birth
 local XF_FLIGHT = 1.2 -- multiplier on flightTime for crossfade orbs
 local XF_EASE_OUT = 0.25 -- ease-out weight of the crossfade launch (PopEase default 0.5 = launch slope 1.5)
+-- Per-orb profiles of the plate-copy machinery (o.prof), static tables built once so nothing allocates per frame.
+-- s0/s1: flight p range of the A -> B crossfade; bloom: seconds the bloom from P-hat to the ring point takes;
+-- bsize: start-size multiplier of the bloom; fadeIn: alpha fade-in seconds; flight: flightTime multiplier;
+-- ease: ease-out weight of the launch.
+-- hold: base seconds before the flight; rmin/rmax/drift: ring radius range and extra upward drift of the ring point.
+local XF_PROFILE = { s0 = XF_START, s1 = XF_END, bloom = XF_HOLD, bsize = XF_BLOOM_SIZE, fadeIn = XF_FADE_IN,
+    flight = XF_FLIGHT, ease = XF_EASE_OUT, hold = XF_HOLD, rmin = XF_BLOOM_R, rmax = XF_BLOOM_R, drift = 0 }
+-- Mob style: one burst of orbs at the mob (like the pop, all born within MOB_BORN), each launching after
+-- MOB_HOLD + up to STAGGER_POP seconds, so it reads as one pop and then a stream. The ring radius (POP_R_MIN..MAX plus
+-- POP_DRIFT) is per orb; the bloom ends at MOB_HOLD and the orb idles on its ring point until its own launch. The
+-- crossfade is early and quick (flight p 0.04..0.20) so a good P-hat makes the hand-off invisible.
+local MOB_HOLD = 0.35
+local MOB_BORN = 0.04
+local MOB_PROFILE = { s0 = 0.04, s1 = 0.20, bloom = MOB_HOLD, bsize = 1.4, fadeIn = 0.06, flight = 1.1, ease = 0.35,
+    hold = MOB_HOLD, rmin = POP_R_MIN, rmax = POP_R_MAX, drift = POP_DRIFT }
 
 local overlay, driver, flash, flashShape
 local freeTex, texCreated, texInUse = {}, 0, 0
@@ -341,8 +356,8 @@ local function freeOrb(o)
     freeRec[#freeRec + 1] = o
 end
 
-local function smoothstep(p)
-    local t = (p - XF_START) / (XF_END - XF_START)
+local function smoothstep(p, prof)
+    local t = (p - prof.s0) / (prof.s1 - prof.s0)
     if t <= 0 then
         return 0
     elseif t >= 1 then
@@ -393,15 +408,16 @@ end
 -- Crossfade hold: t seconds after the orb's birth. Copy A only, blooming from P-hat out to the ring start (o.x0, o.y0)
 -- with a size boost that eases off. Copy B (screen space) stays hidden.
 local function drawHold(o, t)
-    local h = t / XF_HOLD
+    local prof = o.prof
+    local h = t / prof.bloom
     if h > 1 then
         h = 1
     end
     local e = 1 - (1 - h) * (1 - h) * (1 - h)
-    local a = t < XF_FADE_IN and t / XF_FADE_IN or 1
+    local a = t < prof.fadeIn and t / prof.fadeIn or 1
     local g = o.g
     hideB(o)
-    safeA(o, g, o.px + (o.x0 - o.px) * e, o.py + (o.y0 - o.py) * e, o.size * (1 + (XF_BLOOM_SIZE - 1) * (1 - e)),
+    safeA(o, g, o.px + (o.x0 - o.px) * e, o.py + (o.y0 - o.py) * e, o.size * (1 + (prof.bsize - 1) * (1 - e)),
         a * g.fm)
 end
 
@@ -418,7 +434,7 @@ local function drawOrb(o, p, dx, dy)
     local a = p < fi and p / fi or 1
     local g = o.g
     if g then
-        local w = smoothstep(p) -- position of the crossfade; equal power keeps the sum of the two copies steady
+        local w = smoothstep(p, o.prof) -- position of the crossfade; equal power keeps the sum of the two copies steady
         safeA(o, g, ex, ey, s, w >= 1 and 0 or a * cos(w * HALF_PI) * g.fm) -- cos(pi/2) is not exactly 0
         if w <= 0 then
             hideB(o)
@@ -869,7 +885,7 @@ local function lighten(c)
 end
 
 local function styleOf(v)
-    if v == "crossfade" or v == "stream" or v == "popstream" then
+    if v == "crossfade" or v == "stream" or v == "popstream" or v == "mob" then
         return v
     end
     return "popstream"
@@ -879,7 +895,7 @@ end
 -- kind=, plate= (optional nameplate of the dead mob), style= (optional override of db.style),
 -- ex=, ey= (P-hat, the estimated mob position in UIParent coords; default = MobEstimate.Default), est=, estW= (source
 -- label and mouseover weight, informational) }. n < 1 is a no-op.
--- Returns "pop+stream" | "crossfade" | "stream".
+-- Returns "pop+stream" | "crossfade" | "mob" | "stream".
 function Orbs:Burst(p)
     if type(p) ~= "table" or type(p.n) ~= "number" or p.n < 1 then
         return
@@ -913,7 +929,7 @@ function Orbs:Burst(p)
     if p.plate ~= nil and style == "popstream" then
         local ux, uy = OrbMath.ExitVector(x, y, px, py, dx, dy)
         popped = startPop(p.plate, n, scale, nPurple, ux, uy, zy)
-    elseif p.plate ~= nil and style == "crossfade" then
+    elseif p.plate ~= nil and (style == "crossfade" or style == "mob") then
         xg = startXf(p.plate, zy)
     end
     if xg then
@@ -937,14 +953,19 @@ function Orbs:Burst(p)
         nPurple = floor(nPurple * fit / n + 0.5)
         n = fit
     end
+    local mob = xg ~= nil and style == "mob"
+    local prof = mob and MOB_PROFILE or XF_PROFILE
     local extra = popped and STREAM_DELAY or 0
     local stagger = (popped or xg) and STAGGER_POP or STAGGER
+    if mob then
+        stagger = MOB_BORN -- born together; the launch is what gets staggered (o.hold)
+    end
     local spread, lift = nil, nil -- PopControl defaults
     if popped or xg then
         spread, lift = POP_STREAM_SPREAD, POP_STREAM_LIFT
     end
     local fadeIn = popped and FADE_IN_POP or FADE_IN
-    local flight = xg and XF_FLIGHT or 1
+    local flight = xg and prof.flight or 1
     local xfCount = 0
     local cur, curLive = nil, false -- the orb being built, and whether it is in `live` yet
     burstSeq = burstSeq + 1
@@ -960,20 +981,25 @@ function Orbs:Burst(p)
             local r, g, bl = c[1], c[2], c[3]
             local o = newRec()
             cur, curLive = o, false
-            o.g, o.hold, o.ew = nil, 0, nil
+            o.g, o.hold, o.ew, o.prof = nil, 0, nil, nil
             if xg then
                 local k = xfCount * 3
                 if pcall(xfTextures, xg, k, r, g, bl) then
                     xfCount = xfCount + 1
                     o.g, o.k, o.px, o.py = xg, k, px, py
-                    o.hold, o.ew = XF_HOLD, XF_EASE_OUT
+                    o.hold, o.ew, o.prof = mob and prof.hold + random() * STAGGER_POP or prof.hold, prof.ease, prof
                     xg.refs = xg.refs + 1
                 end
             end
             if o.g then
                 -- the flight starts where the bloom ends: on the ring around P-hat
                 local ang = OrbMath.RingAngle(i, n, random)
-                o.x0, o.y0 = x + cos(ang) * XF_BLOOM_R, y + sin(ang) * XF_BLOOM_R
+                if mob then
+                    local rad = prof.rmin + random() * (prof.rmax - prof.rmin)
+                    o.x0, o.y0 = x + cos(ang) * rad, y + sin(ang) * rad + random() * prof.drift
+                else
+                    o.x0, o.y0 = x + cos(ang) * prof.rmin, y + sin(ang) * prof.rmin
+                end
             else
                 local ang, rad = random() * TWO_PI, START_RADIUS * sqrt(random())
                 o.x0, o.y0 = x + cos(ang) * rad, y + sin(ang) * rad
@@ -981,10 +1007,13 @@ function Orbs:Burst(p)
             o.c1x, o.c1y = OrbMath.PopControl(i, n, o.x0, o.y0, random, spread, lift)
             local ddx, ddy = dx - o.x0, dy - o.y0
             o.dist0 = sqrt(ddx * ddx + ddy * ddy)
-            o.delay = random() * stagger + (rested and RESTED_DELAY or 0) + extra
+            o.delay = random() * stagger + (rested and not mob and RESTED_DELAY or 0) + extra
+            if mob and rested then
+                o.hold = o.hold + RESTED_DELAY -- keep the purple orbs behind the others without delaying their birth
+            end
             o.dur = max(MIN_DUR, d.flightTime * (o.g and flight or 1) * (0.85 + random() * 0.3))
             o.el = 0
-            o.fadeIn = o.g and 0 or fadeIn -- crossfade orbs fade in during the hold (XF_FADE_IN)
+            o.fadeIn = o.g and 0 or fadeIn -- plate-copy orbs fade in during the hold (prof.fadeIn)
             o.rested = rested
             o.size = d.size * scale * (rested and RESTED_SIZE or 1)
             o.rot0 = random() * TWO_PI
@@ -1048,7 +1077,7 @@ function Orbs:Burst(p)
         error(err, 0) -- Kills logs it; everything above is already back in its pool
     end
     if xg then
-        return "crossfade"
+        return mob and "mob" or "crossfade"
     end
     return popped and "pop+stream" or "stream"
 end
@@ -1190,7 +1219,7 @@ local function startStress(arg)
     ns.Print(string.format("stress: %d test bursts over about %g s", n, STRESS_TIME))
 end
 
--- /xporbs test [pct] [rested] [popstream|crossfade|stream]  (the old "frame" / "plate" words are ignored)
+-- /xporbs test [pct] [rested] [popstream|crossfade|stream|mob]  (the old "frame" / "plate" words are ignored)
 -- /xporbs test stress [n]
 function ns.commands.test(arg)
     local first, count = string.match(arg or "", "^%s*(%S+)%s*(%S*)")
@@ -1203,7 +1232,7 @@ function ns.commands.test(arg)
     for tok in string.gmatch(arg or "", "%S+") do
         if tok == "rested" then
             rested = true
-        elseif tok == "popstream" or tok == "crossfade" or tok == "stream" then
+        elseif tok == "popstream" or tok == "crossfade" or tok == "stream" or tok == "mob" then
             force = tok
         elseif tok ~= "frame" and tok ~= "plate" then
             local v = tonumber(tok)
@@ -1214,7 +1243,7 @@ function ns.commands.test(arg)
     end
     local n, scale, nPurple, est, estW, mode, label = fireTest(pct, rested, force)
     local used = mode == "pop+stream" and "popstream" or mode
-    if mode == "crossfade" then
+    if mode == "crossfade" or mode == "mob" then
         label = "estimated"
     end
     ns.Print(string.format("test: %g%% of a level -> %d orbs (%d purple), scale %.2f, est=%s w=%.2f pop=%s stream=%s"
@@ -1290,14 +1319,14 @@ function Orbs:SoundDisabled()
     return soundDead
 end
 
--- /xporbs style popstream|crossfade|stream  (/xporbs pop on|off = alias for popstream|stream)
+-- /xporbs style popstream|crossfade|stream|mob  (/xporbs pop on|off = alias for popstream|stream)
 function ns.commands.style(arg)
     local w = string.match(arg or "", "%S+")
-    if w == "popstream" or w == "crossfade" or w == "stream" then
+    if w == "popstream" or w == "crossfade" or w == "stream" or w == "mob" then
         db().style = w
         refreshPanel()
     elseif w ~= nil then
-        ns.Print("style: use popstream, crossfade or stream")
+        ns.Print("style: use popstream, crossfade, stream or mob")
         return
     end
     ns.Print("kill style: " .. styleOf(db().style))

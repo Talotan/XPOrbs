@@ -25,12 +25,14 @@ local ICON_ATLAS = "transmog-icon-revert"
 local ICON_FALLBACK = "Interface\\Buttons\\UI-RefreshButton"
 local HILITE = "Interface\\Buttons\\ButtonHilight-Square"
 
-local STYLES = { "popstream", "crossfade", "stream" }
-local STYLE_NAME = { popstream = "Popstream (default)", crossfade = "Crossfade", stream = "Stream" }
+local STYLES = { "popstream", "crossfade", "stream", "mob" }
+local STYLE_NAME = { popstream = "Popstream (default)", crossfade = "Crossfade", stream = "Stream",
+    mob = "At the mob (new)" }
 local STYLE_DESC = {
     popstream = "A burst at the corpse, then a stream to the bar.",
     crossfade = "Orbs bloom at the corpse, then fly straight to the bar.",
     stream = "A plain stream from the target frame to the bar.",
+    mob = "One burst of orbs at the mob that streams straight to your XP bar.",
 }
 local SHAPES = { "bar", "round" }
 local SHAPE_NAME = { bar = "Horizontal", round = "Circular" }
@@ -851,7 +853,7 @@ local function build()
         end
     end
 
-    y = header("XP bar", y + 3 * 46 + 14)
+    y = header("XP bar", y + #STYLES * 46 + 14)
     local drow = newRow(y, 36)
     Options.rows.targetFrame = drow
     label(drow, "XP bar frame", LABEL_X)
