@@ -9,7 +9,7 @@ from test_m5 import armed, build, chain, ctl, panel_texts, show
 
 DASH = "–"
 PINK = (0.96, 0.55, 0.73)
-NORMAL = (0.85, 0.38, 1.00)  # 1.1.0: purple, like the XP bar
+NORMAL = (0.72, 0.28, 1.00)  # 1.1.0: purple, like the XP bar
 RESTED = (0.15, 0.38, 1.00)  # 1.1.0: blue, like the rested XP bar
 
 
@@ -165,7 +165,7 @@ def test_class_colour_orbs_sparkle_and_trail(m):
     m.db.classColor = True
     m.slash("test 5")
     assert orb_colours(m) == {PINK}  # orbs and their two trail ghosts
-    spark = tuple(round(x + (1 - x) * 0.25, 3) for x in PINK)
+    spark = tuple(round(x + (1 - x) * 0.15, 3) for x in PINK)
     assert sparkle_colours(m) == {spark}
 
 
@@ -667,7 +667,7 @@ def test_hidden_reset_buttons_keep_their_space(m):
         (
             "color",
             lambda m: m.stub.click(ctl(m, "classColor")),
-            "Reset to default: #D961FF, class colour off",
+            "Reset to default: #B847FF, class colour off",
         ),
         (
             "style",

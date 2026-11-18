@@ -33,7 +33,7 @@ def test_defaults_filled_and_version_set(env):
     db = env.G.XPOrbsDB
     assert db.version == 5
     assert db.density == 100 and db.cap == 40
-    assert db.color[1] == 0.85
+    assert db.color[1] == 0.72
     assert db.debug is False
 
 

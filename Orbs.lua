@@ -32,7 +32,7 @@ local STRESS_DEFAULT, STRESS_MAX = 20, 100
 local GLOW = 2.0 -- the orb art fades to nothing at its rim, so draw it larger than db.size
 local SPARKLE = 1.9
 local SPARKLE_ALPHA = 0.6
-local SPARKLE_WHITE = 0.25 -- sparkle tint = lerp(colour, white, this)
+local SPARKLE_WHITE = 0.15 -- sparkle tint = lerp(colour, white, this)
 local STAGGER = 0.15 -- max start delay
 local STAGGER_POP = 0.08 -- ... when the stream follows a corpse pop (it reads as one continuous effect)
 local RESTED_DELAY = 0.12 -- extra start delay for rested orbs

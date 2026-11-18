@@ -187,7 +187,7 @@ def test_underlay_is_blend_below_orb_and_dark(m2):
     under = [f for f in texs if f.calls["SetBlendMode"][1] == "BLEND"]
     assert len(under) == 1
     # 1.1.0: a dark tint of the orb's own colour (0.25 x the default purple), not a fixed navy
-    assert tuple(under[0].calls["SetVertexColor"].values()) == pytest.approx((0.85 * 0.25, 0.38 * 0.25, 0.25))
+    assert tuple(under[0].calls["SetVertexColor"].values()) == pytest.approx((0.72 * 0.25, 0.28 * 0.25, 0.25))
     assert under[0].calls["SetDrawLayer"][2] == -1
     layers = sorted(f.calls["SetDrawLayer"][2] for f in texs)
     assert layers == [-1, 0, 0, 0, 1]  # underlay, orb + 2 ghosts, sparkle

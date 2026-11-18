@@ -121,13 +121,13 @@ def test_bad_enums_and_booleans_reset(env):
 
 def test_bad_colours_reset_and_good_ones_clamp(env):
     db = load_db(env, {"version": 4, "color": "red", "restedColor": [2, -1, 0.5]})
-    assert rgb(db.color) == (0.85, 0.38, 1.00)  # a string: the default
+    assert rgb(db.color) == (0.72, 0.28, 1.00)  # a string: the default
     assert rgb(db.restedColor) == (1, 0, 0.5)  # clamped to 0..1
 
 
 def test_colour_with_non_numbers_resets(env):
     db = load_db(env, {"version": 4, "color": [0.1, "x", 0.3]})
-    assert rgb(db.color) == (0.85, 0.38, 1.00)
+    assert rgb(db.color) == (0.72, 0.28, 1.00)
 
 
 def test_future_schema_version_is_left_alone(env):

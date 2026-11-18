@@ -9,7 +9,7 @@ import pytest
 from conftest import ROOT, lua_list
 from test_v09 import burst, make, pop_textures, set_level
 
-PURPLE = (0.85, 0.38, 1.00)  # default normal orb
+PURPLE = (0.72, 0.28, 1.00)  # default normal orb
 BLUE = (0.15, 0.38, 1.00)  # default rested orb
 UNDER_PURPLE = tuple(round(0.25 * c, 4) for c in PURPLE)
 UNDER_BLUE = tuple(round(0.25 * c, 4) for c in BLUE)

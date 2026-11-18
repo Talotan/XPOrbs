@@ -8,7 +8,7 @@ ns.defaults = {
     size = 14,
     flightTime = 1.0,
     -- the Forever XP bar is purple (blue when rested); orbs are additive, so these are full-brightness versions
-    color = { 0.85, 0.38, 1.00 },
+    color = { 0.72, 0.28, 1.00 },
     classColor = false, -- true: normal (non-rested) orbs use the player's class colour instead of `color`
     restedTint = true,
     restedColor = { 0.15, 0.38, 1.00 },
