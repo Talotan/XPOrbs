@@ -190,7 +190,7 @@ logic/               pure Lua: XPParse, OrbMath, KillMatcher, MobEstimate (no Wo
 media/               orb, sparkle and flash textures
 tools/               make_textures.py, package.py
 tests/               pytest suite and the WoW API stubs
-docs/                probe notes (probe-results.md) and README images
+docs/images/          README images
 ```
 
 The tests run the addon's Lua 5.1 code under [lupa](https://github.com/scoder/lupa) against a stub of the WoW API.
