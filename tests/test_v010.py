@@ -521,9 +521,11 @@ def test_crossfade_copy_a_anchored_to_plate_bottom_and_curve_starts_at_estimate(
     )  # offset = (ring position - P-hat) at most XF_BLOOM_R
     assert abs(ox) <= 18 + 1e-6 and abs(oy) <= 18 + 1e-6 and b == []
     # in flight (p = 0.2 of the stretched flight) the screen-space copy starts near P-hat, not at the default point
-    g.stub.tick(0.26 - 0.1 + 0.2 * g.db.flightTime * 1.2)  # start delay 0.04 + hold 0.22 are over
+    # the screen-space copy no longer starts at P-hat: it appears near the bar (see test_p2_crossfade.py)
+    g.stub.tick(0.04 + 0.62 - 0.1 + 0.2 * g.db.flightTime * 0.45)
     (bt,) = [t for t in stream_textures(g) if t.calls["SetDrawLayer"][2] == 0]
-    assert abs(bt.points[1][4] - 700) < 150 and abs(bt.points[1][5] - 500) < 150
+    dest = tuple(g.ns.Target.GetDestination(g.ns.Target))
+    assert math.hypot(bt.points[1][4] - dest[0], bt.points[1][5] - dest[1]) < 200
 
 
 # ---------------------------------------------------------------- /xporbs test

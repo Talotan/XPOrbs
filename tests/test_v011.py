@@ -134,6 +134,10 @@ def xf_burst(g, n=1):
     return plate
 
 
+def a_orb_count(g):
+    return len([t for t in pop_textures(g) if t.shown])
+
+
 def a_orb(g):
     return [t for t in pop_textures(g) if t.calls["SetDrawLayer"][2] == 0][0]
 
@@ -173,15 +177,14 @@ def test_crossfade_alpha_is_zero_at_birth_then_fades_in(env):
     assert a_orb(g).alpha == pytest.approx(1)
 
 
-def test_crossfade_flight_uses_xf_flight_and_equal_power(env):
+def test_crossfade_flight_is_the_short_last_stretch(env):
     g = make(env)
     xf_burst(g)
-    dur = g.db.flightTime * 1.2  # XF_FLIGHT * (0.85 + 0.5 * 0.3)
-    g.stub.tick(DELAY + HOLD + 0.21 * dur)  # midpoint of the crossfade window
-    assert a_orb(g).alpha == pytest.approx(math.sqrt(0.5))
-    bo = [t for t in stream_textures(g) if t.calls["SetDrawLayer"][2] == 0][0]
-    assert bo.alpha == pytest.approx(math.sqrt(0.5))
-    g.stub.tick(0.79 * dur - 0.01)  # still flying just before the end
+    dur = g.db.flightTime * 0.45  # copy B flies 0.45 x flightTime (jitter factor 1.0 at random 0.5)
+    start = DELAY + 0.22 + 0.075 + 0.20 + 0.12  # hold: bloom + leave start + leave + gap (random 0.5)
+    g.stub.tick(start + 0.5 * dur)
+    assert a_orb_count(g) == 0 and len(stream_textures(g)) == 3  # copy A is long gone; only B flies
+    g.stub.tick(0.5 * dur - 0.01)  # still flying just before the end
     assert g.orbs.Info(g.orbs)[1] > 0
     g.stub.tick(0.02)
     assert g.orbs.Info(g.orbs)[1] == 0
@@ -197,29 +200,11 @@ def arrival_time(g, step=0.005, limit=4.0):
     pytest.fail("orbs never arrived")
 
 
-def test_crossfade_first_arrival_matches_popstream(env):
-    g1 = make(env)
-    plate = restricted_plate(g1, cx=700, cy=400)
-    assert (
-        burst(
-            g1,
-            plate=plate,
-            n=3,
-            x=700,
-            y=500,
-            ex=700,
-            ey=500,
-            kind="kill",
-            style="popstream",
-        )
-        == "pop+stream"
-    )
-    pop = arrival_time(g1)
+def test_crossfade_arrival_time_follows_its_own_timeline(env):
     g2 = make(env)
     xf_burst(g2, n=3)
-    xf = arrival_time(g2)
-    assert abs(xf - pop) < 0.15, (xf, pop)
-    assert xf == pytest.approx(DELAY + HOLD + g2.db.flightTime * 1.2, abs=0.01)
+    xf = arrival_time(g2)  # delay + bloom + leave start + leave + gap + flight (the last orb: stagger up to 0.08)
+    assert DELAY + 0.22 + 0.075 + 0.20 + 0.12 + g2.db.flightTime * 0.45 - 0.01 <= xf <= 1.6
 
 
 def test_pop_ease_default_unchanged_and_weighted(env):

@@ -228,15 +228,16 @@ def recs(g):
     return live_recs(g)
 
 
-def seeded(g):
+def seeded(env):
+    """Install the deterministic math.random BEFORE make(): the addon captures math.random when it loads."""
     from test_p2_unknown import LCG
 
-    g.env.lua.execute(LCG)
+    env.lua.execute(LCG)
 
 
 def test_launch_order_is_nearest_to_the_bar_first_within_the_new_hold_range(env):
+    seeded(env)
     g = make(env, fixed_random=False)
-    seeded(g)
     wide_burst(g, n=12)
     os_ = recs(g)
     assert len(os_) == 12
@@ -256,8 +257,8 @@ def test_launch_order_is_nearest_to_the_bar_first_within_the_new_hold_range(env)
 
 
 def test_flight_jitter_for_wide_orbs_is_narrow_and_others_keep_theirs(env):
+    seeded(env)
     g = make(env, fixed_random=False)
-    seeded(g)
     wide_burst(g, n=30)
     base = g.db.flightTime * 1.1
     durs = [o.dur for o in recs(g)]
@@ -266,11 +267,11 @@ def test_flight_jitter_for_wide_orbs_is_narrow_and_others_keep_theirs(env):
 
 
 def test_c1_leaves_along_the_ring_angle(env):
+    seeded(env)
     g = make(env, fixed_random=False)
-    seeded(g)
     wide_burst(g, n=10, x=300, y=300)
     for o in recs(g):
-        ring = (o.x0 - o.dvx * (o.hold - 0.30) - o.px, o.y0 - o.dvy * (o.hold - 0.30) - o.py)
+        ring = (o.x0 - o.dvx * (o.hold - 0.18) - o.px, o.y0 - o.dvy * (o.hold - 0.18) - o.py)
         cx, cy = o.c1x - o.x0, o.c1y - o.y0
         # outwards: c1's horizontal leg points the same way as the ring point from the centre (lift only adds up)
         assert cx * ring[0] > 0 or abs(ring[0]) < 1e-6
@@ -291,10 +292,12 @@ def test_no_position_jump_between_the_end_of_the_hold_and_the_flight(env):
     assert math.hypot(after[0] - before[0], after[1] - before[1]) < 1.0
 
 
-def test_crossfade_orbs_have_no_drift_and_old_jitter(env):
+def test_crossfade_orbs_have_no_drift_and_narrow_jitter(env):
+    seeded(env)
     g = make(env, fixed_random=False)
-    seeded(g)
     plate = restricted_plate(g, cx=700, cy=400)
     assert burst(g, plate=plate, n=10, x=300, y=300, ex=700, ey=500, kind="kill", style="crossfade") == "crossfade"
     for o in recs(g):
-        assert (o.dvx, o.dvy) == (0, 0) and o.hold == pytest.approx(0.22)
+        # bloom 0.22 + leave start 0..0.15 + leave 0.20 + gap 0.12; B flies flightTime * 0.45 * (0.94..1.06)
+        assert (o.dvx, o.dvy) == (0, 0) and 0.54 <= o.hold <= 0.69 and o.hold == pytest.approx(0.54 + o.ls)
+        assert 0.94 * 0.45 * g.db.flightTime - 1e-9 <= o.dur <= 1.06 * 0.45 * g.db.flightTime + 1e-9

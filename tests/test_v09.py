@@ -564,89 +564,7 @@ def test_target_plate_helper(env):
 # ---------------------------------------------------------------- crossfade style
 
 
-def smoothstep(p):
-    t = min(1, max(0, (p - 0.12) / 0.18))  # XF_START, XF_END
-    return t * t * (3 - 2 * t)
-
-
-XF_HOLD, XF_BLOOM_R, XF_FLIGHT, XF_EASE_OUT, STAGGER_POP = 0.22, 18, 1.2, 0.25, 0.08
-
-
-def xf_dur(g):
-    """Flight duration of the single fixed-random (0.5) crossfade orb: flightTime * XF_FLIGHT * (0.85 + 0.5 * 0.3)."""
-    return g.db.flightTime * XF_FLIGHT
-
-
-def xf_start(g):
-    """Seconds after the burst at which the flight (p = 0) of that orb starts: stagger delay + hold."""
-    return 0.5 * STAGGER_POP + XF_HOLD
-
-
-def xf_expected(g, t_now, dest):
-    """Expected (ex, ey, p) for the single fixed-random orb of a crossfade burst after t_now seconds (in flight)."""
-    om = g.ns.OrbMath
-    px, py = 1920 * 0.5, 1080 * 0.58
-    ang = om.RingAngle(1, 1, lambda: 0.5)  # the bloom ring position is the flight's start
-    x0, y0 = px + math.cos(ang) * XF_BLOOM_R, py + math.sin(ang) * XF_BLOOM_R
-    c1x, c1y, _ = om.PopControl(1, 1, x0, y0, lambda: 0.5, 0.45, 0.10)
-    dist0 = math.hypot(dest[0] - x0, dest[1] - y0)
-    c2x, c2y = om.HomeControl(c1x, c1y, dest[0], dest[1], dist0)
-    p = (t_now - xf_start(g)) / xf_dur(g)
-    ex, ey = om.Cubic(om.PopEase(p, XF_EASE_OUT), x0, y0, c1x, c1y, c2x, c2y, dest[0], dest[1])
-    return ex, ey, p, px, py
-
-
-def test_crossfade_burst_wires_copy_a_on_plate_frame(env):
-    g = make(env)
-    plate = restricted_plate(g, cx=700, cy=400)
-    assert burst(g, plate=plate, n=1, x=300, y=300, kind="kill", style="crossfade") == "crossfade"
-    (G,) = pop_frames(g)
-    assert len(G.points) == 1 and OWN(g, G.points[1][2], plate) and G.points[1][3] == "BOTTOM"
-    dest = tuple(g.ns.Target.GetDestination(g.ns.Target))[:2]
-    t_now = xf_start(g) + 0.2 * xf_dur(g)  # flight p = 0.2, inside the crossfade window
-    g.stub.tick(t_now)
-    ex, ey, p, px, py = xf_expected(g, t_now, dest)
-    w = smoothstep(p)
-    assert p == pytest.approx(0.2) and 0 < w < 1
-    a_tex = pop_textures(g)
-    assert len(a_tex) == 3
-    for t in a_tex:
-        assert len(t.points) == 1 and OWN(g, t.points[1][2], G)
-        assert (t.points[1][4], t.points[1][5]) == (pytest.approx(ex - px), pytest.approx(ey - py))
-    b_tex = stream_textures(g)
-    assert len(b_tex) == 3  # trail off: underlay, orb, sparkle
-    for t in b_tex:
-        assert (t.points[1][4], t.points[1][5]) == (pytest.approx(ex), pytest.approx(ey))
-    # the orb textures (draw layer 0 = second of each triple): equal-power alphas
-    a_orb = [t for t in a_tex if t.calls["SetDrawLayer"][2] == 0][0]
-    b_orb = [t for t in b_tex if t.calls["SetDrawLayer"][2] == 0][0]
-    assert a_orb.alpha == pytest.approx(math.cos(w * math.pi / 2))
-    assert b_orb.alpha == pytest.approx(math.sin(w * math.pi / 2))
-    assert a_orb.alpha ** 2 + b_orb.alpha ** 2 == pytest.approx(1)
-    assert g.stub.restrictedHits == 0
-
-
-def test_crossfade_weights_cross_at_half(env):
-    g = make(env)
-    plate = restricted_plate(g)
-    burst(g, plate=plate, n=1, kind="kill", style="crossfade")
-    # flight p = 0.21 is the midpoint of [0.12, 0.30]: smoothstep = 0.5, equal power = 0.707 each
-    g.stub.tick(xf_start(g) + 0.21 * xf_dur(g))
-    a_orb = [t for t in pop_textures(g) if t.calls["SetDrawLayer"][2] == 0][0]
-    b_orb = [t for t in stream_textures(g) if t.calls["SetDrawLayer"][2] == 0][0]
-    assert a_orb.alpha == pytest.approx(math.sqrt(0.5)) and b_orb.alpha == pytest.approx(math.sqrt(0.5))
-
-
-def test_crossfade_copy_a_hidden_after_window_and_b_hidden_before(env):
-    g = make(env)
-    plate = restricted_plate(g)
-    burst(g, plate=plate, n=1, kind="kill", style="crossfade")
-    g.stub.tick(xf_start(g) + 0.08 * xf_dur(g))  # flight p = 0.08 < XF_START: only copy A is visible
-    assert len([t for t in pop_textures(g) if t.shown]) == 3
-    assert len([t for t in stream_textures(g)]) == 0
-    g.stub.tick(0.28 * xf_dur(g))  # p = 0.36 > XF_END: only copy B is visible
-    assert len([t for t in pop_textures(g) if t.shown]) == 0
-    assert len(stream_textures(g)) == 3
+XF_HOLD, STAGGER_POP = 0.22, 0.08  # the crossfade timeline now lives in test_p2_crossfade.py
 
 
 def test_crossfade_cleanup_and_idle_and_no_measuring(env):
@@ -654,7 +572,7 @@ def test_crossfade_cleanup_and_idle_and_no_measuring(env):
     plate = restricted_plate(g)
     burst(g, plate=plate, n=15, kind="kill", style="crossfade")
     (G,) = pop_frames(g)
-    for _ in range(100):  # 1.1.0: the default flight is 1.0 s (crossfade flights run 1.2x)
+    for _ in range(100):  # the whole crossfade (bloom, leave, gap, 0.45 x flight) is over well within 3 s
         g.stub.tick(0.03)
     assert g.stub.restrictedHits == 0
     assert G.shown is False and len(G.points) == 0
@@ -671,7 +589,7 @@ def test_crossfade_plate_reused_fades_copy_a_only(env):
     g = make(env)
     p1 = restricted_plate(g, "nameplate1")
     burst(g, plate=p1, n=1, kind="kill", style="crossfade")
-    g.stub.tick(xf_start(g) + 0.1 * xf_dur(g))  # flight p = 0.1: copy A fully visible
+    g.stub.tick(0.5 * STAGGER_POP + 0.1)  # mid-bloom: copy A fully visible
     a_orb = [t for t in pop_textures(g) if t.calls["SetDrawLayer"][2] == 0][0]
     assert a_orb.alpha > 0.9
     g.orbs.PlateReused(g.orbs, p1)

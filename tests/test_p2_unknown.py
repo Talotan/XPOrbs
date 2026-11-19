@@ -216,23 +216,13 @@ def test_off_keeps_the_small_start_disc_and_the_profile_windows(env):
     assert math.hypot(o.x0 - ORIGIN[0], o.y0 - ORIGIN[1]) <= 6  # START_RADIUS
     assert (o.sx, o.sy, o.s0, o.s1) == (0, 0, 0, 0)
     settle(g)
-    for style, window in (("crossfade", (0.12, 0.30)), ("wide", (0.04, 0.20))):
+    for style, window in (("crossfade", (0, 0)), ("wide", (0.04, 0.20))):  # crossfade has no A -> B window now
         fire(g, style)
         (o,) = live_recs(g)
         assert (o.sx, o.sy, o.s0, o.s1) == (0, 0, window[0], window[1])
         if style == "crossfade":
-            assert math.hypot(o.x0 - ORIGIN[0], o.y0 - ORIGIN[1]) == pytest.approx(
-                18
-            )  # XF_BLOOM_R
+            assert math.hypot(o.ax - ORIGIN[0], o.ay - ORIGIN[1]) == pytest.approx(18)  # XF_BLOOM_R
         settle(g)
-
-
-def test_off_crossfade_mid_window_is_equal_power(env):
-    g = make(env)
-    fire(g, "crossfade")
-    Clock(g, "crossfade").at_p(0.21)
-    assert a_orbs(g)[0].alpha == pytest.approx(math.sqrt(0.5), abs=0.02)
-    assert b_orbs(g)[0].alpha == pytest.approx(math.sqrt(0.5), abs=0.02)
 
 
 @pytest.mark.parametrize("style", PLATE_STYLES)
@@ -266,7 +256,7 @@ def test_kind_other_ignores_the_setting(env, setting):
 # ---------------------------------------------------------------- wide
 
 
-@pytest.mark.parametrize("style", PLATE_STYLES)
+@pytest.mark.parametrize("style", ["popstream", "wide"])  # crossfade is exempt: see test_p2_crossfade.py
 @pytest.mark.parametrize("setting", ["wide"])
 def test_stream_starts_spread_over_the_ellipse(env, style, setting):
     env.lua.execute(LCG)
@@ -287,7 +277,7 @@ def test_stream_starts_spread_over_the_ellipse(env, style, setting):
     settle(g)
 
 
-@pytest.mark.parametrize("style", ["crossfade", "wide"])
+@pytest.mark.parametrize("style", ["wide"])
 def test_wide_plate_copy_starts_on_its_normal_ring_and_travels_parallel(env, style):
     g = make(env)
     fire(g, style, "wide")
@@ -314,12 +304,12 @@ def test_wide_plate_copy_starts_on_its_normal_ring_and_travels_parallel(env, sty
     assert pos(b)[1] - (pos(a)[1] + ORIGIN[1]) == pytest.approx(o.sy, abs=0.5)
 
 
-@pytest.mark.parametrize("style", ["crossfade", "wide"])
+@pytest.mark.parametrize("style", ["wide"])
 def test_wide_keeps_the_crossfade_window(env, style):
     g = make(env)
     fire(g, style, "wide")
     (o,) = live_recs(g)
-    assert (o.s0, o.s1) == ({"crossfade": (0.12, 0.30), "wide": (0.04, 0.20)}[style])
+    assert (o.s0, o.s1) == ({"wide": (0.04, 0.20)}[style])
 
 
 @pytest.mark.parametrize("zoom,factor", [(15, 1.0), (5, 2.0), (1, 2.0), (35, 0.5), (50, 0.5), (10, 4 / 3), (25, 2 / 3)])
@@ -388,7 +378,7 @@ def test_pooled_records_do_not_leak_a_variant_into_the_next_burst(env):
     settle(g)
 
 
-@pytest.mark.parametrize("style", ["popstream", "wide"])
+@pytest.mark.parametrize("style", ["popstream", "wide", "crossfade"])
 def test_driver_allocates_nothing_per_frame_in_a_variant_burst(env, style):
     env.lua.execute(LCG)
     g = make(env, fixed_random=False, trail=True)

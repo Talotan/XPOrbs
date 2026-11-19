@@ -137,8 +137,8 @@ The stream then flies in screen space from that point to the destination.
 
 - `popstream` (default): up to 12 orbs pop out around the plate for about half a second, then the full stream flies
   from the estimated position to the bar. Without a plate, only the stream is drawn.
-- `crossfade`: the orbs first bloom on the plate, then fly from the estimated position. The plate-anchored copy fades
-  into a screen-space copy during the first part of the flight.
+- `crossfade`: the orbs bloom on the plate, then leave it and fade out. After a short gap they reappear a little way
+  below the bar and fly the last stretch; most of the trip is implied rather than drawn.
 - `stream`: only the screen-space stream, with no plate frame.
 
 Non-kill XP always uses a plain stream.
