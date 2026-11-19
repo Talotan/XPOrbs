@@ -511,7 +511,7 @@ def test_crossfade_copy_a_anchored_to_plate_bottom_and_curve_starts_at_estimate(
     assert (pt[4], pt[5]) == (0, 0)
     g.stub.tick(
         0.1
-    )  # v0.11: inside the bloom hold (delay 0.04 + hold 0.22): copy A only, a small offset from P-hat
+    )  # v0.11: inside the bloom hold (delay 0.02 + hold 0.24): copy A only, a small offset from P-hat
     b = [t for t in stream_textures(g) if t.calls["SetDrawLayer"][2] == 0]
     a = [t for t in pop_textures(g) if t.shown and t.calls["SetDrawLayer"][2] == 0]
     assert a  # copy A is visible; B is hidden for the whole hold
@@ -519,13 +519,13 @@ def test_crossfade_copy_a_anchored_to_plate_bottom_and_curve_starts_at_estimate(
         a[0].points[1][4],
         a[0].points[1][5],
     )  # offset = (ring position - P-hat) at most XF_BLOOM_R
-    assert abs(ox) <= 18 + 1e-6 and abs(oy) <= 18 + 1e-6 and b == []
+    assert abs(ox) <= 36 + 1e-6 and abs(oy) <= 44 + 1e-6 and b == []
     # in flight (p = 0.2 of the stretched flight) the screen-space copy starts near P-hat, not at the default point
     # the screen-space copy no longer starts at P-hat: it appears near the bar (see test_p2_crossfade.py)
-    g.stub.tick(0.04 + 0.62 - 0.1 + 0.2 * g.db.flightTime * 0.40)
+    g.stub.tick(0.695 - 0.1 + 0.2 * g.db.flightTime * 0.40)
     (bt,) = [t for t in stream_textures(g) if t.calls["SetDrawLayer"][2] == 0]
     dest = tuple(g.ns.Target.GetDestination(g.ns.Target))
-    assert math.hypot(bt.points[1][4] - dest[0], bt.points[1][5] - dest[1]) < 200
+    assert math.hypot(bt.points[1][4] - dest[0], bt.points[1][5] - dest[1]) < 340
 
 
 # ---------------------------------------------------------------- /xporbs test

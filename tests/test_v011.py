@@ -111,7 +111,8 @@ def test_crossfade_kill_logs_origin_estimate_and_orbs_fly_from_it(env):
 
 # ---------------------------------------------------------------- crossfade hold
 
-HOLD, DELAY = 0.22, 0.04  # XF_HOLD, 0.5 * STAGGER_POP (fixed random 0.5)
+HOLD, DELAY = 0.24, 0.02  # XF_HOLD, 0.5 * the 0.04 s birth window (fixed random 0.5)
+RING = 32.5126  # ring point at random 0.5: radius 30 plus 4 px of the 8 px upward drift
 GLOW = 2.0
 
 
@@ -151,8 +152,8 @@ def test_crossfade_hold_shows_only_copy_a_blooming_at_the_plate(env):
     e = 1 - (1 - h) ** 3
     orb = a_orb(g)
     assert orb.alpha == pytest.approx(0.5)  # XF_FADE_IN 0.06
-    assert math.hypot(orb.points[1][4], orb.points[1][5]) == pytest.approx(18 * e)
-    assert orb.width == pytest.approx(g.db.size * GLOW * (1 + 0.5 * (1 - e)))
+    assert math.hypot(orb.points[1][4], orb.points[1][5]) == pytest.approx(RING * e, abs=0.01)
+    assert orb.width == pytest.approx(g.db.size * GLOW * (1 + 0.6 * (1 - e)))
     (G,) = pop_frames(g)
     assert G.shown and all(len(t.points) == 1 for t in pop_textures(g))
 
@@ -164,7 +165,7 @@ def test_crossfade_hold_ends_at_bloom_radius_and_normal_size(env):
     assert stream_textures(g) == []
     orb = a_orb(g)
     assert orb.alpha == pytest.approx(1)
-    assert math.hypot(orb.points[1][4], orb.points[1][5]) == pytest.approx(18, abs=0.01)
+    assert math.hypot(orb.points[1][4], orb.points[1][5]) == pytest.approx(RING, abs=0.01)
     assert orb.width == pytest.approx(g.db.size * GLOW, rel=1e-3)
 
 
@@ -181,7 +182,7 @@ def test_crossfade_flight_is_the_short_last_stretch(env):
     g = make(env)
     xf_burst(g)
     dur = g.db.flightTime * 0.40  # copy B flies 0.40 x flightTime (jitter factor 1.0 at random 0.5)
-    start = DELAY + 0.22 + 0.075 + 0.18 + 0.10  # hold: bloom + leave start + leave + gap (random 0.5)
+    start = DELAY + 0.24 + 0.075 + 0.26 + 0.10  # hold: bloom + leave start + leave + gap (random 0.5)
     g.stub.tick(start + 0.5 * dur)
     assert a_orb_count(g) == 0 and len(stream_textures(g)) == 3  # copy A is long gone; only B flies
     g.stub.tick(0.5 * dur - 0.01)  # still flying just before the end
@@ -204,7 +205,7 @@ def test_crossfade_arrival_time_follows_its_own_timeline(env):
     g2 = make(env)
     xf_burst(g2, n=3)
     xf = arrival_time(g2)  # delay + bloom + leave start + leave + gap + flight (the last orb: stagger up to 0.08)
-    assert DELAY + 0.22 + 0.075 + 0.18 + 0.10 + g2.db.flightTime * 0.40 - 0.01 <= xf <= 1.6
+    assert DELAY + 0.24 + 0.075 + 0.26 + 0.10 + g2.db.flightTime * 0.40 - 0.01 <= xf <= 1.6
 
 
 def test_pop_ease_default_unchanged_and_weighted(env):

@@ -1,6 +1,6 @@
 """The crossfade style: orbs bloom at the plate, leave it along the exit direction u while fading out, and reappear
 as copy B only a short distance (D px) from the bar, after a gap with nothing drawn. Timeline with math.random fixed at
-0.5 (delay 0.04, leave start 0.075 after the 0.22 s bloom): A leaves over [0.335, 0.515] s, B flies from 0.615 s."""
+0.5 (delay 0.02, leave start 0.075 after the 0.24 s pop): A leaves over [0.335, 0.595] s, B flies from 0.695 s."""
 
 import math
 
@@ -9,11 +9,11 @@ from test_p2_unknown import LCG, ORIGIN, fire, live_recs, pos, settle
 from test_p2_wide import a_orbs, b_orbs
 from test_v09 import make, pop_frames, pop_textures, restricted_plate, stream_textures
 
-DELAY, BLOOM, LS, LEAVE, GAP = 0.04, 0.22, 0.075, 0.18, 0.10
+DELAY, BLOOM, LS, LEAVE, GAP = 0.02, 0.24, 0.075, 0.26, 0.10
 LEAVE_START = DELAY + BLOOM + LS
 B_START = LEAVE_START + LEAVE + GAP
 H = 1080
-D = min(160, max(40, 0.15 * H))
+D = min(320, max(80, 0.30 * H))  # 320 on a long trip; 0.60 * L caps it for a mob near the bar
 
 
 def dest_of(g):
@@ -45,10 +45,12 @@ def test_bloom_then_leave_along_u_fading_out(env):
     g.stub.tick(DELAY + BLOOM - 0.001)  # bloom just over: A rests on the ring, fully visible
     (a,) = a_orbs(g)
     ring = a_pos(g)
-    assert math.hypot(*ring) == pytest.approx(18, abs=0.1) and a.alpha == pytest.approx(1)
+    assert a.alpha == pytest.approx(1)
+    assert math.hypot(o.ax - ORIGIN[0], o.ay - ORIGIN[1]) == pytest.approx(math.hypot(*ring), abs=1e-3)
+    assert 24 - 8 <= math.hypot(*ring) <= 36 + 8  # radius 24..36 plus up to 8 px of upward drift
     g.stub.tick(0.001 + LS + 0.5 * LEAVE)  # half way through the leave: q = 0.5
     (a,) = a_orbs(g)
-    k = 90 * 0.25  # q^2 ease-in
+    k = 180 * 0.25  # q^2 ease-in
     assert a_pos(g) == pytest.approx((ring[0] + ux * k, ring[1] + uy * k), abs=0.6)
     assert a.alpha == pytest.approx(0.75, abs=0.02)  # 1 - q^2
     assert a.width == pytest.approx(g.db.size * 2.0 * 0.9, rel=0.02)  # size 1 -> 0.8
@@ -117,7 +119,7 @@ def test_unknown_origin_does_not_apply_to_crossfade(env, setting):
     fire(g, "crossfade", setting)
     (o,) = live_recs(g)
     assert (o.sx, o.sy) == (0, 0) and g.orbs.lastUnknown is None
-    assert math.hypot(o.ax - ORIGIN[0], o.ay - ORIGIN[1]) == pytest.approx(18)  # A is plate-exact
+    assert 16 <= math.hypot(o.ax - ORIGIN[0], o.ay - ORIGIN[1]) <= 36 + 8  # A is plate-exact (ring + drift)
     settle(g)
 
 
@@ -170,12 +172,16 @@ def test_leaving_alpha_follows_one_minus_q_squared(env):
     settle(g)
 
 
-def test_d_respects_045_of_the_distance_for_a_mob_near_the_bar(env):
+def test_d_respects_060_of_the_distance_for_a_mob_near_the_bar(env):
     g = make(env)
     dx, dy = dest_of(g)
-    fire(g, "crossfade", ex=dx, ey=dy - 100, x=dx, y=dy - 100)  # L = 100: D = min(162, 45) = 45
+    fire(g, "crossfade", ex=dx, ey=dy - 200, x=dx, y=dy - 200)  # L = 200: D = min(324, 120) = 120
     (o,) = live_recs(g)
-    assert abs(math.hypot(o.x0 - dx, o.y0 - dy) - 45) <= 14 + 1e-6
+    assert abs(math.hypot(o.x0 - dx, o.y0 - dy) - 120) <= 14 + 1e-6
+    settle(g)
+    fire(g, "crossfade", ex=dx, ey=dy - 100, x=dx, y=dy - 100)  # L = 100: 0.6 * L = 60, floored at 80
+    (o,) = live_recs(g)
+    assert abs(math.hypot(o.x0 - dx, o.y0 - dy) - 80) <= 14 + 1e-6
     settle(g)
 
 
@@ -201,3 +207,30 @@ def test_other_styles_keep_their_own_profile(env, style):
     (o,) = live_recs(g)
     assert o.prof is None or not o.prof.leave
     settle(g)
+
+
+def test_pop_ring_radius_birth_window_and_leave_distance(env):
+    env.lua.execute(LCG)
+    g = make(env, fixed_random=False)
+    fire(g, "crossfade", n=40)
+    ux, uy = unit_to_bar(g)
+    recs = live_recs(g)
+    rad = [math.hypot(o.ax - ORIGIN[0], o.ay - ORIGIN[1]) for o in recs]
+    assert min(rad) >= 24 - 8 - 1e-6 and max(rad) <= 36 + 8 + 1e-6 and max(rad) - min(rad) > 8  # 24..36, drift <= 8
+    assert all(0 <= o.delay <= 0.04 + 1e-9 for o in recs)  # born within 0.04 s
+    assert all(o.hold == pytest.approx(BLOOM + o.ls + LEAVE + GAP) for o in recs)
+    # leave distance 180 px: at q = 0.5 an orb is 180 * 0.25 px along u from its ring point
+    o = max(recs, key=lambda r: r.ls)
+    t = o.delay + BLOOM + o.ls + 0.5 * LEAVE
+    g.stub.tick(t)
+    shown = [t_ for t_ in a_orbs(g)]
+    assert shown  # still leaving at q = 0.5
+    px = [pos_ for pos_ in (a_pos_of(x) for x in shown)]
+    assert any(
+        abs((p[0] - (o.ax - ORIGIN[0])) * ux + (p[1] - (o.ay - ORIGIN[1])) * uy - 180 * 0.25) < 1.0 for p in px
+    )  # 180 * q^2 at q = 0.5
+    settle(g)
+
+
+def a_pos_of(tex):
+    return tex.points[1][4], tex.points[1][5]

@@ -221,7 +221,7 @@ def test_off_keeps_the_small_start_disc_and_the_profile_windows(env):
         (o,) = live_recs(g)
         assert (o.sx, o.sy, o.s0, o.s1) == (0, 0, window[0], window[1])
         if style == "crossfade":
-            assert math.hypot(o.ax - ORIGIN[0], o.ay - ORIGIN[1]) == pytest.approx(18)  # XF_BLOOM_R
+            assert math.hypot(o.ax - ORIGIN[0], o.ay - ORIGIN[1]) == pytest.approx(32.5126, abs=1e-3)
         settle(g)
 
 

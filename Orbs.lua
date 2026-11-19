@@ -74,12 +74,12 @@ local STREAM_DELAY = 0.30 -- extra start delay of the stream when a pop happened
 -- Crossfade style: the orbs leave the corpse and reappear just above the bar; most of the trip is implied, not drawn.
 -- Copy A is drawn relative to the plate's BOTTOM (exact, whatever P-hat is): it blooms to a ring (XF_HOLD), then
 -- accelerates away along u (the unit vector from P-hat towards the bar) for leaveDist px, fading out. Copy B (screen
--- space) appears only after A is gone and a short gap with nothing drawn: it starts about D = clamp(min(0.15 * screen
--- height, 0.45 * L), 40, 160) (L = P-hat to bar) px short of the bar (along -u, within a bSpread px disc) and
+-- space) appears only after A is gone and a short gap with nothing drawn: it starts about D = clamp(min(0.30 * screen
+-- height, 0.60 * L), 80, 320) (L = P-hat to bar) px short of the bar (along -u, within a bSpread px disc) and
 -- flies the last stretch.
-local XF_HOLD = 0.22 -- s: bloom at the plate (copy A only)
-local XF_BLOOM_R = 18 -- px: ring radius reached (ease-out cubic) by the end of the bloom
-local XF_BLOOM_SIZE = 1.5 -- start-size multiplier during the bloom, easing to 1.0 by its end
+local XF_HOLD = 0.24 -- s: the small pop at the plate (copy A only)
+local XF_BLOOM_R = 24 -- px: smallest ring radius reached (ease-out cubic) by the end of the pop (rmax 36)
+local XF_BLOOM_SIZE = 1.6 -- start-size multiplier during the bloom, easing to 1.0 by its end
 local XF_FADE_IN = 0.06 -- s: alpha fade-in at birth
 local XF_EASE_OUT = 0.70 -- ease-out weight of copy B's launch (PopEase default 0.5): fast entry, slowing into the bar
 -- Per-orb profiles of the plate-copy machinery (o.prof), static tables built once so nothing allocates per frame.
@@ -95,9 +95,9 @@ local XF_EASE_OUT = 0.70 -- ease-out weight of copy B's launch (PopEase default 
 -- +-cJit * dist (no lift); gh1 / gh2 are the px its trail ghosts sit behind it (along -u) during the fade-in.
 -- ux, uy, bx, by are per-burst scratch (see XF_PROFILE.plan).
 local XF_PROFILE = { s0 = 0, s1 = 0, bloom = XF_HOLD, bsize = XF_BLOOM_SIZE, fadeIn = XF_FADE_IN,
-    flight = 0.40, ease = XF_EASE_OUT, hold = XF_HOLD, rmin = XF_BLOOM_R, rmax = XF_BLOOM_R, drift = 0,
-    leave = true, leaveDist = 90, leaveTime = 0.18, leaveStagger = 0.15, gap = 0.10, bFade = 0.08, bSpread = 14,
-    bDmin = 40, bDmax = 160, bFrac = 0.15, bL = 0.45, jlo = 0.94, jspan = 0.12, cAhead = 0.4, cJit = 0.1,
+    flight = 0.40, ease = XF_EASE_OUT, hold = XF_HOLD, rmin = XF_BLOOM_R, rmax = 36, drift = 8, born = 0.04,
+    leave = true, leaveDist = 180, leaveTime = 0.26, leaveStagger = 0.15, gap = 0.10, bFade = 0.08, bSpread = 14,
+    bDmin = 80, bDmax = 320, bFrac = 0.30, bL = 0.60, jlo = 0.94, jspan = 0.12, cAhead = 0.4, cJit = 0.1,
     gh1 = 12, gh2 = 24,
     ux = 0, uy = 1, bx = 0, by = 0 }
 -- Wide burst style (db.style "wide", once "mob"): one burst of orbs at the mob (like the pop, all born within
@@ -1094,6 +1094,8 @@ function Orbs:Burst(p)
     local stagger = (popped or xg) and STAGGER_POP or STAGGER
     if mob then
         stagger = MOB_BORN -- born together; the launch is what gets staggered (o.hold)
+    elseif xg then
+        stagger = XF_PROFILE.born -- crossfade: the pop is one quick burst
     end
     local spread, lift = nil, nil -- PopControl defaults
     if popped or xg then
@@ -1146,7 +1148,8 @@ function Orbs:Burst(p)
                     o.x0, o.y0 = prof.rx[i] + o.dvx * hd, prof.ry[i] + o.dvy * hd
                 elseif prof.leave then
                     -- crossfade: A rests on the ring; B starts near the bar, and A has left before B's flight begins
-                    o.ax, o.ay = x + cos(ang) * prof.rmin, y + sin(ang) * prof.rmin
+                    local rad = prof.rmin + random() * (prof.rmax - prof.rmin)
+                    o.ax, o.ay = x + cos(ang) * rad, y + sin(ang) * rad + random() * prof.drift
                     o.ux, o.uy = prof.ux, prof.uy
                     o.ls = random() * prof.leaveStagger
                     o.hold = prof.bloom + o.ls + prof.leaveTime + prof.gap

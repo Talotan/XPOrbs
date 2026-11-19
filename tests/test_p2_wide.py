@@ -147,9 +147,9 @@ def test_crossfade_keeps_its_own_timings(env):
     g = make(env)
     plate = restricted_plate(g, cx=700, cy=400)
     assert burst(g, plate=plate, n=1, x=300, y=300, ex=700, ey=500, kind="kill", style="crossfade") == "crossfade"
-    g.stub.tick(0.04 + 0.22 - 0.001)  # delay 0.5 * STAGGER_POP, XF_HOLD
+    g.stub.tick(0.02 + 0.24 - 0.001)  # delay 0.5 * 0.04 birth window, XF_HOLD
     (a,) = a_orbs(g)
-    assert math.hypot(a.points[1][4], a.points[1][5]) == pytest.approx(18, abs=0.01)  # XF_BLOOM_R
+    assert math.hypot(a.points[1][4], a.points[1][5]) == pytest.approx(32.5126, abs=0.01)  # ring 30 + 4 px drift
 
 
 @pytest.mark.parametrize("kw", [{"plate": None}, {"kind": "other"}])
@@ -298,6 +298,6 @@ def test_crossfade_orbs_have_no_drift_and_narrow_jitter(env):
     plate = restricted_plate(g, cx=700, cy=400)
     assert burst(g, plate=plate, n=10, x=300, y=300, ex=700, ey=500, kind="kill", style="crossfade") == "crossfade"
     for o in recs(g):
-        # bloom 0.22 + leave start 0..0.15 + leave 0.18 + gap 0.10; B flies flightTime * 0.40 * (0.94..1.06)
-        assert (o.dvx, o.dvy) == (0, 0) and 0.50 <= o.hold <= 0.65 and o.hold == pytest.approx(0.50 + o.ls)
+        # bloom 0.24 + leave start 0..0.15 + leave 0.26 + gap 0.10; B flies flightTime * 0.40 * (0.94..1.06)
+        assert (o.dvx, o.dvy) == (0, 0) and 0.60 <= o.hold <= 0.75 and o.hold == pytest.approx(0.60 + o.ls)
         assert 0.94 * 0.40 * g.db.flightTime - 1e-9 <= o.dur <= 1.06 * 0.40 * g.db.flightTime + 1e-9
