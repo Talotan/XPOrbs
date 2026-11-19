@@ -198,8 +198,8 @@ def test_test_command_reports_the_variant_only_when_applied(env):
     g.slash("test 5 wide")
     assert chat_lines(g)[-1].endswith("style=wide unknown=wide")
     settle(g)
-    g.slash("test 5 stream")  # no plate-space copy: the setting does not apply
-    assert chat_lines(g)[-1].endswith("style=stream")
+    g.slash("test 5 stream")  # the plain stream starts at P-hat too, so the spread applies to it
+    assert chat_lines(g)[-1].endswith("style=stream unknown=wide")
     settle(g)
     g.slash("test 5 popstream")
     assert chat_lines(g)[-1].endswith("style=popstream unknown=wide")
@@ -254,10 +254,10 @@ def test_other_estimates_ignore_the_setting(env, style, kw):
 
 
 @pytest.mark.parametrize("setting", ["wide"])
-def test_kind_other_and_the_plain_stream_ignore_the_setting(env, setting):
+def test_kind_other_ignores_the_setting(env, setting):
     g = make(env)
     times = [0.1, 0.4, 0.8, 1.2]
-    for style, kw in (("wide", {"kind": "other"}), ("stream", {})):
+    for style, kw in (("wide", {"kind": "other"}), ("stream", {"kind": "other"})):
         base = snapshot(g, style, "off", times, **kw)
         assert_same(snapshot(g, style, setting, times, **kw), base)
         assert g.orbs.lastUnknown is None
@@ -340,6 +340,24 @@ def test_unreadable_zoom_leaves_the_ellipse_unscaled(env):
     fire(g, "popstream", "wide", n=60)
     norms = [math.hypot((o.x0 - ORIGIN[0]) / RX, (o.y0 - ORIGIN[1]) / RY) for o in live_recs(g)]
     assert max(norms) <= 1.0 + 1e-9 and max(norms) > 0.85
+    settle(g)
+
+
+def test_plain_stream_spreads_over_the_scaled_ellipse_or_starts_at_one_point(env):
+    env.lua.execute(LCG)
+    g = make(env, fixed_random=False)
+    g.stub.zoom = 5  # factor 2
+    assert fire(g, "stream", "wide", n=60,) == "stream"
+    recs = live_recs(g)
+    norms = [math.hypot((o.x0 - ORIGIN[0]) / RX, (o.y0 - ORIGIN[1]) / RY) for o in recs]
+    assert max(norms) <= 2.0 + 1e-9 and max(norms) > 1.7 and g.orbs.lastUnknown == "wide"
+    settle(g)
+    fire(g, "stream", "off", n=20)
+    assert max(math.hypot(o.x0 - ORIGIN[0], o.y0 - ORIGIN[1]) for o in live_recs(g)) <= 6
+    assert g.orbs.lastUnknown is None
+    settle(g)
+    fire(g, "stream", "wide", n=20, est="mouseover")  # a located mob: no spread
+    assert g.orbs.lastUnknown is None
     settle(g)
 
 

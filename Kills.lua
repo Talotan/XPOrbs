@@ -133,10 +133,10 @@ local function screenCentre(frac)
     return nil, nil
 end
 
--- Stream origin. Non-kill XP (quests etc.) always streams from the screen centre (NON_KILL_Y). Kills: popstream and
--- crossfade and wide start at the estimate P-hat when there is one (they fly from P-hat, so the label says so);
--- popstream falls back to the portrait without one; the stream style uses the target frame (kept from its last good
--- measurement). Fallback: the screen centre. (ex, ey) = the kill's estimate. Returns x, y, label.
+-- Stream origin. Non-kill XP (quests etc.) always streams from the screen centre (NON_KILL_Y). Kills: every style
+-- starts at the estimate P-hat when there is one (so the label says so); without one, popstream falls back to the
+-- portrait and the others to the target frame (kept from its last good measurement). Fallback: the screen centre.
+-- (ex, ey) = the kill's estimate. Returns x, y, label.
 local function chooseOrigin(b, ex, ey)
     if b.kind == "kill" then
         local style = ns.db.style
@@ -145,7 +145,7 @@ local function chooseOrigin(b, ex, ey)
             if x then
                 return x, y, label
             end
-        elseif (style == "crossfade" or style == "wide") and type(ex) == "number" and type(ey) == "number" then
+        elseif style ~= "popstream" and type(ex) == "number" and type(ey) == "number" then
             return ex, ey, "estimate"
         else
             local fx, fy = ns.Target:TargetFrameOrigin()

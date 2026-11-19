@@ -355,14 +355,15 @@ def test_burst_log_has_est_and_never_a_guid_or_name(env):
     assert all("GUIDTEST" not in line and "Boar" not in line for line in g.log())
 
 
-def test_stream_style_keeps_portrait_origin(env):
+def test_stream_style_starts_at_the_estimate(env):
     g = make(env)
     g.fake_orbs_on()
     g.db.style = "stream"
     g.stub.setTargetFrame(250, 900, False)
     kill_after_hover(g, 0.3)
     (b,) = g.bursts()
-    assert (b["x"], b["y"]) == (250, 900) and g.has_log("origin=targetframe plate=no")
+    assert (b["x"], b["y"]) == (b["ex"], b["ey"]) != (250, 900)  # the estimate, no longer the target frame
+    assert g.has_log("origin=estimate plate=no")
 
 
 def test_tier4_has_no_guid_so_default_or_cursor_estimate(env):

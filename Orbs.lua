@@ -994,9 +994,10 @@ function Orbs:Burst(p)
     end
     local popped, xg = false, nil
     local zy = p.plate ~= nil and zoomAnchorY(d) or nil
-    -- unknown-origin A/B test: only when nobody hovered the mob and a plate-space pop or copy is really drawn
+    -- unknown-origin spread: only when nobody hovered the mob, and either the plain stream (which starts at P-hat) or
+    -- a plate-space pop or copy is really drawn
     local uv = 0
-    if p.est == "default" and p.kind ~= "other" and p.plate ~= nil and style ~= "stream" then
+    if p.est == "default" and p.kind ~= "other" and (style == "stream" or p.plate ~= nil) then
         uv = UNKNOWN.level[d.unknownOrigin] or 0
     end
     local uf = 1 -- ellipse scale for this burst: one zoom read, unreadable -> 1
@@ -1015,7 +1016,7 @@ function Orbs:Burst(p)
     if xg then
         x, y = px, py
     end
-    if not (popped or xg) then
+    if not (popped or xg or style == "stream") then
         uv = 0
     end
     Orbs.lastUnknown = uv > 0 and d.unknownOrigin or nil
@@ -1217,14 +1218,17 @@ function Orbs:PoolInfo()
 end
 
 -- Stream origin for /xporbs test. popstream follows the kill rule (Target:StreamOrigin: the estimate P-hat, the
--- portrait only without one); otherwise target frame, else the cursor, else the screen centre. Every read is
+-- portrait only without one); the plain stream starts at the estimate too; otherwise target frame, else the cursor,
+-- else the screen centre. Every read is
 -- checked for secrecy and pcall'd. Returns x, y, label (x, y nil only when even the screen size is unreadable).
-local function testOrigin(popstream, ex, ey)
-    if popstream then
+local function testOrigin(style, ex, ey)
+    if style == "popstream" then
         local sx, sy, sl = Target:StreamOrigin(ex, ey)
         if sx then
             return sx, sy, sl
         end
+    elseif style == "stream" and num(ex) and num(ey) then
+        return ex, ey, "estimate"
     end
     local fx, fy = Target:TargetFrameOrigin()
     if fx then
@@ -1264,7 +1268,7 @@ local function fireTest(pct, rested, force)
         guid = tg
     end
     local ex, ey, est, estW = ns.Mouseover:Estimate(guid)
-    local x, y, label = testOrigin(styleOf(force or d.style) == "popstream", ex, ey)
+    local x, y, label = testOrigin(styleOf(force or d.style), ex, ey)
     local mode = Orbs:Burst({
         x = x,
         y = y,

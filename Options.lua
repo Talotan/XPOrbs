@@ -32,7 +32,7 @@ local STYLE_DESC = {
     popstream = "A burst at the corpse, then a stream to the bar.",
     wide = "A wide burst at the corpse that peels off into a stream to the bar.",
     crossfade = "Orbs bloom at the corpse, then fly straight to the bar.",
-    stream = "A plain stream from the target frame to the bar.",
+    stream = "A plain stream from the mob to the bar.",
 }
 local SHAPES = { "bar", "round" }
 local SHAPE_NAME = { bar = "Horizontal", round = "Circular" }

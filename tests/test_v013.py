@@ -395,7 +395,7 @@ def test_style_radios_use_the_radio_template_and_each_has_a_description(m):
         "popstream": "A burst at the corpse, then a stream to the bar.",
         "wide": "A wide burst at the corpse that peels off into a stream to the bar.",
         "crossfade": "Orbs bloom at the corpse, then fly straight to the bar.",
-        "stream": "A plain stream from the target frame to the bar.",
+        "stream": "A plain stream from the mob to the bar.",
     }
     assert all(d.kind == "FontString" for d in descs.values())
     objs = list(descs.values())

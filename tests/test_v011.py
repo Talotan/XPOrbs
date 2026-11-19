@@ -77,14 +77,14 @@ def test_popstream_falls_back_to_portrait_only_without_an_estimate(env):
     assert tuple(tg.StreamOrigin(tg, None, None)) == (250, 900, "targetframe")
 
 
-def test_stream_style_still_uses_the_portrait(env):
+def test_stream_style_starts_at_the_estimate_not_the_portrait(env):
     g = make(env)
     g.fake_orbs_on()
     g.db.style = "stream"
     g.stub.setTargetFrame(250, 900, True)
     kill_with_secret_pos_plate(g)
     (b,) = g.bursts()
-    assert (b["x"], b["y"]) == (250, 900) and g.has_log("origin=targetframe plate=no")
+    assert (b["x"], b["y"]) == (b["ex"], b["ey"]) != (250, 900) and g.has_log("origin=estimate plate=no")
 
 
 def test_test_command_popstream_starts_at_the_estimate_not_the_portrait(env):

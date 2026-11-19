@@ -601,11 +601,11 @@ def test_test_command_with_unreadable_xp_and_cursor_does_not_use_them(env):
     assert "stream=cursor" not in said and "stream=centre" in said
 
 
-def test_test_command_normal_cursor_origin_still_works(env):
+def test_test_command_stream_starts_at_the_estimate(env):
     e = make_full(env)
     e.stub.cursor.x, e.stub.cursor.y = 321, 123
     e.slash("test 5 stream")
-    assert "stream=cursor" in " ".join(e.say())
+    assert "stream=estimate" in " ".join(e.say())
 
 
 # ---------------------------------------------------------------- 13. small cleanups
