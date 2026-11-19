@@ -82,19 +82,17 @@ def frame(art):
     ys, xs = np.mgrid[0:n, 0:n]
     dx, dy = np.minimum(xs, n - 1 - xs), np.minimum(ys, n - 1 - ys)
     depth = np.minimum(dx, dy)
-    lit = ((dx <= dy) & (xs < n // 2)) | ((dy < dx) & (ys < n // 2))  # left or top edge
-    mid = (xs >= n // 2) != (ys >= n // 2)  # top-right / bottom-left corners blend
-    light, dark, shade = np.array([212, 196, 150.0]), np.array([74, 66, 48.0]), np.array([20, 18, 16.0])
-    bevel = np.where(lit[..., None], light, dark)
-    bevel = np.where((mid & (np.abs(dx - dy) < 3 * k))[..., None], (light + dark) / 2, bevel)
-    outer = np.array([6, 6, 8.0])
+    # near-even bronze (no lit / dark split, which reads as an L-bracket at 16-20 px): top lightest, bottom darkest
+    top, side, bottom = np.array([168, 148, 124.0]), np.array([138, 118, 98.0]), np.array([112, 94, 76.0])
+    shade, outer = np.array([30, 21, 12.0]), np.array([6, 6, 8.0])
+    is_side = dx <= dy  # left / right edge (the corners split along the diagonal)
+    bevel = np.where(is_side[..., None], side, np.where((ys < n // 2)[..., None], top, bottom))
     out = a.copy()
-    out = np.where((depth >= 4 * k)[..., None] & (depth < 5 * k)[..., None], a * 0.45 + shade * 0.55, out)
+    out = np.where((depth >= 4 * k)[..., None] & (depth < 5 * k)[..., None], a * 0.35 + shade * 0.65, out)
     out = np.where((depth < 4 * k)[..., None], bevel, out)
-    out = np.where((depth < 1 * k)[..., None], outer, out)
-    r = 5 * k  # corner radius
-    cx, cy = np.clip(xs, r, n - 1 - r), np.clip(ys, r, n - 1 - r)
-    alpha = ((xs - cx) ** 2 + (ys - cy) ** 2 <= r * r) * 255.0
+    c = 6 * k  # 45 degree chamfer: the corner is cut where the distance to the two edges sums to less than c
+    out = np.where(((depth < 1 * k) | (dx + dy < c + 1.5 * k))[..., None], outer, out)
+    alpha = (dx + dy >= c) * 255.0
     rgba = np.dstack([out, alpha]).astype(np.uint8)
     return Image.fromarray(rgba, "RGBA").resize((SIZE, SIZE), Image.Resampling.BOX)
 
