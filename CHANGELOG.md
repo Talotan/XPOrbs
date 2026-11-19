@@ -2,12 +2,11 @@
 
 ## 1.2.0 (2026-11-19)
 
-- Kill styles are now three, each saying whether it uses the nameplate:
+- Kill styles are now three, each saying whether it uses the nameplate (your saved style carries over):
   - **Popstream** (default), with its pop either on the nameplate (as before) or **Direct**, a pop at the mob's
     estimated position that flows straight into the stream and works with nameplates off.
   - **Crossfade**: the orbs pop on the nameplate and fade away, then reappear just above the bar.
   - **Direct Stream**: a plain stream that now starts at the mob instead of the target frame.
-  Your saved style carries over.
 - New "Zoom-scaled spread" option (on by default): pops and stream starts spread wider when the camera is zoomed in
   and tighter when zoomed out.
 - Pops now sit on the mob's body rather than its nameplate, adjusted for camera zoom. `/xporbs calib` lets you
