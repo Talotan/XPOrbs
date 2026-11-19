@@ -135,7 +135,7 @@ def test_future_schema_version_is_left_alone(env):
 
 
 def test_current_and_old_versions_stamp_to_schema(env):
-    assert load_db(env, {"version": 2}).version == 5
+    assert load_db(env, {"version": 2}).version == 6
 
 
 def test_reset_command_sanitises_and_restores_defaults(env):
@@ -143,7 +143,7 @@ def test_reset_command_sanitises_and_restores_defaults(env):
     db = env.G.XPOrbsDB
     db.cap = -5
     env.G.SlashCmdList.XPORBS("reset")
-    assert db.cap == 40 and db.flightTime == 1.0 and db.version == 5
+    assert db.cap == 40 and db.flightTime == 1.0 and db.version == 6
 
 
 def test_burst_with_bad_saved_flight_time_finishes(env):

@@ -93,7 +93,7 @@ def test_test_command_popstream_starts_at_the_estimate_not_the_portrait(env):
     g.stub.plates["target"] = plate
     g.stub.setTargetFrame(250, 900, True)
     g.slash("test 5 popstream")
-    assert chat_lines(g)[-1].endswith("pop=yes stream=estimate style=popstream")
+    assert chat_lines(g)[-1].endswith("pop=yes stream=estimate style=popstream/nameplate")
 
 
 def test_crossfade_kill_logs_origin_estimate_and_orbs_fly_from_it(env):

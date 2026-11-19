@@ -134,12 +134,11 @@ local function screenCentre(frac)
 end
 
 -- Stream origin. Non-kill XP (quests etc.) always streams from the screen centre (NON_KILL_Y). Kills: every style
--- starts at the estimate P-hat when there is one (so the label says so); without one, popstream falls back to the
--- portrait and the others to the target frame (kept from its last good measurement). Fallback: the screen centre.
--- (ex, ey) = the kill's estimate. Returns x, y, label.
-local function chooseOrigin(b, ex, ey)
+-- starts at the estimate P-hat when there is one (so the label says so); without one, Popstream (Nameplate) falls back
+-- to the portrait and the others to the target frame (kept from its last good measurement). Fallback: the screen
+-- centre. (ex, ey) = the kill's estimate; style = the render style (ns.RenderStyle). Returns x, y, label.
+local function chooseOrigin(b, ex, ey, style)
     if b.kind == "kill" then
-        local style = ns.db.style
         if style == "popstream" then
             local x, y, label = ns.Target:StreamOrigin(ex, ey)
             if x then
@@ -209,9 +208,10 @@ local function emitBurst(b)
         restedAmt, restedSrc = OrbMath.RestedFallback(b.amount, chatRested, nil, nil)
     end
     b.rested = restedAmt
-    local x, y, origin = chooseOrigin(b, ex, ey)
+    local style = ns.RenderStyle(db.style, db.popMode)
+    local x, y, origin = chooseOrigin(b, ex, ey, style)
     local plate
-    if b.kind == "kill" and db.style ~= "stream" and db.style ~= "streampop" then
+    if b.kind == "kill" and style ~= "stream" and style ~= "streampop" then -- the styles that use the nameplate
         if b.plate ~= nil then
             if not plateReused(b.plate, b.entry) then
                 plate = b.plate

@@ -541,7 +541,7 @@ def test_test_command_uses_target_estimate_and_prints_it(env):
     g.slash("test 5 popstream")
     line = chat_lines(g)[-1]
     assert "est=mouseover w=1.00" in line and line.endswith(
-        "pop=yes stream=estimate style=popstream"
+        "pop=yes stream=estimate style=popstream/nameplate"
     )
     g.stub.tick(3)
     g.stub.units[
@@ -550,7 +550,7 @@ def test_test_command_uses_target_estimate_and_prints_it(env):
     g.slash("test 5 popstream")
     line = chat_lines(g)[-1]
     assert "est=default w=0.00" in line and line.endswith(
-        "pop=yes stream=estimate style=popstream"
+        "pop=yes stream=estimate style=popstream/nameplate"
     )
     g.stub.tick(3)
     g.slash("test 5 crossfade")

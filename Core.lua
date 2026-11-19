@@ -19,8 +19,11 @@ ns.defaults = {
     sound = false, -- chime as orbs arrive
     soundVoice = "glass", -- which chime: "coin" or "glass" (media/coin1-6.ogg, media/glass1-6.ogg)
     debug = false,
-    unknownOrigin = "wide", -- where orbs start when the mob's position is unknown: "wide" or "off" (Orbs.lua UNKNOWN)
-    style = "popstream", -- "popstream", "wide", "crossfade", "stream" or "streampop"
+    -- the "Wide" tickbox: where orbs start when the mob's position is unknown, "wide" (a zoom-scaled oval) or "off"
+    -- (one point); Orbs.lua UNKNOWN
+    unknownOrigin = "wide",
+    style = "popstream", -- kill style (schema 6): "popstream", "crossfade" or "stream" (Direct Stream)
+    popMode = "nameplate", -- Popstream's sub-choice: "nameplate" (pop on the nameplate) or "direct" (pop at the estimate)
     glow = true, -- arrival flash on/off
     glowShape = "bar", -- "bar" (horizontal flash on the fill edge) or "round" (circular glow at the frame centre)
     glowIntensity = 100, -- arrival flash strength in percent (25-200): scales its alpha and, a little, its size
@@ -71,7 +74,58 @@ local function deepFill(dst, src)
     end
 end
 
-local SCHEMA = 5
+local SCHEMA = 6
+
+-- Kill styles (schema 6): three archetypes, Popstream with a Nameplate / Direct sub-choice. Every name a save, a slash
+-- command or a test may hold -> { style, popMode (nil: keep the current one), true: switch Wide on }. The 1.1 / P2
+-- names map as: streampop = Popstream (Direct), wide / mob (the dropped wide burst) = Popstream (Nameplate) + Wide.
+local STYLE_ALIAS = {
+    popstream = { "popstream" },
+    crossfade = { "crossfade" },
+    stream = { "stream" },
+    directstream = { "stream" },
+    streampop = { "popstream", "direct" },
+    wide = { "popstream", "nameplate", true },
+    mob = { "popstream", "nameplate", true },
+}
+ns.STYLE_ALIAS = STYLE_ALIAS
+ns.STYLE_LABEL = { popstream = "Popstream", crossfade = "Crossfade", stream = "Direct Stream" }
+ns.POPMODE_LABEL = { nameplate = "Nameplate", direct = "Direct" }
+
+-- The renderer's own style for a style name (any alias) and a popMode: "popstream" (pop on the nameplate),
+-- "streampop" (pop at the estimate, screen space), "crossfade" or "stream". Unknown names give the default.
+function ns.RenderStyle(style, popMode)
+    local a = STYLE_ALIAS[style] or STYLE_ALIAS[ns.defaults.style]
+    if a[1] ~= "popstream" then
+        return a[1]
+    end
+    return (a[2] or popMode) == "direct" and "streampop" or "popstream"
+end
+
+-- Player-facing name of the db's style, e.g. "Popstream (Nameplate)" or "Direct Stream".
+function ns.StyleLabel(db)
+    local s = db.style
+    if s == "popstream" then
+        return "Popstream (" .. (ns.POPMODE_LABEL[db.popMode] or "Nameplate") .. ")"
+    end
+    return ns.STYLE_LABEL[s] or tostring(s)
+end
+
+-- Writes a style name (any alias) into db; false when the name isn't one. Aliases that carry a popMode or Wide set them.
+function ns.SetStyle(db, name)
+    local a = STYLE_ALIAS[name]
+    if not a then
+        return false
+    end
+    db.style = a[1]
+    if a[2] then
+        db.popMode = a[2]
+    end
+    if a[3] then
+        db.unknownOrigin = "wide"
+    end
+    return true
+end
 local OLD_COLOR, OLD_RESTED = { 0.35, 0.65, 1.0 }, { 0.7, 0.45, 1.0 }
 -- the 1.0.x defaults, replaced by the schema-5 ones when a save still holds them
 local V4_COLOR, V4_RESTED, V4_FLIGHT = { 0.20, 0.50, 1.00 }, { 1.0, 0.30, 0.85 }, 0.75
@@ -93,6 +147,8 @@ end
 -- v4: the stream origin is always the target frame (then the screen centre); the origin option is gone.
 -- v5: purple/blue orbs to match the XP bar and a 1.0 s flight: only values still equal to the 1.0.x defaults are
 -- replaced (a custom colour or flight time is kept).
+-- v6: three kill styles. popstream -> Popstream (Nameplate), streampop -> Popstream (Direct), wide / mob -> Popstream
+-- (Nameplate) with Wide on, crossfade and stream unchanged, anything else -> the default (STYLE_ALIAS).
 -- v0.13 added classColor / glow / glowShape and v0.14 added glowIntensity / glowOffsetX / glowOffsetY: no schema bump,
 -- deepFill adds the missing keys (a stored false or an existing value is never overwritten, a missing key gets the
 -- default).
@@ -121,6 +177,14 @@ local function migrate(db)
         end
         if type(db.flightTime) == "number" and math.abs(db.flightTime - V4_FLIGHT) <= 0.005 then
             db.flightTime = nil
+        end
+    end
+    if v < 6 then
+        if db.style == "popstream" then
+            db.popMode = "nameplate" -- the 1.1 popstream (a v5 save has no popMode yet)
+        end
+        if not ns.SetStyle(db, db.style) then
+            db.style = nil -- deepFill gives the default
         end
     end
 end
@@ -171,12 +235,12 @@ local function sanitize(db)
             db[key] = copyColour(defaults[key])
         end
     end
-    if db.style == "mob" then
-        db.style = "wide" -- renamed
-    end
-    if db.style ~= "popstream" and db.style ~= "wide" and db.style ~= "crossfade" and db.style ~= "stream"
-        and db.style ~= "streampop" then
+    -- an old name in a schema-6 save (hand-edited, or written by an older copy) is mapped like the v6 migration
+    if db.style ~= "popstream" and db.style ~= "crossfade" and db.style ~= "stream" and not ns.SetStyle(db, db.style) then
         db.style = defaults.style
+    end
+    if db.popMode ~= "nameplate" and db.popMode ~= "direct" then
+        db.popMode = defaults.popMode
     end
     if db.unknownOrigin ~= "off" and db.unknownOrigin ~= "wide" then -- also maps the dropped "late"/"inplace"
         db.unknownOrigin = defaults.unknownOrigin
@@ -304,9 +368,16 @@ function commands.help()
     say("/xporbs test [pct] [rested] [style] - fire a test burst on your target")
     say("/xporbs test stress [n] - fire n test bursts over about 2 seconds (default 20, max 100)")
     say("/xporbs perf [reset] - addon memory, driver frame time and pool usage")
-    say("/xporbs style popstream|wide|crossfade|stream|streampop - kill burst style")
+    say("/xporbs style popstream [nameplate|direct] | crossfade | stream - kill style:")
+    say("  Popstream (Nameplate): a pop on the nameplate, then a stream from the estimated mob position (pop needs "
+        .. "the nameplate)")
+    say("  Popstream (Direct): a pop at the estimated mob position that flows into the stream (no nameplate)")
+    say("  Crossfade: a pop on the nameplate, the orbs reappear just above the bar (nameplate; estimate sets the "
+        .. "direction)")
+    say("  stream = Direct Stream: a plain stream from the estimated mob position (no pop, no nameplate)")
+    say("/xporbs wide on|off - Wide start: a mob not moused over starts over a zoom-scaled area (alias: unknown "
+        .. "wide|off)")
     say("/xporbs pop on|off - alias: popstream / stream")
-    say("/xporbs unknown wide|off - where orbs start when the mob's position is unknown")
     say("/xporbs pick [clear|FrameName] - click to pick the XP bar frame, or name it (clear = auto-detect)")
     say("/xporbs zoomanchor on|off - anchor orbs on the mob's body using the camera zoom (no arg: show state)")
     say("/xporbs calib [off|reset|fit|save] - calibrate the zoom anchor on a targeted mob")

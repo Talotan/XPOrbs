@@ -5,8 +5,8 @@ as copy B only a short distance (D px) from the bar, after a gap with nothing dr
 import math
 
 import pytest
+from test_p2_styles import a_orbs, b_orbs
 from test_p2_unknown import LCG, ORIGIN, fire, live_recs, pos, settle
-from test_p2_wide import a_orbs, b_orbs
 from test_v09 import make, pop_frames, pop_textures, restricted_plate, stream_textures
 
 DELAY, BLOOM, LS, LEAVE, GAP = 0.02, 0.24, 0.075, 0.26, 0.10
@@ -105,7 +105,7 @@ def test_b_fades_in_over_80_ms_and_there_is_no_ab_crossfade(env):
     g = make(env)
     fire(g, "crossfade")
     (o,) = live_recs(g)
-    assert (o.s0, o.s1) == (0, 0)
+    assert o.s0 is None and o.s1 is None  # the A -> B window went with the wide burst (schema 6)
     g.stub.tick(B_START + 0.04)
     (b,) = b_orbs(g)
     assert b.alpha == pytest.approx(0.5, abs=0.05) and shown_a(g) == []
@@ -118,7 +118,7 @@ def test_unknown_origin_does_not_apply_to_crossfade(env, setting):
     g = make(env)
     fire(g, "crossfade", setting)
     (o,) = live_recs(g)
-    assert (o.sx, o.sy) == (0, 0) and g.orbs.lastUnknown is None
+    assert g.orbs.lastUnknown is None
     assert 16 <= math.hypot(o.ax - ORIGIN[0], o.ay - ORIGIN[1]) <= 36 + 8  # A is plate-exact (ring + drift)
     settle(g)
 

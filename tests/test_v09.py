@@ -270,7 +270,7 @@ def test_test_command_with_target_plate_pops_and_streams_from_estimate(env):
     g.stub.plates["target"] = plate
     g.stub.setTargetFrame(250, 900)
     g.slash("test 5")
-    assert chat_lines(g)[-1].endswith("pop=yes stream=estimate style=popstream")
+    assert chat_lines(g)[-1].endswith("pop=yes stream=estimate style=popstream/nameplate")
     assert len(pop_frames(g)) == 1
     g.stub.tick(0.4)
     pts = [t.points[1] for t in stream_textures(g)]
@@ -307,11 +307,11 @@ def test_style_and_pop_commands_persist_and_toggle(env):
     g = make(env)
     assert g.db.style == "popstream" and g.db.corpsePop is None
     g.slash("style crossfade")
-    assert g.db.style == "crossfade" and "crossfade" in chat_lines(g)[-1]
+    assert g.db.style == "crossfade" and "Crossfade" in chat_lines(g)[-1]
     g.slash("style bogus")
-    assert g.db.style == "crossfade" and "use popstream, wide, crossfade, stream or streampop" in chat_lines(g)[-1]
+    assert g.db.style == "crossfade" and "use popstream [nameplate|direct], crossfade or stream" in chat_lines(g)[-1]
     g.slash("style")
-    assert "kill style: crossfade" in chat_lines(g)[-1]
+    assert "kill style: Crossfade" in chat_lines(g)[-1]
     g.slash("pop off")
     assert g.db.style == "stream"
     plate = restricted_plate(g)
@@ -651,7 +651,7 @@ def test_test_command_style_word_forces_style(env):
     assert chat_lines(g)[-1].endswith("style=crossfade")
     g.stub.tick(3)
     g.slash("test 5 popstream")
-    assert chat_lines(g)[-1].endswith("pop=yes stream=estimate style=popstream")
+    assert chat_lines(g)[-1].endswith("pop=yes stream=estimate style=popstream/nameplate")
 
 
 def test_stream_kills_pass_no_plate(env):

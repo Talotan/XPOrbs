@@ -1,6 +1,7 @@
-"""The "streampop" kill style: screen space only (never a plate frame). Every orb is born at the start point, pops out to
-a small ring, then launches (nearest to the bar first) into the normal stream path from its ring point. Added beside
-popstream / wide / crossfade / stream, which must keep behaving as before."""
+"""Popstream (Direct), render style "streampop" (db.style "popstream" + popMode "direct" since schema 6; "streampop" stays
+an alias): screen space only (never a plate frame). Every orb is born at the start point, pops out to a small ring, then
+launches (nearest to the bar first) into the normal stream path from its ring point. The other styles must keep behaving
+as before."""
 
 import math
 
@@ -33,25 +34,28 @@ def pos(t):
 # ---------------------------------------------------------------- selection
 
 
-def test_style_command_persists_prints_and_the_panel_radio_checks(env):
+@pytest.mark.parametrize("cmd", ["style streampop", "style popstream direct", "style direct"])
+def test_style_command_persists_prints_and_the_panel_radio_checks(env, cmd):
     m5 = build(env)
-    m5.slash("style streampop")
-    assert m5.db.style == "streampop"
-    assert m5.say()[-1].endswith("kill style: streampop")
+    m5.slash(cmd)
+    assert (m5.db.style, m5.db.popMode) == ("popstream", "direct")
+    assert m5.say()[-1].endswith("kill style: Popstream (Direct)")
     show(m5)
-    assert ctl(m5, "style_streampop").checked and not ctl(m5, "style_stream").checked
+    assert ctl(m5, "style_popstream").checked and ctl(m5, "popMode_direct").checked
+    assert not ctl(m5, "popMode_nameplate").checked and not ctl(m5, "style_stream").checked
     m5.stub.click(ctl(m5, "style_stream"))
-    assert m5.db.style == "stream" and not ctl(m5, "style_streampop").checked
-    m5.stub.click(ctl(m5, "style_streampop"))
-    assert m5.db.style == "streampop" and ctl(m5, "style_streampop").checked
+    assert m5.db.style == "stream" and m5.db.popMode == "direct" and not ctl(m5, "style_popstream").checked
+    m5.stub.click(ctl(m5, "style_popstream"))
+    assert (m5.db.style, m5.db.popMode) == ("popstream", "direct") and ctl(m5, "popMode_direct").checked
 
 
 def test_help_and_the_bogus_style_message_list_it(env):
     m5 = build(env)
     m5.slash("style bogus")
-    assert "use popstream, wide, crossfade, stream or streampop" in m5.say()[-1]
+    assert "use popstream [nameplate|direct], crossfade or stream" in m5.say()[-1]
     m5.slash("help")
-    assert any("popstream|wide|crossfade|stream|streampop" in line for line in m5.say())
+    assert any("popstream [nameplate|direct] | crossfade | stream" in line for line in m5.say())
+    assert any("Popstream (Direct): a pop at the estimated mob position" in line for line in m5.say())
 
 
 def test_test_token_fires_a_streampop_burst_with_no_plate_frame(env):
@@ -60,15 +64,19 @@ def test_test_token_fires_a_streampop_burst_with_no_plate_frame(env):
     g.stub.units["target"] = g.env.lua.table_from({"guid": "G1", "isTarget": True})
     g.stub.setTargetFrame(250, 900, True)
     g.slash("test 5 streampop")
-    assert chat_lines(g)[-1].endswith(
-        "pop=no stream=estimate style=streampop"
-    ) or chat_lines(g)[-1].endswith("style=streampop")
+    assert chat_lines(g)[-1].endswith("pop=no stream=estimate style=popstream/direct")
+    g.stub.tick(0.1)
+    assert pop_frames(g) == [] and g.stub.restrictedHits == 0
+    g.stub.tick(3)
+    g.slash("test 5 direct")
+    assert chat_lines(g)[-1].endswith("pop=no stream=estimate style=popstream/direct")
     g.stub.tick(0.1)
     assert pop_frames(g) == [] and g.stub.restrictedHits == 0
 
 
-def test_initdb_keeps_streampop(env):
-    assert load(env, {"version": 5, "style": "streampop"}).style == "streampop"
+def test_initdb_maps_streampop_to_popstream_direct(env):
+    db = load(env, {"version": 5, "style": "streampop"})
+    assert (db.style, db.popMode, db.version) == ("popstream", "direct", 6)
 
 
 def test_a_passed_plate_is_ignored_entirely(env):
@@ -273,7 +281,7 @@ def test_driver_allocates_nothing_per_frame(env):
 
 @pytest.mark.parametrize(
     "style, result",
-    [("stream", "stream"), ("popstream", "pop+stream"), ("wide", "wide")],
+    [("stream", "stream"), ("popstream", "pop+stream"), ("wide", "pop+stream"), ("crossfade", "crossfade")],
 )
 def test_other_styles_are_unchanged(env, style, result):
     g = make(env)

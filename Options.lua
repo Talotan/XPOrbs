@@ -25,16 +25,38 @@ local ICON_ATLAS = "transmog-icon-revert"
 local ICON_FALLBACK = "Interface\\Buttons\\UI-RefreshButton"
 local HILITE = "Interface\\Buttons\\ButtonHilight-Square"
 
-local STYLES = { "popstream", "wide", "crossfade", "stream", "streampop" }
-local STYLE_NAME = { popstream = "Popstream (default)", wide = "Wide burst", crossfade = "Crossfade",
-    stream = "Stream", streampop = "Stream pop" }
+-- Kill styles (schema 6): three archetypes; Popstream has a Nameplate / Direct sub-choice (db.popMode). Each line says
+-- whether the style uses the nameplate, the estimated mob position or both, and whether it has a pop.
+local STYLES = { "popstream", "crossfade", "stream" }
+local STYLE_NAME = { popstream = "Popstream (default)", crossfade = "Crossfade", stream = "Direct Stream" }
 local STYLE_DESC = {
-    popstream = "A burst at the corpse, then a stream to the bar.",
-    wide = "A wide burst at the corpse that peels off into a stream to the bar.",
-    crossfade = "Orbs leave the corpse and reappear just above the bar.",
-    stream = "A plain stream from the mob to the bar.",
-    streampop = "A quick pop at the mob that flows straight into the stream.",
+    popstream = "A pop of orbs at the mob, then a stream to the bar. Pick where it pops:",
+    crossfade = "Pop on the nameplate (if shown); the orbs reappear just above the bar.",
+    stream = "A plain stream from the estimated position. No pop, no nameplate needed.",
 }
+local STYLE_TIP = {
+    popstream = "Has a pop. Pick where it happens below.",
+    crossfade = "Has a pop. Nameplate: the pop and where the orbs vanish. Estimated position: the direction they "
+        .. "leave in. Without a nameplate it falls back to a plain stream.",
+    stream = "No pop. Nameplate: not used. Estimated position: where the stream starts.",
+}
+local POPMODES = { "nameplate", "direct" }
+local POPMODE_NAME = { nameplate = "Nameplate (default)", direct = "Direct" }
+local POPMODE_DESC = {
+    nameplate = "Pop on the nameplate (if shown), stream from the estimated position.",
+    direct = "Pop and stream from the estimated position. No nameplate needed.",
+}
+local POPMODE_TIP = {
+    nameplate = "The pop is drawn on the mob's nameplate, so it sits exactly on the mob; the stream starts at the "
+        .. "estimated position. Without a nameplate: no pop, just the stream.",
+    direct = "The pop opens at the estimated position and flows straight into the stream, nearest to the bar first. "
+        .. "Never uses the nameplate, so it looks the same with nameplates off.",
+}
+local WIDE_DESC = "Mob not moused over: orbs start spread over an area (wider when zoomed in) instead of one point. "
+    .. "No effect on Crossfade."
+local WIDE_TIP = "Off: orbs start from one point at the estimated position. A mob you moused over always starts at "
+    .. "the position the mouse saw, Wide or not."
+local DESC_DIM = 0.55 -- dimmed descriptions stay readable (rows and controls use DIM)
 local SHAPES = { "bar", "round" }
 local SHAPE_NAME = { bar = "Horizontal", round = "Circular" }
 local SHAPE_DESC = "Horizontal: orbs land on the bar's fill edge. Circular: orbs land on the centre of a round frame "
@@ -54,7 +76,7 @@ local child -- the scroll child every row hangs off
 Options.controls = {} -- key -> the widget (checkbox, slider, swatch, radio)
 Options.rows = {} -- key -> the row frame (dimming and layout)
 Options.resets = {} -- key -> the per-row reset button
-Options.descs = {} -- style -> its description FontString
+Options.descs = {} -- style / popMode / "wide" -> its description FontString
 Options.CONTENT_H = CONTENT_H
 
 local function D()
@@ -127,6 +149,19 @@ local function showTip(owner, str)
     pcall(function()
         GameTooltip:SetOwner(owner, "ANCHOR_RIGHT")
         GameTooltip:SetText(str)
+        GameTooltip:Show()
+    end)
+end
+
+-- A title line and a wrapped body (style radios, the Wide checkbox).
+local function showTip2(owner, title, body)
+    if not GameTooltip then
+        return
+    end
+    pcall(function()
+        GameTooltip:SetOwner(owner, "ANCHOR_RIGHT")
+        GameTooltip:SetText(title)
+        GameTooltip:AddLine(body, 1, 1, 1, true)
         GameTooltip:Show()
     end)
 end
@@ -826,35 +861,95 @@ local function build()
     end
     y = y + 32
 
+    -- Style: three radios (row 24 + its description), Popstream's two sub-radios indented under it at a tighter 42 px
+    -- pitch with a wider gap after the group (dimmed unless Popstream is picked; clicking one also picks Popstream),
+    -- then the Wide checkbox and its description.
     y = header("Style", y + 14)
-    local radios = {}
-    for i, st in ipairs(STYLES) do
-        local ry = y + (i - 1) * 46
+    local radios, subs = {}, {}
+    local function tipOn(w, title, body)
+        w:SetScript("OnEnter", function(self)
+            showTip2(self, title, body)
+        end)
+        w:SetScript("OnLeave", hideTip)
+    end
+    local function styleRadio(st, ry)
         local row = newRow(ry, 24)
         local rb = newRadio(row, LABEL_X, STYLE_NAME[st])
         rb:SetScript("OnClick", function()
             radioClick("style", st)
         end)
+        tipOn(rb, STYLE_NAME[st], STYLE_TIP[st])
         radios[st] = rb
         Options.controls["style_" .. st] = rb
         Options.rows["style_" .. st] = row
         local desc = text(child, "GameFontHighlight", STYLE_DESC[st], LABEL_X + 24, -(ry + 24), 490)
         desc:SetTextColor(GREY, GREY, GREY)
         Options.descs[st] = desc
-        if i == 1 then
-            addReset(row, "style", { "style" }, function()
-                return STYLE_NAME[ns.defaults.style] or tostring(ns.defaults.style)
-            end)
+        return row
+    end
+    local prow = styleRadio("popstream", y)
+    addReset(prow, "style", { "style", "popMode" }, function()
+        return ns.StyleLabel(ns.defaults)
+    end)
+    for i, pm in ipairs(POPMODES) do
+        local ry = y + i * 42
+        local row = newRow(ry, 24)
+        local rb = newRadio(row, LABEL_X + 24, POPMODE_NAME[pm])
+        rb:SetScript("OnClick", function()
+            D().style = "popstream" -- a sub-choice only means something under Popstream
+            radioClick("popMode", pm)
+        end)
+        tipOn(rb, "Popstream (" .. ns.POPMODE_LABEL[pm] .. ")", POPMODE_TIP[pm])
+        subs[pm] = rb
+        Options.controls["popMode_" .. pm] = rb
+        Options.rows["popMode_" .. pm] = row
+        local desc = text(child, "GameFontHighlight", POPMODE_DESC[pm], LABEL_X + 48, -(ry + 24), 466)
+        desc:SetTextColor(GREY, GREY, GREY)
+        Options.descs[pm] = desc
+    end
+    styleRadio("crossfade", y + 136)
+    styleRadio("stream", y + 182)
+    refreshers[#refreshers + 1] = function()
+        local d = D()
+        for _, st in ipairs(STYLES) do
+            radios[st]:SetChecked(d.style == st)
+        end
+        for _, pm in ipairs(POPMODES) do
+            subs[pm]:SetChecked(d.popMode == pm)
         end
     end
-    refreshers[#refreshers + 1] = function()
-        local cur = D().style
-        for _, st in ipairs(STYLES) do
-            radios[st]:SetChecked(cur == st)
+    -- Wide is db.unknownOrigin ("wide" / "off"); /xporbs wide and /xporbs unknown write the same key
+    y = y + 238
+    local wrow, wcb = checkbox(y, "wide", "Wide start", {
+        get = function()
+            return D().unknownOrigin == "wide"
+        end,
+        set = function(v)
+            D().unknownOrigin = v and "wide" or "off"
+        end,
+    })
+    addReset(wrow, "unknownOrigin", { "unknownOrigin" }, function()
+        return ns.defaults.unknownOrigin == "wide" and "on" or "off"
+    end)
+    tipOn(wcb, "Wide start", WIDE_TIP)
+    local wd = text(child, "GameFontHighlight", WIDE_DESC, LABEL_X, -(y + 28), 490)
+    wd:SetWordWrap(true)
+    wd:SetTextColor(GREY, GREY, GREY)
+    Options.descs.wide = wd
+    postRefresh[#postRefresh + 1] = function()
+        local d = D()
+        local on = d.style == "popstream"
+        for _, pm in ipairs(POPMODES) do
+            -- dimmed but still clickable: picking one also picks Popstream
+            Options.rows["popMode_" .. pm]:SetAlpha(on and 1 or DIM)
+            Options.descs[pm]:SetAlpha(on and 1 or DESC_DIM)
         end
+        local wideOn = d.style ~= "crossfade"
+        setDim(wrow, { wcb }, wideOn)
+        wd:SetAlpha(wideOn and 1 or DESC_DIM)
     end
 
-    y = header("XP bar", y + #STYLES * 46 + 14)
+    y = header("XP bar", y + 28 + 50)
     local drow = newRow(y, 36)
     Options.rows.targetFrame = drow
     label(drow, "XP bar frame", LABEL_X)
@@ -870,8 +965,8 @@ local function build()
         return "auto-detect"
     end)
     y = y + 36
-    local prow = newRow(y, 30)
-    button(prow, "Pick XP bar frame", CTRL_X, 150, function()
+    local pkrow = newRow(y, 30)
+    button(pkrow, "Pick XP bar frame", CTRL_X, 150, function()
         ns.commands.pick("")
     end)
 

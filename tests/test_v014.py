@@ -42,7 +42,7 @@ def test_new_defaults_are_deep_filled_without_a_bump(env):
     m = build(env)
     d = m.db
     assert (d.glowIntensity, d.glowOffsetX, d.glowOffsetY) == (100, 0, 0)
-    assert d.glow is False and d.version == 5
+    assert d.glow is False and d.version == 6
 
 
 def test_stored_new_values_survive_a_reload(env):
@@ -392,14 +392,14 @@ def test_picker_hint_fontstring(m):
     )
     assert [h.textColor[i] for i in (1, 2, 3)] == pytest.approx([0.7, 0.7, 0.7])
     assert h.width == 520 and h.calls["SetWordWrap"][1] is True
-    assert (h.points[1][4], h.points[1][5]) == (32, -1140)
+    assert (h.points[1][4], h.points[1][5]) == (32, -1212)
     assert h.text in panel_texts(m)
 
 
 def test_content_height_grew_and_rows_below_moved(m):
-    assert m.opt.CONTENT_H == 1252 and m.opt.child.height == 1252
-    assert m.opt.rows["debug"].points[1][5] == -1208
-    assert 1208 + 28 + 16 == m.opt.CONTENT_H
+    assert m.opt.CONTENT_H == 1324 and m.opt.child.height == 1324
+    assert m.opt.rows["debug"].points[1][5] == -1280
+    assert 1280 + 28 + 16 == m.opt.CONTENT_H
     # the blocks above stack without overlap
     assert 678 + 16 <= 700 and 1106 + 30 <= 1140 and 1140 + 28 <= 1182
 

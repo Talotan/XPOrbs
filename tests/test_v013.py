@@ -134,7 +134,7 @@ def test_defaults_exist_and_a_v4_db_is_deep_filled_without_a_bump(env):
     env.ns.fire("ADDON_LOADED", "XPOrbs")
     db = env.G.XPOrbsDB
     assert (
-        db.version == 5
+        db.version == 6
     )  # InitDB's deep-fill adds the new keys; the version is the current schema
     assert db.classColor is False and db.glow is True and db.glowShape == "bar"
     assert db.cap == 7 and db.style == "crossfade"
@@ -257,8 +257,9 @@ def test_scroll_frame_exists_with_the_specified_anchors_and_content_height(m):
     assert pts[0][0] == "TOPLEFT" and (pts[0][3], pts[0][4]) == (0, -40)
     assert pts[1][0] == "BOTTOMRIGHT" and (pts[1][3], pts[1][4]) == (-28, 44)
     assert o.child.width == 584 and o.child.height == pytest.approx(
-        1252, abs=2
-    )  # v0.14: 894 + 176; +28 chime checkbox, +28 Sound row, +28 minimap checkbox, +46 Stream pop radio
+        1324, abs=2
+    )  # v0.14: 894 + 176; +28 chime checkbox, +28 Sound row, +28 minimap checkbox, +46 Stream pop radio; schema 6:
+    # 3 styles + 2 Popstream sub-radios + the Wide checkbox and its description (+72)
 
 
 def test_scroll_template_falls_back(env):
@@ -299,12 +300,13 @@ def test_scroll_frame_without_any_template_still_scrolls(env):
         ("glow", 700),
         ("glowShape", 522),
         ("style_popstream", 800),
-        ("style_wide", 846),
-        ("style_crossfade", 892),
-        ("style_stream", 938),
-        ("style_streampop", 984),
-        ("targetFrame", 1070),
-        ("debug", 1208),
+        ("popMode_nameplate", 842),
+        ("popMode_direct", 884),
+        ("style_crossfade", 936),
+        ("style_stream", 982),
+        ("wide", 1038),
+        ("targetFrame", 1142),
+        ("debug", 1280),
     ],
 )
 def test_row_positions_follow_the_spec(m, key, y):
@@ -390,13 +392,13 @@ def test_label_rename(m):
 
 
 def test_style_radios_use_the_radio_template_and_each_has_a_description(m):
-    descs = {st: m.opt.descs[st] for st in ("popstream", "wide", "crossfade", "stream")}
+    descs = {st: m.opt.descs[st] for st in ("popstream", "crossfade", "stream", "nameplate")}
     texts = {st: d.text for st, d in descs.items()}
     assert texts == {
-        "popstream": "A burst at the corpse, then a stream to the bar.",
-        "wide": "A wide burst at the corpse that peels off into a stream to the bar.",
-        "crossfade": "Orbs leave the corpse and reappear just above the bar.",
-        "stream": "A plain stream from the mob to the bar.",
+        "popstream": "A pop of orbs at the mob, then a stream to the bar. Pick where it pops:",
+        "crossfade": "Pop on the nameplate (if shown); the orbs reappear just above the bar.",
+        "stream": "A plain stream from the estimated position. No pop, no nameplate needed.",
+        "nameplate": "Pop on the nameplate (if shown), stream from the estimated position.",
     }
     assert all(d.kind == "FontString" for d in descs.values())
     objs = list(descs.values())
@@ -406,7 +408,7 @@ def test_style_radios_use_the_radio_template_and_each_has_a_description(m):
         and not raw(m)(objs[0], objs[2])
         and not raw(m)(objs[2], objs[3])
     )
-    for st in descs:
+    for st in ("popstream", "crossfade", "stream"):
         assert ctl(m, "style_" + st).template == "UIRadioButtonTemplate"
         assert (ctl(m, "style_" + st).width, ctl(m, "style_" + st).height) == (
             20,
@@ -420,9 +422,8 @@ def test_style_description_positions(m):
     d = m.opt.descs
     for st, y in (
         ("popstream", 800 + 24),
-        ("wide", 846 + 24),
-        ("crossfade", 892 + 24),
-        ("stream", 938 + 24),
+        ("crossfade", 936 + 24),
+        ("stream", 982 + 24),
     ):
         pt = d[st].points[1]
         assert (pt[4], pt[5]) == (56, -y) and d[
@@ -679,7 +680,7 @@ def test_hidden_reset_buttons_keep_their_space(m):
         (
             "style",
             lambda m: m.stub.click(ctl(m, "style_stream")),
-            "Reset to default: Popstream (default)",
+            "Reset to default: Popstream (Nameplate)",
         ),
         (
             "glowShape",
@@ -779,7 +780,7 @@ def test_reset_all_asks_first_then_resets_on_accept(m):
         True,
         False,
     )
-    assert m.db.debug is True and m.db.log[1] == "x" and m.db.version == 5
+    assert m.db.debug is True and m.db.log[1] == "x" and m.db.version == 6
     assert (
         ctl(m, "cap").value == 40
         and not reset_shown(m, "cap")
