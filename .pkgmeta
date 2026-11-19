@@ -13,4 +13,5 @@ ignore:
   - uv.lock
   - .luacheckrc
   - stylua.toml
+  - .styluaignore
   - .gitleaks.toml

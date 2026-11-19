@@ -28,8 +28,8 @@ the Forever flavor appeared.
 
 ### Wago
 
-Open the Wago app, choose WoW Forever, and search for XP Orbs.
-<!-- TODO: link to Wago page -->
+Open the Wago app, choose WoW Forever, and search for XP Orbs, or use the
+[Wago page](https://addons.wago.io/addons/ZKbqJJ61).
 
 ### Manual
 
@@ -41,7 +41,8 @@ Open the Wago app, choose WoW Forever, and search for XP Orbs.
 ## Usage
 
 Settings are saved per account in `XPOrbsDB`. The options panel is under Esc > Options > AddOns > XP Orbs, or
-`/xporbs options`.
+`/xporbs options`. The minimap button and the XP Orbs entry in the minimap's addon menu open it too (click again to
+close it); right-click either one to turn the orbs on or off.
 
 ![The XP Orbs options panel](docs/images/options.png)
 
@@ -61,12 +62,15 @@ Settings are saved per account in `XPOrbsDB`. The options panel is under Esc > O
 | `/xporbs pick` | Arm the frame picker, then left-click the XP bar (it also works on bars that ignore the mouse). Right-click or wait 15 s to cancel. |
 | `/xporbs pick FrameName` | Set the XP bar by frame name, for example `/xporbs pick EQOL_XPBar`. Find a name with `/fstack`. |
 | `/xporbs pick clear` | Forget the picked frame and go back to auto-detection. |
+| `/xporbs zoomanchor on\|off` | Turn the zoom-aware anchor on or off (on by default): plate effects sit on the mob's body, using the camera zoom to work out how far below the nameplate that is. |
+| `/xporbs calib [off\|reset\|fit\|save]` | Open the anchor calibration panel: target a mob, nudge the marker onto its body, save a point, and repeat at a few zooms. `reset` restores the default curve. |
+| `/xporbs minimap on\|off` | Show or hide the minimap button. |
 | `/xporbs sound on\|off\|coin\|glass` | Turn the arrival chime on or off (off by default), or pick its sound: `coin` or `glass` (either also turns it on). |
 | `/xporbs debug on\|off` | Turn the debug log on or off. |
 | `/xporbs debug maxlevel on\|off` | Pretend to be at max level until you reload, to try the max-level orbs below the cap. Never saved. |
 | `/xporbs reset` | Restore every setting to its default. |
 
-The panel has these settings: enable, trail, quest bursts, kill orbs at max level and the arrival chime with its sound (Coin or Glass); orb quantity,
+The panel has these settings: enable, trail, quest bursts, kill orbs at max level, the arrival chime with its sound (Coin or Glass) and the minimap button; orb quantity,
 maximum orbs per burst, orb size and flight time (1 s by default); orb colour (or your class colour), rested tint and rested colour; the shape of the
 target frame, a landing offset, and the arrival glow with its intensity; the kill style and the zoom-scaled spread; the XP bar frame; and the
 debug log. The panel also has a test button and a reset button.
@@ -127,12 +131,14 @@ to a plate cannot also be anchored to anything else. XP Orbs therefore never mea
 restriction in two ways.
 
 - It draws a short burst on a tiny frame that is anchored to the plate and nothing else. Because the frame follows the
-  plate, the burst appears on the mob wherever it is on screen. Nothing on that frame is ever measured.
+  plate, the burst appears on the mob wherever it is on screen. Nothing on that frame is ever measured. With the zoom
+  anchor on (the default), the frame hangs below the plate by `5 + 175 / max(zoom, 5)` px, so the burst sits on the
+  mob's body; the curve was fitted to in-game calibration and can be re-fitted with `/xporbs calib`.
 - It estimates where the mob was on screen. While you hover a hostile unit, the addon records the cursor position
   against the unit's GUID. When that unit dies, a sample from the last second or so is used as it is, and its weight
-  fades to zero at 3 seconds. The sample is raised by 40 px, because the cursor sits on the body and the plate sits
-  above it. Without a usable sample the estimate is a fixed point at the horizontal centre of the screen and 58% of
-  its height.
+  fades to zero at 3 seconds. The cursor sits on the body, which is where the zoom anchor aims too; with the anchor
+  off (or the camera zoom unreadable) the sample is raised by 40 px to meet the plate instead. Without a usable sample
+  the estimate is a fixed point at the horizontal centre of the screen and 58% of its height.
 
 The stream then flies in screen space from that point to the destination.
 
@@ -233,10 +239,13 @@ Kills.lua            event wiring, kill matching, rested detection, hands bursts
 Mouseover.lua        cursor samples while hovering a hostile unit
 Target.lua           destination (XP bar edge), frame picker
 Orbs.lua             overlay, texture pool, plate-anchored frames, flight and glow
+Calib.lua            zoom-anchor calibration panel (/xporbs calib)
 Options.lua          settings panel
+Minimap.lua          minimap button (LibDBIcon) and the addon-compartment entry
 logic/               pure Lua: XPParse, OrbMath, KillMatcher, MobEstimate, Engaged, Chime (no WoW globals)
-media/               orb, sparkle and flash textures, the two chime voices (coin and glass, six pitches each)
-tools/               make_textures.py, make_sounds.py, package.py
+Libs/                embedded libraries for the minimap button, unmodified (sources and licences in Libs/README.md)
+media/               orb, sparkle and flash textures, the icons, the two chime voices (coin and glass, six pitches each)
+tools/               make_textures.py, make_icon.py, make_sounds.py, package.py
 tests/               pytest suite and the WoW API stubs
 docs/images/          README images
 ```
@@ -250,7 +259,8 @@ uv run pytest -q
 
 `.luacheckrc` and `stylua.toml` hold the luacheck and StyLua configuration. Neither tool is required, and
 `tests/test_lint.py` stands in for the lint: it compiles every file, loads the addon in a sandbox and fails on any
-global other than `XPOrbsDB` and `SLASH_XPORBS1`. Lines are at most 120 columns.
+global other than `XPOrbsDB`, `SLASH_XPORBS1` and the three `XPOrbs_OnAddonCompartment*` handlers. Lines are at most
+120 columns.
 
 The textures are generated rather than drawn. To rebuild them (and a preview sheet):
 

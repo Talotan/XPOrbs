@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.2.0 (2026-11-19)
+
+- Kill styles are now three, each saying whether it uses the nameplate:
+  - **Popstream** (default), with its pop either on the nameplate (as before) or **Direct**, a pop at the mob's
+    estimated position that flows straight into the stream and works with nameplates off.
+  - **Crossfade**: the orbs pop on the nameplate and fade away, then reappear just above the bar.
+  - **Direct Stream**: a plain stream that now starts at the mob instead of the target frame.
+  Your saved style carries over.
+- New "Zoom-scaled spread" option (on by default): pops and stream starts spread wider when the camera is zoomed in
+  and tighter when zoomed out.
+- Pops now sit on the mob's body rather than its nameplate, adjusted for camera zoom. `/xporbs calib` lets you
+  fine-tune it; `/xporbs zoomanchor off` restores the old position.
+- When you didn't mouse over the mob, the orbs start from a small area around the best guess instead of one point.
+- Kills in instances, where the game hides the kill message from addons, now pop at the mob instead of streaming from
+  the middle of the screen.
+- New minimap button: click to open or close the options, right-click to turn the orbs on or off. Hide it in the
+  options or with `/xporbs minimap off`. XP Orbs is also in the minimap's addon menu and has an icon in the AddOns
+  list.
+
 ## 1.1.0 (2026-11-18)
 
 - Orbs now match the XP bar's colours: purple normally, blue when rested. Saved colours that were still the old
