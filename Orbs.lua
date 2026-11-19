@@ -122,10 +122,11 @@ local function mobPlan(n, x, y, dx, dy)
         m.hd[idx[rank + 1]] = m.launch0 + m.launchSpan * rank / span + random() * m.launchJitter
     end
 end
--- Temporary A/B test (db.unknownOrigin) for the "mob position unknown" case (est == "default"): the stream starts
--- somewhere over an ellipse (semi-axes rx * screen width, ry * screen height) instead of one point, and from/to is the
--- flight p range over which the screen copy is revealed ("late"/"inplace"). One table keeps Burst's upvalues down.
-local UNKNOWN = { rx = 0.08, ry = 0.05, from = 0.25, to = 0.40, level = { off = 0, wide = 1, late = 2, inplace = 3 } }
+-- db.unknownOrigin for the "mob position unknown" case (est == "default"): "wide" starts the stream somewhere over an
+-- ellipse (semi-axes rx * screen width, ry * screen height at camera zoom zRef) instead of one point; "off" keeps the
+-- single point. The ellipse scales by clamp((zRef + zK) / (zoom + zK), fMin, fMax): wider zoomed in (the mob is
+-- bigger on screen), narrower zoomed out. One table keeps Burst's upvalues down.
+local UNKNOWN = { rx = 0.064, ry = 0.04, zRef = 15, zK = 5, fMin = 0.5, fMax = 2, level = { off = 0, wide = 1 } }
 
 local overlay, driver, flash, flashShape
 local freeTex, texCreated, texInUse = {}, 0, 0
@@ -447,7 +448,7 @@ local function drawHold(o, t)
     local a = t < prof.fadeIn and t / prof.fadeIn or 1
     local g = o.g
     hideB(o)
-    -- the ring point is where copy A itself rests (o.sx, o.sy shift B's start away from it in the unknown-origin tests)
+    -- the ring point is where copy A itself rests (o.sx, o.sy shift B's start away from it in "wide" bursts)
     -- (mob orbs: o.dvx/o.dvy drift from the end of the bloom, so the ring point is the launch point minus the drift)
     local hd = o.hold - prof.bloom
     local rx, ry = o.x0 - o.sx - o.dvx * hd, o.y0 - o.sy - o.dvy * hd
@@ -471,34 +472,15 @@ local function drawOrb(o, p, dx, dy)
     local a = p < fi and p / fi or 1
     local g = o.g
     if g then
-        local sx, sy = o.sx, o.sy -- 0 unless an unknown-origin variant moved B's start away from A's ring point
+        local sx, sy = o.sx, o.sy -- 0 unless "wide" moved B's start away from A's ring point
         -- position of the crossfade; equal power keeps the sum of the two copies steady
         local w = smoothstep(p, o.s0, o.s1)
-        if o.ip then
-            -- "inplace": A stays on its ring point and just fades out before B is revealed from where it started
-            local fa = 1 - p / o.s0
-            safeA(o, g, x0 - sx, y0 - sy, s, fa > 0 and a * fa * g.fm or 0)
-            if w <= 0 then
-                hideB(o)
-                return
-            end
-            a = a * w
-        else
-            safeA(o, g, ex - sx, ey - sy, s, w >= 1 and 0 or a * cos(w * HALF_PI) * g.fm) -- cos(pi/2) is not exactly 0
-            if w <= 0 then
-                hideB(o)
-                return
-            end
-            a = a * sin(w * HALF_PI)
-        end
-    elseif o.s1 > 0 then
-        -- plain stream orb in a "late" variant: revealed over [s0, s1]
-        local w = smoothstep(p, o.s0, o.s1)
+        safeA(o, g, ex - sx, ey - sy, s, w >= 1 and 0 or a * cos(w * HALF_PI) * g.fm) -- cos(pi/2) is not exactly 0
         if w <= 0 then
             hideB(o)
             return
         end
-        a = a * w
+        a = a * sin(w * HALF_PI)
     end
     place(o.under, ex, ey, s * GLOW * UNDER_SIZE, a * UNDER_ALPHA)
     place(o.orb, ex, ey, s * GLOW, a)
@@ -950,11 +932,11 @@ local function styleOf(v)
 end
 
 -- Per-orb unknown-origin state, set for every orb (so a pooled record never leaks an old burst's values): o.sx, o.sy =
--- B's start minus A's own ring point, o.s0/o.s1 = crossfade window (or the stream's reveal window, 0 = none),
--- o.ip = plate copy fades in place. o.x0, o.y0 hold the ring point on entry and B's start on exit.
-local function placeUnknown(o, uv, x, y)
+-- B's start minus A's own ring point, o.s0/o.s1 = crossfade window (0 = none). o.x0, o.y0 hold the ring point on
+-- entry and B's start on exit. f scales the ellipse (the camera-zoom factor, read once per burst).
+local function placeUnknown(o, uv, x, y, f)
     local prof = o.prof
-    o.sx, o.sy, o.ip = 0, 0, false
+    o.sx, o.sy = 0, 0
     if prof then
         o.s0, o.s1 = prof.s0, prof.s1
     else
@@ -964,16 +946,12 @@ local function placeUnknown(o, uv, x, y)
         return
     end
     local ang, rad = random() * TWO_PI, sqrt(random()) -- sqrt: uniform over the ellipse, not clustered at the centre
-    local bx = x + cos(ang) * rad * UNKNOWN.rx * UIParent:GetWidth()
-    local by = y + sin(ang) * rad * UNKNOWN.ry * UIParent:GetHeight()
+    local bx = x + cos(ang) * rad * UNKNOWN.rx * f * UIParent:GetWidth()
+    local by = y + sin(ang) * rad * UNKNOWN.ry * f * UIParent:GetHeight()
     if prof then
         o.sx, o.sy = bx - o.x0, by - o.y0
-        o.ip = uv == 3
     end
     o.x0, o.y0 = bx, by
-    if uv >= 2 then
-        o.s0, o.s1 = UNKNOWN.from, UNKNOWN.to
-    end
 end
 
 -- Burst{ x=, y= (stream origin, UIParent coords; nil -> screen centre), n=, scale= (default 1), nPurple= (default 0),
@@ -1016,11 +994,15 @@ function Orbs:Burst(p)
     if p.est == "default" and p.kind ~= "other" and p.plate ~= nil and style ~= "stream" then
         uv = UNKNOWN.level[d.unknownOrigin] or 0
     end
+    local uf = 1 -- ellipse scale for this burst: one zoom read, unreadable -> 1
+    if uv > 0 then
+        local z = Orbs.ReadZoom()
+        if z and z > -UNKNOWN.zK then
+            uf = max(UNKNOWN.fMin, min(UNKNOWN.fMax, (UNKNOWN.zRef + UNKNOWN.zK) / (z + UNKNOWN.zK)))
+        end
+    end
     if p.plate ~= nil and style == "popstream" then
         local ux, uy = OrbMath.ExitVector(x, y, px, py, dx, dy)
-        if uv == 3 then
-            ux, uy = 0, 0 -- the pop blooms and fades at the plate instead of drifting towards the stream
-        end
         popped = startPop(p.plate, n, scale, nPurple, ux, uy, zy)
     elseif p.plate ~= nil and (style == "crossfade" or style == "mob") then
         xg = startXf(p.plate, zy)
@@ -1111,7 +1093,7 @@ function Orbs:Burst(p)
                 local ang, rad = random() * TWO_PI, START_RADIUS * sqrt(random())
                 o.x0, o.y0 = x + cos(ang) * rad, y + sin(ang) * rad
             end
-            placeUnknown(o, uv, x, y)
+            placeUnknown(o, uv, x, y, uf)
             if mob and o.g then
                 -- leave outwards along the ring angle, then curve home (nobody flies back through the middle)
                 local ang, r = prof.ang[i], (45 + random() * 55) * POP_STREAM_SPREAD * 2.2
@@ -1448,11 +1430,11 @@ function ns.commands.style(arg)
     ns.Print("kill style: " .. styleOf(db().style))
 end
 
--- /xporbs unknown off|wide|late|inplace: temporary A/B test of where the stream starts when the mob is not located
+-- /xporbs unknown off|wide: where the stream starts when the mob is not located
 function ns.commands.unknown(arg)
     local w = string.match(arg or "", "%S+")
     if w ~= nil and UNKNOWN.level[w] == nil then
-        ns.Print("unknown: use off, wide, late or inplace (now " .. tostring(db().unknownOrigin) .. ")")
+        ns.Print("unknown: use off or wide (now " .. tostring(db().unknownOrigin) .. ")")
         return
     end
     if w ~= nil then

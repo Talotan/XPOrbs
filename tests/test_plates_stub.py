@@ -10,6 +10,7 @@ CHAT_RESTED = "Boar dies, you gain 50 experience. (+25 exp Rested bonus)"
 def pin_legacy_anchor(db):
     """The zoom anchor is on by default now; tests of the older anchors pin the old off state and curve numbers."""
     db.zoomAnchor, db.zoomA, db.zoomB, db.zoomMin = False, 10, 500, 2
+    db.unknownOrigin = "off"  # likewise the single-point start (the default is now \"wide\")
 
 
 class Game:

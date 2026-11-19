@@ -1,7 +1,7 @@
 """db.unknownOrigin: a temporary A/B setting for the "mob position unknown" case (est == "default").
 
-"off" is today's behaviour. "wide" spreads the stream's start over an ellipse, "late" also reveals the screen copy late,
-"inplace" also fades the plate copy where it is. Only popstream, crossfade and mob bursts with est "default" and kind
+"off" is the single-point start. "wide" (the default) spreads the stream's start over an ellipse that scales with
+camera zoom. Only popstream, crossfade and mob bursts with est "default" and kind
 other than "other" are affected; mouseover/cursor estimates, other XP and the plain stream never are."""
 
 import math
@@ -16,8 +16,7 @@ TIMELINE = {"popstream": (0.34, 1.0), "crossfade": (0.26, 1.2), "mob": (0.335, 1
 PLATE_STYLES = ["popstream", "crossfade", "mob"]
 ORIGIN = (960, 626)
 W, H = 1920, 1080
-RX, RY = 0.08 * W, 0.05 * H
-FROM, TO = 0.25, 0.40
+RX, RY = 0.064 * W, 0.04 * H  # at camera zoom 15 (the stub's default)
 
 # Park-Miller: deterministic but spread out, for the tests that look at where a whole burst of orbs starts
 LCG = """local s = 12345
@@ -125,10 +124,11 @@ def assert_same(a, b):
 
 def test_command_sets_prints_and_rejects_junk(env):
     g = make(env)
-    assert g.db.unknownOrigin == "off"
+    assert g.ns.defaults.unknownOrigin == "wide"
+    g.db.unknownOrigin = "wide"  # make() pins "off" on the live db
     g.slash("unknown")
-    assert chat_lines(g)[-1].endswith("unknown origin: off")
-    for w in ("wide", "late", "inplace", "off"):
+    assert chat_lines(g)[-1].endswith("unknown origin: wide")
+    for w in ("off", "wide"):
         g.slash("unknown " + w)
         assert g.db.unknownOrigin == w and chat_lines(g)[-1].endswith(
             "unknown origin: " + w
@@ -136,44 +136,52 @@ def test_command_sets_prints_and_rejects_junk(env):
     g.slash("unknown wide")
     g.slash("unknown sideways")
     assert g.db.unknownOrigin == "wide"
-    assert "use off, wide, late or inplace" in chat_lines(g)[-1]
+    assert "use off or wide" in chat_lines(g)[-1]
 
 
 def test_help_mentions_the_command(env):
     g = make(env)
     g.slash("help")
     assert any(
-        "/xporbs unknown off|wide|late|inplace" in line for line in chat_lines(g)
+        "/xporbs unknown wide|off" in line for line in chat_lines(g)
     )
 
 
-@pytest.mark.parametrize("saved", ["wide", "late", "inplace", "off"])
+@pytest.mark.parametrize("saved", ["wide", "off"])
 def test_initdb_keeps_valid_values(env, saved):
     assert load(env, {"version": 5, "unknownOrigin": saved}).unknownOrigin == saved
 
 
-@pytest.mark.parametrize("junk", ["widee", "", 3, True])
-def test_initdb_resets_junk_to_off(env, junk):
-    assert load(env, {"version": 5, "unknownOrigin": junk}).unknownOrigin == "off"
+@pytest.mark.parametrize("junk", ["late", "inplace", "widee", "", 3, True])
+def test_initdb_resets_old_variants_and_junk_to_wide(env, junk):
+    assert load(env, {"version": 5, "unknownOrigin": junk}).unknownOrigin == "wide"
 
 
-def test_initdb_defaults_to_off_when_missing(env):
-    assert load(env, {"version": 5}).unknownOrigin == "off"
+def test_initdb_defaults_to_wide_when_missing(env):
+    assert load(env, {"version": 5}).unknownOrigin == "wide"
 
 
-def test_reset_restores_off(env):
+def test_removed_variants_are_rejected_by_the_command(env):
     g = make(env)
-    g.slash("unknown late")
+    g.db.unknownOrigin = "wide"
+    for w in ("late", "inplace"):
+        g.slash("unknown " + w)
+        assert g.db.unknownOrigin == "wide" and "use off or wide" in chat_lines(g)[-1]
+
+
+def test_reset_restores_wide(env):
+    g = make(env)
+    g.slash("unknown off")
     g.slash("reset")
-    assert g.db.unknownOrigin == "off"
+    assert g.db.unknownOrigin == "wide"
 
 
 def test_status_has_its_own_line_and_the_orbs_line_is_unchanged(env):
     g = make(env)
-    g.slash("unknown inplace")
+    g.slash("unknown off")
     g.slash("status")
     lines = chat_lines(g)
-    assert any(line.endswith("unknown origin: inplace") for line in lines)
+    assert any(line.endswith("unknown origin: off") for line in lines)
     assert any("orbs: driver=" in line and "unknown" not in line for line in lines)
 
 
@@ -182,19 +190,20 @@ def test_test_command_reports_the_variant_only_when_applied(env):
     g.stub.plates["target"] = restricted_plate(g)
     g.stub.units["target"] = g.env.lua.table_from({"guid": "G1", "isTarget": True})
     g.stub.setTargetFrame(250, 900, True)
+    g.slash("unknown off")
     g.slash("test 5 mob")
     assert "est=default" in chat_lines(g)[-1] and "unknown=" not in chat_lines(g)[-1]
     settle(g)
-    g.slash("unknown late")
+    g.slash("unknown wide")
     g.slash("test 5 mob")
-    assert chat_lines(g)[-1].endswith("style=mob unknown=late")
+    assert chat_lines(g)[-1].endswith("style=mob unknown=wide")
     settle(g)
     g.slash("test 5 stream")  # no plate-space copy: the setting does not apply
     assert chat_lines(g)[-1].endswith("style=stream")
     settle(g)
     g.slash("test 5 popstream")
-    assert chat_lines(g)[-1].endswith("style=popstream unknown=late")
-    assert g.orbs.lastUnknown == "late"
+    assert chat_lines(g)[-1].endswith("style=popstream unknown=wide")
+    assert g.orbs.lastUnknown == "wide"
 
 
 # ---------------------------------------------------------------- off is today's behaviour
@@ -205,12 +214,12 @@ def test_off_keeps_the_small_start_disc_and_the_profile_windows(env):
     fire(g, "popstream")
     (o,) = live_recs(g)
     assert math.hypot(o.x0 - ORIGIN[0], o.y0 - ORIGIN[1]) <= 6  # START_RADIUS
-    assert (o.sx, o.sy, o.s0, o.s1, o.ip) == (0, 0, 0, 0, False)
+    assert (o.sx, o.sy, o.s0, o.s1) == (0, 0, 0, 0)
     settle(g)
     for style, window in (("crossfade", (0.12, 0.30)), ("mob", (0.04, 0.20))):
         fire(g, style)
         (o,) = live_recs(g)
-        assert (o.sx, o.sy, o.s0, o.s1, o.ip) == (0, 0, window[0], window[1], False)
+        assert (o.sx, o.sy, o.s0, o.s1) == (0, 0, window[0], window[1])
         if style == "crossfade":
             assert math.hypot(o.x0 - ORIGIN[0], o.y0 - ORIGIN[1]) == pytest.approx(
                 18
@@ -239,12 +248,12 @@ def test_other_estimates_ignore_the_setting(env, style, kw):
         kw["est"] = "other-source"
     times = [0.1, 0.3, 0.5, 0.7, 1.0, 1.4]
     base = snapshot(g, style, "off", times, **kw)
-    for setting in ("wide", "late", "inplace"):
+    for setting in ("wide",):
         assert_same(snapshot(g, style, setting, times, **kw), base)
         assert g.orbs.lastUnknown is None
 
 
-@pytest.mark.parametrize("setting", ["wide", "late", "inplace"])
+@pytest.mark.parametrize("setting", ["wide"])
 def test_kind_other_and_the_plain_stream_ignore_the_setting(env, setting):
     g = make(env)
     times = [0.1, 0.4, 0.8, 1.2]
@@ -258,7 +267,7 @@ def test_kind_other_and_the_plain_stream_ignore_the_setting(env, setting):
 
 
 @pytest.mark.parametrize("style", PLATE_STYLES)
-@pytest.mark.parametrize("setting", ["wide", "late", "inplace"])
+@pytest.mark.parametrize("setting", ["wide"])
 def test_stream_starts_spread_over_the_ellipse(env, style, setting):
     env.lua.execute(LCG)
     g = make(env, fixed_random=False)
@@ -311,108 +320,33 @@ def test_wide_keeps_the_crossfade_window(env, style):
     fire(g, style, "wide")
     (o,) = live_recs(g)
     assert (o.s0, o.s1) == ({"crossfade": (0.12, 0.30), "mob": (0.04, 0.20)}[style])
-    assert o.ip is False
 
 
-# ---------------------------------------------------------------- late
-
-
-def test_late_popstream_reveals_the_stream_late_and_leaves_the_pop_alone(env):
-    g = make(env)
-    base = snapshot(g, "popstream", "off", [0.1, 0.25, 0.34])
-    fire(g, "popstream", "late")
-    clock = Clock(g, "popstream")
-    for t, off in zip([0.1, 0.25, 0.34], base):
-        clock.to(t)
-        pops = sorted((0, t_.alpha, *pos(t_)) for t_ in a_orbs(g))
-        assert [v for row in pops for v in row] == pytest.approx(
-            off[: len(pops) * 4], abs=1e-6
-        )  # the pop: same
-    clock.at_p(FROM - 0.01)
-    assert b_orbs(g) == []
-    clock.at_p(FROM + 0.075)  # half way: smoothstep is exactly 0.5
-    assert b_orbs(g)[0].alpha == pytest.approx(0.5, abs=0.02)
-    clock.at_p(TO + 0.01)
-    assert b_orbs(g)[0].alpha == pytest.approx(1.0, abs=1e-6)
+@pytest.mark.parametrize("zoom,factor", [(15, 1.0), (5, 2.0), (1, 2.0), (35, 0.5), (50, 0.5), (10, 4 / 3), (25, 2 / 3)])
+def test_ellipse_scales_with_camera_zoom(env, zoom, factor):
+    env.lua.execute(LCG)
+    g = make(env, fixed_random=False)
+    g.stub.zoom = zoom
+    fire(g, "popstream", "wide", n=60)
+    norms = [math.hypot((o.x0 - ORIGIN[0]) / RX, (o.y0 - ORIGIN[1]) / RY) for o in live_recs(g)]
+    assert max(norms) <= factor + 1e-9 and max(norms) > factor * 0.85
     settle(g)
 
 
-@pytest.mark.parametrize("style", ["crossfade", "mob"])
-def test_late_moves_the_crossfade_window(env, style):
-    g = make(env)
-    fire(g, style, "late")
-    (o,) = live_recs(g)
-    assert (o.s0, o.s1) == (FROM, TO) and o.ip is False
-    clock = Clock(g, style)
-    clock.at_p(FROM - 0.02)
-    assert b_orbs(g) == [] and a_orbs(g)[0].alpha == pytest.approx(1.0, abs=1e-6)
-    clock.at_p((FROM + TO) / 2)
-    assert a_orbs(g)[0].alpha == pytest.approx(math.sqrt(0.5), abs=0.02)
-    assert b_orbs(g)[0].alpha == pytest.approx(math.sqrt(0.5), abs=0.02)
-    clock.at_p(TO + 0.02)
-    assert a_orbs(g) == [] and b_orbs(g)[0].alpha == pytest.approx(1.0, abs=1e-6)
-    settle(g)
-
-
-# ---------------------------------------------------------------- inplace
-
-
-@pytest.mark.parametrize("style", ["crossfade", "mob"])
-def test_inplace_plate_copy_stays_put_and_fades_out_by_the_reveal(env, style):
-    g = make(env)
-    fire(g, style, "inplace")
-    (o,) = live_recs(g)
-    assert o.ip is True and (o.s0, o.s1) == (FROM, TO)
-    clock = Clock(g, style)
-    clock.to(TIMELINE[style][0] - 0.002)
-    (a,) = a_orbs(g)
-    rest = pos(a)
-    for p in (0.02, 0.08, 0.15, 0.2):
-        clock.at_p(p)
-        (a,) = a_orbs(g)
-        assert pos(a) == pytest.approx(rest, abs=0.05)  # fixed on the plate
-        assert a.alpha == pytest.approx(1 - p / FROM, abs=0.03)
-        assert b_orbs(g) == []
-    clock.at_p(FROM + 0.005)
-    assert a_orbs(g) == []  # fully faded by the time the reveal starts
-    clock.at_p((FROM + TO) / 2)
-    assert a_orbs(g) == []
-    assert b_orbs(g)[0].alpha == pytest.approx(0.5, abs=0.02)
-    clock.at_p(TO + 0.02)
-    assert b_orbs(g)[0].alpha == pytest.approx(1.0, abs=1e-6)
-    settle(g)
-
-
-def test_inplace_popstream_pop_has_no_exit_vector_and_the_stream_is_late(env):
-    g = make(env)
-    ends = {}
-    for setting in ("late", "inplace"):
-        fire(g, "popstream", setting, n=4)
-        g.stub.tick(0.495)  # pop p = 0.9, well into the exit
-        pops = [pos(t_) for t_ in a_orbs(g)]
-        ends[setting] = (
-            sum(p[0] for p in pops) / len(pops),
-            sum(p[1] for p in pops) / len(pops),
-        )
-        settle(g)
-    # late keeps today's drift: 140 px * q^2 (q = 0.818) along the exit vector; inplace has none
-    drift = math.hypot(
-        ends["late"][0] - ends["inplace"][0], ends["late"][1] - ends["inplace"][1]
-    )
-    assert drift == pytest.approx(140 * ((0.9 - 0.45) / 0.55) ** 2, abs=1.0)
-    fire(g, "popstream", "inplace")
-    clock = Clock(g, "popstream")
-    clock.at_p(FROM - 0.01)
-    assert b_orbs(g) == []
-    clock.at_p(TO + 0.01)
-    assert b_orbs(g)[0].alpha == pytest.approx(1.0, abs=1e-6)
+def test_unreadable_zoom_leaves_the_ellipse_unscaled(env):
+    env.lua.execute(LCG)
+    g = make(env, fixed_random=False)
+    g.stub.zoom = g.stub.SECRET
+    fire(g, "popstream", "wide", n=60)
+    norms = [math.hypot((o.x0 - ORIGIN[0]) / RX, (o.y0 - ORIGIN[1]) / RY) for o in live_recs(g)]
+    assert max(norms) <= 1.0 + 1e-9 and max(norms) > 0.85
     settle(g)
 
 
 # ---------------------------------------------------------------- pools and the driver
 
 
-@pytest.mark.parametrize("setting", ["wide", "late", "inplace"])
+@pytest.mark.parametrize("setting", ["wide"])
 @pytest.mark.parametrize("style", PLATE_STYLES)
 def test_everything_is_idle_after_a_variant_burst(env, style, setting):
     env.lua.execute(LCG)
@@ -428,11 +362,11 @@ def test_everything_is_idle_after_a_variant_burst(env, style, setting):
 
 def test_pooled_records_do_not_leak_a_variant_into_the_next_burst(env):
     g = make(env)
-    fire(g, "mob", "inplace")
+    fire(g, "mob", "wide")
     settle(g)
     fire(g, "popstream", "off")
     (o,) = live_recs(g)
-    assert (o.sx, o.sy, o.s0, o.s1, o.ip) == (0, 0, 0, 0, False)
+    assert (o.sx, o.sy, o.s0, o.s1) == (0, 0, 0, 0)
     settle(g)
 
 
@@ -441,8 +375,8 @@ def test_driver_allocates_nothing_per_frame_in_a_variant_burst(env, style):
     env.lua.execute(LCG)
     g = make(env, fixed_random=False, trail=True)
     g.db.flightTime = 1.5
-    g.db.unknownOrigin = "inplace"
-    fire(g, style, "inplace", n=20)
+    g.db.unknownOrigin = "wide"
+    fire(g, style, "wide", n=20)
     g.db.flightTime = 1.5
     g.tick(0.016, 3)
     assert g.orbs.Info(g.orbs)[1] > 15
