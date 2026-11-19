@@ -7,7 +7,7 @@ import math
 import pytest
 from test_m5 import build, ctl, show
 from test_migration import load
-from test_p2_unknown import LCG, ORIGIN, fire, live_recs, settle
+from test_p2_unknown import LCG, ORIGIN, RX, RY, fire, live_recs, settle
 from test_v09 import chat_lines, make, pop_frames, restricted_plate, stream_textures
 
 BORN, BLOOM, LAUNCH_SPAN = 0.03, 0.16, 0.20
@@ -105,7 +105,7 @@ def test_births_within_30_ms_at_the_start_point_and_ring_radius(env):
         (o.px, o.py) == pytest.approx(ORIGIN) for o in recs
     )  # one centre without the unknown spread
     rad = [math.hypot(o.ax - o.px, o.ay - o.py) for o in recs]
-    assert min(rad) >= 14 - 1e-6 and max(rad) <= 26 + 1e-6 and max(rad) - min(rad) > 6
+    assert min(rad) >= 18 - 1e-6 and max(rad) <= 30 + 1e-6 and max(rad) - min(rad) > 6
     g.stub.tick(
         0.001
     )  # only the earliest-born orbs are alive, and they have not left the start point yet
@@ -119,7 +119,7 @@ def test_births_within_30_ms_at_the_start_point_and_ring_radius(env):
     g.stub.tick(0.12)  # t = 0.151: the pop has nearly formed and nobody has launched yet (the first is at 0.16)
     shown = orb_textures(g)
     assert all(
-        10 <= math.hypot(pos(t)[0] - ORIGIN[0], pos(t)[1] - ORIGIN[1]) <= 32
+        10 <= math.hypot(pos(t)[0] - ORIGIN[0], pos(t)[1] - ORIGIN[1]) <= 36
         for t in shown
     )
     settle(g)
@@ -197,18 +197,17 @@ def test_nothing_flies_back_through_the_centre(env):
 # ---------------------------------------------------------------- unknown origin
 
 
-def test_unknown_origin_wide_spreads_the_ring_centres_and_off_does_not(env):
+def test_unknown_origin_wide_shares_one_ellipse_centre_and_off_does_not(env):
     env.lua.execute(LCG)
     g = make(env, fixed_random=False)
     fire(g, "streampop", "wide", n=30, est="default")
-    centres = [(o.px, o.py) for o in live_recs(g)]
-    assert (
-        max(math.hypot(a[0] - b[0], a[1] - b[1]) for a in centres for b in centres) > 40
-    )  # over the ellipse
-    for o in live_recs(g):
-        assert (
-            math.hypot(o.ax - o.px, o.ay - o.py) <= 26 + 1e-6
-        )  # each ring is centred on its own point
+    recs = live_recs(g)
+    c0 = (recs[0].px, recs[0].py)
+    assert all((o.px, o.py) == pytest.approx(c0) for o in recs)  # one shared pop centre, concentric rings
+    ex, ey = (c0[0] - ORIGIN[0]) / RX, (c0[1] - ORIGIN[1]) / RY
+    assert ex**2 + ey**2 <= 1 + 1e-6  # inside the ellipse
+    for o in recs:
+        assert 18 - 1e-6 <= math.hypot(o.ax - o.px, o.ay - o.py) <= 30 + 1e-6  # each ring around the shared centre
     assert g.orbs.lastUnknown == "wide"
     settle(g)
     fire(g, "streampop", "off", n=30, est="default")

@@ -148,23 +148,24 @@ local UNKNOWN = { rx = 0.064, ry = 0.04, zRef = 15, zK = 5, fMin = 0.5, fMax = 2
 -- launchSpan s from launch0. The first control point leaves along the ring angle blended (cBlend of it, the rest
 -- towards the bar) so nothing flies back through the middle. cx/cy (ring centre: the start point, or the orb's own
 -- unknown-origin ellipse point), ang, rx/ry (ring point) and hd (hold) are per-burst scratch arrays (see plan).
-local SP_PROFILE = { born = 0.03, bloom = 0.16, bsize = 1.5, fadeIn = 0.05, rmin = 14, rmax = 26, launch0 = 0.16,
+local SP_PROFILE = { born = 0.03, bloom = 0.16, bsize = 1.5, fadeIn = 0.05, rmin = 18, rmax = 30, launch0 = 0.16,
     launchSpan = 0.20, jlo = 0.94, jspan = 0.12, driftUp = 15, driftOut = 8, cBlend = 0.6, cx = {}, cy = {}, ang = {},
     rx = {}, ry = {}, hd = {} }
 XF_PROFILE.sp = SP_PROFILE -- reached through XF_PROFILE from Burst, which cannot take another upvalue
 
--- Per-burst plan of n orbs around (x, y): ring centres (uv > 0: spread over the zoom-scaled unknown-origin ellipse,
--- scale f), ring points and launch holds ordered by distance from the ring point to (dx, dy).
+-- Per-burst plan of n orbs around (x, y): the ring centre (uv > 0: one random point of the zoom-scaled unknown-origin
+-- ellipse, scale f, shared by every orb), ring points and launch holds ordered by distance from the ring point to
+-- (dx, dy).
 function SP_PROFILE.plan(n, x, y, dx, dy, uv, f)
     local m = SP_PROFILE
     local dist, idx = {}, {}
+    local cx, cy = x, y
+    if uv > 0 then -- one random point of the ellipse is the shared pop centre, so the pop keeps its ring shape
+        local a, rr = random() * TWO_PI, sqrt(random())
+        cx = x + cos(a) * rr * UNKNOWN.rx * f * UIParent:GetWidth()
+        cy = y + sin(a) * rr * UNKNOWN.ry * f * UIParent:GetHeight()
+    end
     for i = 1, n do
-        local cx, cy = x, y
-        if uv > 0 then
-            local a, rr = random() * TWO_PI, sqrt(random())
-            cx = x + cos(a) * rr * UNKNOWN.rx * f * UIParent:GetWidth()
-            cy = y + sin(a) * rr * UNKNOWN.ry * f * UIParent:GetHeight()
-        end
         local ang = OrbMath.RingAngle(i, n, random)
         local rad = m.rmin + random() * (m.rmax - m.rmin)
         local rx, ry = cx + cos(ang) * rad, cy + sin(ang) * rad
@@ -1248,7 +1249,7 @@ function Orbs:Burst(p)
                 local ang, rad = random() * TWO_PI, START_RADIUS * sqrt(random())
                 o.x0, o.y0 = x + cos(ang) * rad, y + sin(ang) * rad
             end
-            placeUnknown(o, sp and 0 or uv, x, y, uf) -- (stream pop spread its own ring centres in plan)
+            placeUnknown(o, sp and 0 or uv, x, y, uf) -- (stream pop picked its shared ring centre in plan)
             if sp then
                 -- leave along the ring angle blended towards the bar (nobody flies back through the middle)
                 local ang, k = prof.ang[i], prof.cBlend
