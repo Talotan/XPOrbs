@@ -100,21 +100,25 @@ def tone_comet(art_arr):
 def frame(art):
     """Square art in a baked gold rounded-square frame, to match the neighbouring AddOns-list icons.
 
-    Geometry is in 64 px texture units, chosen so the ~20 px list display gets a 2 px gold frame, a 1 px dark line
-    inside it and a 3 px corner radius (x3.2 each). Rendered at 8x with an analytic rounded-rect distance field and
-    box-downscaled, so the corners are cleanly antialiased and transparent outside.
+    Geometry is in 64 px texture units, chosen so the ~20 px list display gets a ~1.6 px gold frame running
+    straight into the navy fill (no dark line) and a 2.5 px corner radius (x3.2 each). Rendered at 8x with an analytic
+    rounded-rect distance field and box-downscaled, so the corners are cleanly antialiased and transparent outside.
     """
     k = 8
     n = SIZE * k
-    gold_w, line_w, radius = 6.4 * k, 3.2 * k, 9.6 * k
+    gold_w, line_w, radius = 5.2 * k, 0.0, 8 * k
     ys, xs = (np.mgrid[0:n, 0:n] + 0.5)
     half = n / 2
     qx, qy = np.abs(xs - half) - (half - radius), np.abs(ys - half) - (half - radius)
     dist_out = np.hypot(np.maximum(qx, 0), np.maximum(qy, 0)) + np.minimum(np.maximum(qx, qy), 0) - radius
     depth = -dist_out  # distance in from the edge
     # gold sampled from the neighbouring icons' frames: lit top-left, shaded bottom-right
-    t = (xs + ys) / (2 * n)
-    gold = _lerp_stops(t, [(0, (240, 221, 164)), (0.45, (213, 176, 95)), (1, (182, 127, 26))])
+    t = 0.3 * xs / n + 0.7 * ys / n
+    gold = _lerp_stops(
+        t,
+        [(0, (240, 221, 164)), (0.15, (214, 196, 140)), (0.35, (170, 148, 100)), (0.6, (192, 136, 34)),
+         (1, (178, 124, 24))],
+    )
     # dark navy fill (neighbours: ~#1e2438 at the top down to ~#0f121d), then the toned-down comet on it
     v = np.clip((ys - gold_w - line_w) / (n - 2 * (gold_w + line_w)), 0, 1)[..., None]
     navy = np.array([33.0, 39.0, 62.0]) * (1 - v) + np.array([13.0, 16.0, 28.0]) * v
