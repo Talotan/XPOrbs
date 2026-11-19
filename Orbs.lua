@@ -89,15 +89,17 @@ local XF_EASE_OUT = 0.25 -- ease-out weight of the crossfade launch (PopEase def
 -- hold: base seconds before the flight; rmin/rmax/drift: ring radius range and extra upward drift of the ring point.
 local XF_PROFILE = { s0 = XF_START, s1 = XF_END, bloom = XF_HOLD, bsize = XF_BLOOM_SIZE, fadeIn = XF_FADE_IN,
     flight = XF_FLIGHT, ease = XF_EASE_OUT, hold = XF_HOLD, rmin = XF_BLOOM_R, rmax = XF_BLOOM_R, drift = 0 }
--- Mob style: one burst of orbs at the mob (like the pop, all born within MOB_BORN). Orbs launch in order, nearest to
--- the bar first: hold = launch0 + launchSpan * rank / (n - 1) + up to launchJitter. The ring radius (POP_R_MIN..MAX
+-- Wide burst style (db.style "wide", once "mob"): one burst of orbs at the mob (like the pop, all born within
+-- MOB_BORN). Orbs launch in order, nearest to the bar first: hold = launch0 + launchSpan * rank / (n - 1) + up to
+-- launchJitter. The ring radius (POP_R_MIN..MAX
 -- plus POP_DRIFT) is per orb; the bloom ends at `bloom`, then the orb keeps drifting (dv: up 15 px/s, out 8 px/s along
 -- its ring angle) until its launch, and the flight starts exactly where the drift ends. Flight time jitter is narrow
 -- (jlo + jspan * random) so later orbs don't overtake earlier ones. The crossfade is early and quick (flight p
--- 0.04..0.20) so a good P-hat makes the hand-off invisible. ring/ang/hold are per-burst scratch arrays (see mobPlan).
+-- 0.04..0.20) so a good P-hat makes the hand-off invisible. Bloom and launches are kept short so the pause before the
+-- hand-off is small. ring/ang/hold are per-burst scratch arrays (see mobPlan).
 local MOB_BORN = 0.04
-local MOB_PROFILE = { s0 = 0.04, s1 = 0.20, bloom = 0.30, bsize = 1.4, fadeIn = 0.06, flight = 1.1, ease = 0.35,
-    hold = 0.30, rmin = POP_R_MIN, rmax = POP_R_MAX, drift = POP_DRIFT, launch0 = 0.30, launchSpan = 0.30,
+local MOB_PROFILE = { s0 = 0.04, s1 = 0.20, bloom = 0.18, bsize = 1.4, fadeIn = 0.06, flight = 1.1, ease = 0.35,
+    hold = 0.18, rmin = POP_R_MIN, rmax = POP_R_MAX, drift = POP_DRIFT, launch0 = 0.18, launchSpan = 0.22,
     launchJitter = 0.03, jlo = 0.94, jspan = 0.12, driftUp = 15, driftOut = 8, rx = {}, ry = {}, ang = {}, hd = {} }
 
 -- Ring points, angles and launch holds for a mob burst of n orbs around (x, y); ordered by distance to (dx, dy).
@@ -925,7 +927,10 @@ local function lighten(c)
 end
 
 local function styleOf(v)
-    if v == "crossfade" or v == "stream" or v == "popstream" or v == "mob" then
+    if v == "mob" then
+        return "wide" -- the old name of the wide burst
+    end
+    if v == "popstream" or v == "wide" or v == "crossfade" or v == "stream" then
         return v
     end
     return "popstream"
@@ -958,7 +963,7 @@ end
 -- kind=, plate= (optional nameplate of the dead mob), style= (optional override of db.style),
 -- ex=, ey= (P-hat, the estimated mob position in UIParent coords; default = MobEstimate.Default), est=, estW= (source
 -- label and mouseover weight, informational) }. n < 1 is a no-op.
--- Returns "pop+stream" | "crossfade" | "mob" | "stream".
+-- Returns "pop+stream" | "wide" | "crossfade" | "stream".
 function Orbs:Burst(p)
     if type(p) ~= "table" or type(p.n) ~= "number" or p.n < 1 then
         return
@@ -1004,7 +1009,7 @@ function Orbs:Burst(p)
     if p.plate ~= nil and style == "popstream" then
         local ux, uy = OrbMath.ExitVector(x, y, px, py, dx, dy)
         popped = startPop(p.plate, n, scale, nPurple, ux, uy, zy)
-    elseif p.plate ~= nil and (style == "crossfade" or style == "mob") then
+    elseif p.plate ~= nil and (style == "crossfade" or style == "wide") then
         xg = startXf(p.plate, zy)
     end
     if xg then
@@ -1032,7 +1037,7 @@ function Orbs:Burst(p)
         nPurple = floor(nPurple * fit / n + 0.5)
         n = fit
     end
-    local mob = xg ~= nil and style == "mob"
+    local mob = xg ~= nil and style == "wide"
     local prof = mob and MOB_PROFILE or XF_PROFILE
     local extra = popped and STREAM_DELAY or 0
     local stagger = (popped or xg) and STAGGER_POP or STAGGER
@@ -1174,7 +1179,7 @@ function Orbs:Burst(p)
         error(err, 0) -- Kills logs it; everything above is already back in its pool
     end
     if xg then
-        return mob and "mob" or "crossfade"
+        return mob and "wide" or "crossfade"
     end
     return popped and "pop+stream" or "stream"
 end
@@ -1316,7 +1321,8 @@ local function startStress(arg)
     ns.Print(string.format("stress: %d test bursts over about %g s", n, STRESS_TIME))
 end
 
--- /xporbs test [pct] [rested] [popstream|crossfade|stream|mob]  (the old "frame" / "plate" words are ignored)
+-- /xporbs test [pct] [rested] [popstream|wide|crossfade|stream]  ("mob" = wide; the old "frame" / "plate" words
+-- are ignored)
 -- /xporbs test stress [n]
 function ns.commands.test(arg)
     local first, count = string.match(arg or "", "^%s*(%S+)%s*(%S*)")
@@ -1329,8 +1335,10 @@ function ns.commands.test(arg)
     for tok in string.gmatch(arg or "", "%S+") do
         if tok == "rested" then
             rested = true
-        elseif tok == "popstream" or tok == "crossfade" or tok == "stream" or tok == "mob" then
+        elseif tok == "popstream" or tok == "wide" or tok == "crossfade" or tok == "stream" then
             force = tok
+        elseif tok == "mob" then
+            force = "wide"
         elseif tok ~= "frame" and tok ~= "plate" then
             local v = tonumber(tok)
             if v and v > 0 then
@@ -1341,7 +1349,7 @@ function ns.commands.test(arg)
     Orbs.lastUnknown = nil
     local n, scale, nPurple, est, estW, mode, label = fireTest(pct, rested, force)
     local used = mode == "pop+stream" and "popstream" or mode
-    if mode == "crossfade" or mode == "mob" then
+    if mode == "crossfade" or mode == "wide" then
         label = "estimated"
     end
     ns.Print(string.format("test: %g%% of a level -> %d orbs (%d purple), scale %.2f, est=%s w=%.2f pop=%s stream=%s"
@@ -1417,14 +1425,17 @@ function Orbs:SoundDisabled()
     return soundDead
 end
 
--- /xporbs style popstream|crossfade|stream|mob  (/xporbs pop on|off = alias for popstream|stream)
+-- /xporbs style popstream|wide|crossfade|stream  ("mob" = wide; /xporbs pop on|off = alias for popstream|stream)
 function ns.commands.style(arg)
     local w = string.match(arg or "", "%S+")
-    if w == "popstream" or w == "crossfade" or w == "stream" or w == "mob" then
+    if w == "mob" then
+        w = "wide"
+    end
+    if w == "popstream" or w == "wide" or w == "crossfade" or w == "stream" then
         db().style = w
         refreshPanel()
     elseif w ~= nil then
-        ns.Print("style: use popstream, crossfade, stream or mob")
+        ns.Print("style: use popstream, wide, crossfade or stream")
         return
     end
     ns.Print("kill style: " .. styleOf(db().style))

@@ -309,7 +309,7 @@ def test_style_and_pop_commands_persist_and_toggle(env):
     g.slash("style crossfade")
     assert g.db.style == "crossfade" and "crossfade" in chat_lines(g)[-1]
     g.slash("style bogus")
-    assert g.db.style == "crossfade" and "use popstream, crossfade, stream or mob" in chat_lines(g)[-1]
+    assert g.db.style == "crossfade" and "use popstream, wide, crossfade or stream" in chat_lines(g)[-1]
     g.slash("style")
     assert "kill style: crossfade" in chat_lines(g)[-1]
     g.slash("pop off")

@@ -299,8 +299,9 @@ def test_scroll_frame_without_any_template_still_scrolls(env):
         ("glow", 700),
         ("glowShape", 522),
         ("style_popstream", 800),
-        ("style_crossfade", 846),
-        ("style_stream", 892),
+        ("style_wide", 846),
+        ("style_crossfade", 892),
+        ("style_stream", 938),
         ("targetFrame", 1024),
         ("debug", 1162),
     ],
@@ -388,10 +389,11 @@ def test_label_rename(m):
 
 
 def test_style_radios_use_the_radio_template_and_each_has_a_description(m):
-    descs = {st: m.opt.descs[st] for st in ("popstream", "crossfade", "stream")}
+    descs = {st: m.opt.descs[st] for st in ("popstream", "wide", "crossfade", "stream")}
     texts = {st: d.text for st, d in descs.items()}
     assert texts == {
         "popstream": "A burst at the corpse, then a stream to the bar.",
+        "wide": "A wide burst at the corpse that peels off into a stream to the bar.",
         "crossfade": "Orbs bloom at the corpse, then fly straight to the bar.",
         "stream": "A plain stream from the target frame to the bar.",
     }
@@ -401,6 +403,7 @@ def test_style_radios_use_the_radio_template_and_each_has_a_description(m):
         not raw(m)(objs[0], objs[1])
         and not raw(m)(objs[1], objs[2])
         and not raw(m)(objs[0], objs[2])
+        and not raw(m)(objs[2], objs[3])
     )
     for st in descs:
         assert ctl(m, "style_" + st).template == "UIRadioButtonTemplate"
@@ -416,8 +419,9 @@ def test_style_description_positions(m):
     d = m.opt.descs
     for st, y in (
         ("popstream", 800 + 24),
-        ("crossfade", 846 + 24),
-        ("stream", 892 + 24),
+        ("wide", 846 + 24),
+        ("crossfade", 892 + 24),
+        ("stream", 938 + 24),
     ):
         pt = d[st].points[1]
         assert (pt[4], pt[5]) == (56, -y) and d[

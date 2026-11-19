@@ -25,14 +25,14 @@ local ICON_ATLAS = "transmog-icon-revert"
 local ICON_FALLBACK = "Interface\\Buttons\\UI-RefreshButton"
 local HILITE = "Interface\\Buttons\\ButtonHilight-Square"
 
-local STYLES = { "popstream", "crossfade", "stream", "mob" }
-local STYLE_NAME = { popstream = "Popstream (default)", crossfade = "Crossfade", stream = "Stream",
-    mob = "At the mob (new)" }
+local STYLES = { "popstream", "wide", "crossfade", "stream" }
+local STYLE_NAME = { popstream = "Popstream (default)", wide = "Wide burst", crossfade = "Crossfade",
+    stream = "Stream" }
 local STYLE_DESC = {
     popstream = "A burst at the corpse, then a stream to the bar.",
+    wide = "A wide burst at the corpse that peels off into a stream to the bar.",
     crossfade = "Orbs bloom at the corpse, then fly straight to the bar.",
     stream = "A plain stream from the target frame to the bar.",
-    mob = "A wide burst at the corpse that peels off into a stream to the bar.",
 }
 local SHAPES = { "bar", "round" }
 local SHAPE_NAME = { bar = "Horizontal", round = "Circular" }
