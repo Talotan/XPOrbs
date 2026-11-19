@@ -1,7 +1,7 @@
 """Build media/icon.tga (minimap button) and media/icon-list.tga (AddOns list, compartment) from docs/images/icon.png.
 
 icon.tga is borderless (LibDBIcon draws its own round ring). icon-list.tga is the same art filling a square with a baked
-spell-icon style frame (1 px dark outline, 3 px bevel lit from the top-left, 1 px inner shade, rounded corners),
+gold rounded-square frame with a dark inner line and navy fill (like the neighbouring list icons),
 because the AddOns list draws the toc IconTexture with no frame of its own.
 
 Run: uv run --with pillow --with numpy python tools/make_icon.py [--purple]
@@ -74,27 +74,69 @@ def purple(im):
     return Image.fromarray(hsv.astype(np.uint8), "HSV").convert("RGB")
 
 
+def _lerp_stops(t, stops):
+    """Piecewise-linear colour ramp: stops is [(t, (r, g, b)), ...]; t is an array in 0..1."""
+    xs = [s[0] for s in stops]
+    return np.stack([np.interp(t, xs, [s[1][c] for s in stops]) for c in range(3)], -1)
+
+
+def tone_comet(art_arr):
+    """Pull the comet down so it sits with its neighbours: smaller halo, core capped well below white.
+
+    Subtracts the art's own navy, darkens the halo with a gamma, then soft-knees each channel to a per-channel
+    ceiling (core ~ 188/208/214, a pale blue rather than white-hot).
+    """
+    glow = np.clip(art_arr - np.array([10.0, 15.0, 36.0]), 0, None) / 245.0
+    glow = glow**1.45
+    cap = np.array([188.0, 208.0, 214.0])
+    knee = 0.62  # fraction of the cap where compression starts
+    v = glow * 255.0
+    lo = cap * knee
+    over = np.clip((v - lo) / (cap - lo), 0, None)
+    v = np.where(v > lo, lo + (cap - lo) * np.tanh(over) * 1.0, v)
+    return np.minimum(v, cap)
+
+
 def frame(art):
-    """Square art with a baked bevelled spell-icon border; built at 4x and downscaled for smooth corners."""
-    k = 4
+    """Square art in a baked gold rounded-square frame, to match the neighbouring AddOns-list icons.
+
+    Geometry is in 64 px texture units, chosen so the ~20 px list display gets a 2 px gold frame, a 1 px dark line
+    inside it and a 3 px corner radius (x3.2 each). Rendered at 8x with an analytic rounded-rect distance field and
+    box-downscaled, so the corners are cleanly antialiased and transparent outside.
+    """
+    k = 8
     n = SIZE * k
+    gold_w, line_w, radius = 6.4 * k, 3.2 * k, 9.6 * k
+    ys, xs = (np.mgrid[0:n, 0:n] + 0.5)
+    half = n / 2
+    qx, qy = np.abs(xs - half) - (half - radius), np.abs(ys - half) - (half - radius)
+    dist_out = np.hypot(np.maximum(qx, 0), np.maximum(qy, 0)) + np.minimum(np.maximum(qx, qy), 0) - radius
+    depth = -dist_out  # distance in from the edge
+    # gold sampled from the neighbouring icons' frames: lit top-left, shaded bottom-right
+    t = (xs + ys) / (2 * n)
+    gold = _lerp_stops(t, [(0, (240, 221, 164)), (0.45, (213, 176, 95)), (1, (182, 127, 26))])
+    # dark navy fill (neighbours: ~#1e2438 at the top down to ~#0f121d), then the toned-down comet on it
+    v = np.clip((ys - gold_w - line_w) / (n - 2 * (gold_w + line_w)), 0, 1)[..., None]
+    navy = np.array([33.0, 39.0, 62.0]) * (1 - v) + np.array([13.0, 16.0, 28.0]) * v
+    inner = (n - 2 * gold_w - 2 * line_w) / n
+    w0, h0 = art.size
+    art = art.crop((w0 // 12, h0 // 12, w0 - w0 // 12, h0 - h0 // 12))  # ~1.2x zoom: the comet reads bigger at 20 px
     a = np.asarray(art.resize((n, n), Image.Resampling.LANCZOS).convert("RGB"), float)
-    ys, xs = np.mgrid[0:n, 0:n]
-    dx, dy = np.minimum(xs, n - 1 - xs), np.minimum(ys, n - 1 - ys)
-    depth = np.minimum(dx, dy)
-    # near-even bronze (no lit / dark split, which reads as an L-bracket at 16-20 px): top lightest, bottom darkest
-    top, side, bottom = np.array([168, 148, 124.0]), np.array([138, 118, 98.0]), np.array([112, 94, 76.0])
-    shade, outer = np.array([30, 21, 12.0]), np.array([6, 6, 8.0])
-    is_side = dx <= dy  # left / right edge (the corners split along the diagonal)
-    bevel = np.where(is_side[..., None], side, np.where((ys < n // 2)[..., None], top, bottom))
-    out = a.copy()
-    out = np.where((depth >= 4 * k)[..., None] & (depth < 5 * k)[..., None], a * 0.35 + shade * 0.65, out)
-    out = np.where((depth < 4 * k)[..., None], bevel, out)
-    c = 6 * k  # 45 degree chamfer: the corner is cut where the distance to the two edges sums to less than c
-    out = np.where(((depth < 1 * k) | (dx + dy < c + 1.5 * k))[..., None], outer, out)
-    alpha = (dx + dy >= c) * 255.0
-    rgba = np.dstack([out, alpha]).astype(np.uint8)
-    return Image.fromarray(rgba, "RGBA").resize((SIZE, SIZE), Image.Resampling.BOX)
+    # shrink the art onto the interior only, so the comet stays clear of the frame
+    sh = round(n * inner)
+    off = (n - sh) // 2
+    sub = np.asarray(Image.fromarray(a.astype(np.uint8)).resize((sh, sh), Image.Resampling.LANCZOS), float)
+    comet = np.zeros_like(a)
+    comet[off : off + sh, off : off + sh] = tone_comet(sub)
+    fill = np.minimum(navy + comet, np.array([196.0, 208.0, 214.0]))  # hard cap: nothing outshines the neighbours
+    line = np.array([26.0, 25.0, 30.0]) * (1 - t[..., None]) + np.array([10.0, 11.0, 17.0]) * t[..., None]
+    out = np.where((depth >= gold_w + line_w)[..., None], fill, np.where((depth >= gold_w)[..., None], line, gold))
+    alpha = np.clip(depth + 0.5, 0, 1) * 255.0  # 1 sample of AA at 8x; the box downscale does the rest
+    rgb = out * (alpha[..., None] / 255.0)  # premultiplied so the box filter cannot leak dark fringes
+    rgb = rgb.reshape(SIZE, k, SIZE, k, 3).mean((1, 3))
+    al = alpha.reshape(SIZE, k, SIZE, k).mean((1, 3))
+    rgb = np.where(al[..., None] > 0, rgb / np.maximum(al[..., None], 1e-6) * 255.0, 0)
+    return Image.fromarray(np.dstack([np.clip(rgb, 0, 255), al]).round().astype(np.uint8), "RGBA")
 
 
 def main() -> None:
