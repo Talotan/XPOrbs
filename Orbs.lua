@@ -515,7 +515,7 @@ local function drawHold(o, t)
             if q >= 1 then
                 safeA(o, g, rx, ry, 0, 0)
             else
-                local k = prof.leaveDist * q * q
+                local k = o.ld * q * q
                 safeA(o, g, rx + o.ux * k, ry + o.uy * k, o.size * (1 - 0.2 * q), (1 - q * q) * g.fm)
             end
             return
@@ -1071,6 +1071,10 @@ function XF_PROFILE.plan(px, py, dx, dy) -- a method of the profile: one upvalue
         vx, vy = 0, 1
     end
     local D = max(m.bDmin, min(m.bDmax, m.bFrac * UIParent:GetHeight(), m.bL * len))
+    -- short plate-to-bar distances: shorten the leave and keep B's start ahead of where A vanishes (per orb: o.ld)
+    local ld = max(60, min(m.leaveDist, 0.40 * len))
+    D = max(50, min(D, len - ld))
+    m.ld = ld
     m.ux, m.uy = vx, vy
     m.bx, m.by = dx - vx * D, dy - vy * D
 end
@@ -1232,6 +1236,7 @@ function Orbs:Burst(p)
                     local rad = prof.rmin + random() * (prof.rmax - prof.rmin)
                     o.ax, o.ay = x + cos(ang) * rad, y + sin(ang) * rad + random() * prof.drift
                     o.ux, o.uy = prof.ux, prof.uy
+                    o.ld = prof.ld
                     o.ls = random() * prof.leaveStagger
                     o.hold = prof.bloom + o.ls + prof.leaveTime + prof.gap
                     local sa, sr = random() * TWO_PI, prof.bSpread * sqrt(random())

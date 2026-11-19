@@ -179,9 +179,38 @@ def test_d_respects_060_of_the_distance_for_a_mob_near_the_bar(env):
     (o,) = live_recs(g)
     assert abs(math.hypot(o.x0 - dx, o.y0 - dy) - 120) <= 14 + 1e-6
     settle(g)
-    fire(g, "crossfade", ex=dx, ey=dy - 100, x=dx, y=dy - 100)  # L = 100: 0.6 * L = 60, floored at 80
+    fire(g, "crossfade", ex=dx, ey=dy - 100, x=dx, y=dy - 100)  # L = 100: leave 60, D = max(50, 100 - 60) = 50
     (o,) = live_recs(g)
-    assert abs(math.hypot(o.x0 - dx, o.y0 - dy) - 80) <= 14 + 1e-6
+    assert abs(math.hypot(o.x0 - dx, o.y0 - dy) - 50) <= 14 + 1e-6
+    settle(g)
+
+
+@pytest.mark.parametrize("length", [1000, 300, 150, 100])
+def test_b_is_always_ahead_of_where_a_vanishes_and_a_never_passes_the_bar(env, length):
+    env.lua.execute(LCG)
+    g = make(env, fixed_random=False)
+    dx, dy = dest_of(g)
+    fire(g, "crossfade", n=30, ex=dx, ey=dy - length, x=dx, y=dy - length)
+    ld = max(60, min(180, 0.40 * length))
+    d_nominal = max(50, min(D, length - ld))
+    for o in live_recs(g):
+        assert o.ld == pytest.approx(ld)
+        # nominal numbers along u from P-hat (ring offset and B's spread aside): A vanishes at ld, B at L - D
+        b_centre = (o.y0 - (dy - length)) * (o.uy)
+        assert abs(b_centre - (length - d_nominal)) <= 14 + 1e-6
+        assert ld <= length - d_nominal or length - d_nominal == length - 50  # only the D floor of 50 may invert it
+        assert ld - (length - d_nominal) <= 10 + 1e-6  # ... and then by at most 10 px (L = 100)
+        assert ld < length  # A never flies past the bar
+    settle(g)
+
+
+def test_far_mob_keeps_the_full_leave_and_the_old_d(env):
+    g = make(env)
+    dx, dy = dest_of(g)
+    fire(g, "crossfade", ex=dx, ey=dy - 1000, x=dx, y=dy - 1000)
+    (o,) = live_recs(g)
+    assert o.ld == 180
+    assert abs(math.hypot(o.x0 - dx, o.y0 - dy) - D) <= 14 + 1e-6
     settle(g)
 
 
