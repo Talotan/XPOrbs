@@ -36,7 +36,23 @@ local function stateText()
     return D().enabled and "orbs on" or "orbs off"
 end
 
--- Left-click (or anything but right-click): the settings panel. Right-click: orbs on/off.
+-- True when the Settings window is open on our own category (our canvas panel is only shown then).
+local function optionsOpen()
+    local panel = ns.Options and ns.Options.panel
+    if not (panel and panel:IsShown() and SettingsPanel and SettingsPanel:IsShown()) then
+        return false
+    end
+    return true
+end
+
+local function closeOptions()
+    local closed = HideUIPanel and pcall(HideUIPanel, SettingsPanel)
+    if not (closed and not SettingsPanel:IsShown()) then
+        pcall(SettingsPanel.Hide, SettingsPanel)
+    end
+end
+
+-- Left-click (or anything but right-click): toggle the settings panel. Right-click: orbs on/off.
 local function click(button)
     if button == "RightButton" then
         local db = D()
@@ -46,8 +62,10 @@ local function click(button)
         if panel and panel:IsShown() then
             ns.Options:Refresh()
         end
+    elseif optionsOpen() then
+        closeOptions()
     else
-        ns.commands.options()
+        ns.commands.options()  -- also switches over when the window is open on another addon's category
     end
 end
 

@@ -265,3 +265,59 @@ def test_libs_missing_error_logged_once(env):
     m = make(env, libs=False)
     entries = [str(x) for x in lua_list(m.db.log)]
     assert sum("MINIMAP_ERR" in x for x in entries) == 1
+
+
+# ---------------------------------------------------------------- left-click toggles the options
+
+
+SETTINGS_PANEL = """
+function(G)
+    local sp = { shown = false, hides = 0 }
+    function sp:IsShown() return self.shown end
+    function sp:Hide() self.shown = false; self.hides = self.hides + 1 end
+    G.SettingsPanel = sp
+    return sp
+end
+"""
+
+
+def open_window(m, ours=True):
+    """Stub the Settings window as open; ours=False means another addon's category is showing."""
+    sp = m.lua.eval(SETTINGS_PANEL)(m.G)
+    sp.shown = True
+    if ours:
+        show(m)
+        m.opt.panel.Show(m.opt.panel)
+    else:
+        m.opt.panel.Hide(m.opt.panel)  # stub frames start shown; a real canvas panel is hidden off-category
+    return sp
+
+
+@pytest.mark.parametrize("via", ["button", "compartment"])
+def test_second_click_closes_open_options(m, via):
+    def click():
+        if via == "button":
+            m.p2a.object.OnClick(None, "LeftButton")
+        else:
+            m.G.XPOrbs_OnAddonCompartmentClick(NAME, "LeftButton")
+
+    click()  # window not open yet: opens
+    assert len(m.opened) == 1
+    sp = open_window(m)
+    click()  # open on our category: closes, does not reopen
+    assert sp.shown is False and len(m.opened) == 1
+    click()
+    assert len(m.opened) == 2
+
+
+def test_click_switches_from_another_category(m):
+    sp = open_window(m, ours=False)
+    m.p2a.object.OnClick(None, "LeftButton")
+    assert sp.shown is True and len(m.opened) == 1
+
+
+def test_click_without_settings_panel_global(m):
+    m.G.SettingsPanel = None
+    m.p2a.object.OnClick(None, "LeftButton")
+    m.G.XPOrbs_OnAddonCompartmentClick(NAME, "LeftButton")
+    assert len(m.opened) == 2
