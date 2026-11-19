@@ -7,6 +7,11 @@ CHAT = "Boar dies, you gain 50 experience."
 CHAT_RESTED = "Boar dies, you gain 50 experience. (+25 exp Rested bonus)"
 
 
+def pin_legacy_anchor(db):
+    """The zoom anchor is on by default now; tests of the older anchors pin the old off state and curve numbers."""
+    db.zoomAnchor, db.zoomA, db.zoomB, db.zoomMin = False, 10, 500, 2
+
+
 class Game:
     def __init__(self, env, probe=True, debug=True, pre=None):
         self.env = env
@@ -21,6 +26,7 @@ class Game:
         env.ns.fire("ADDON_LOADED", "XPOrbs")
         self.db = env.G.XPOrbsDB
         self.db.debug = debug
+        pin_legacy_anchor(self.db)
         self.probe = probe
         self.stub.xp, self.stub.xpMax = 0, 1000
         env.ns.fire("PLAYER_ENTERING_WORLD")

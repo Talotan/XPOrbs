@@ -2,9 +2,9 @@
 local _, ns = ...
 
 -- Zoom-anchor calibration: /xporbs calib opens a small panel and puts a marker on the targeted mob at the offset the
--- current settings give. Nudge it onto the body, save a point, repeat at another camera zoom, then Fit. The plate is
--- a restricted region, so the marker is a 1x1 frame whose ONLY anchor is the plate; nothing here measures the plate or
--- the marker. The OnUpdate exists only while the panel is open.
+-- current settings give. Nudge it onto the body, save a point, repeat at other camera zooms (each save refits). The
+-- plate is a restricted region, so the marker is a 1x1 frame whose ONLY anchor is the plate; nothing here measures
+-- the plate or the marker. The OnUpdate exists only while the panel is open.
 
 local Calib = {}
 ns.Calib = Calib
@@ -79,7 +79,13 @@ local function bump(dir)
     refresh()
 end
 
--- Records { z, off } at the current zoom (off includes the nudge), drops the oldest beyond 8, resets the nudge.
+local function clampZoom(key, v)
+    local r = ns.zoomRanges[key]
+    return math.max(r[1], math.min(r[2], v))
+end
+
+-- Records { z, off } at the current zoom (off includes the nudge), drops the oldest beyond 8, then refits at once so
+-- the curve passes through where the marker was put (otherwise the marker snaps back and saving looks like a no-op).
 function Calib.SavePoint()
     local z = ns.Orbs.ReadZoom()
     local base = baseOffset(z)
@@ -87,18 +93,28 @@ function Calib.SavePoint()
         ns.Print("camera zoom is unreadable, can't save a point")
         return false
     end
-    local pts = db().zoomPoints
-    pts[#pts + 1] = { z = z, off = base + nudge }
+    local d = db()
+    local pts = d.zoomPoints
+    local off = base + nudge
+    pts[#pts + 1] = { z = z, off = off }
     while #pts > POINTS_MAX do
         table.remove(pts, 1)
     end
+    ns.Print(string.format("saved point: zoom %s, offset %s px (%d saved)", fmt(z), fmt(off), #pts))
+    local a, b = OrbMath.FitZoom(pts, d.zoomMin)
+    if a then
+        d.zoomA, d.zoomB = clampZoom("zoomA", a), clampZoom("zoomB", b)
+        ns.Print(string.format("curve refit: a=%s b=%s (offset = a + b / zoom)", fmt(d.zoomA), fmt(d.zoomB)))
+    else
+        -- one usable point (or all at one zoom): keep the slope, slide the curve through the point
+        d.zoomA = clampZoom("zoomA", off - d.zoomB / math.max(z, d.zoomMin))
+    end
     nudge = 0
-    ns.Print(string.format("saved point: zoom %s, offset %s px (%d saved)", fmt(z), fmt(pts[#pts].off), #pts))
     refresh()
     return true
 end
 
--- Fits zoomA / zoomB to the saved points. Returns true when it saved a fit.
+-- Refits zoomA / zoomB to all saved points. Returns true when it saved a fit.
 function Calib.Fit()
     local d = db()
     local a, b = OrbMath.FitZoom(d.zoomPoints, d.zoomMin)
@@ -106,9 +122,7 @@ function Calib.Fit()
         ns.Print("save points at two or more different zooms")
         return false
     end
-    local ra, rb = ns.zoomRanges.zoomA, ns.zoomRanges.zoomB
-    d.zoomA = math.max(ra[1], math.min(ra[2], a))
-    d.zoomB = math.max(rb[1], math.min(rb[2], b))
+    d.zoomA, d.zoomB = clampZoom("zoomA", a), clampZoom("zoomB", b)
     nudge = 0
     ns.Print(string.format("fit saved: a=%s b=%s (offset = a + b / zoom)", fmt(d.zoomA), fmt(d.zoomB)))
     refresh()
@@ -234,7 +248,7 @@ local function makePanel()
     hint:SetWidth(376)
     hint:SetJustifyH("LEFT")
     hint:SetText("Nudge the marker onto the target's body (mouse wheel; Shift = 10 px), then Save point. "
-        .. "Repeat at a second zoom, then Fit.")
+        .. "Repeat at a few zooms; the curve updates as you save.")
     tip(button(f, "Down", 44, 12, function()
         bump(1)
     end), "Shift-click: 10 px")

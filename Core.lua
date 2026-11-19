@@ -28,12 +28,13 @@ ns.defaults = {
     glowOffsetY = 0,
     -- the minimap button (Minimap.lua); LibDBIcon also keeps its own minimapPos in here, so unknown keys must survive
     minimap = { hide = false },
-    -- opt-in zoom-aware mob anchor (Orbs.lua): orbs sit (zoomA + zoomB / max(cameraZoom, zoomMin)) px below the plate.
+    -- zoom-aware mob anchor (Orbs.lua): orbs sit (zoomA + zoomB / max(cameraZoom, zoomMin)) px below the plate;
+    -- the defaults are a least-squares fit to in-game calibration points.
     -- Not in ns.ranges on purpose: these are calibrated with /xporbs calib, not sliders.
-    zoomAnchor = false,
-    zoomA = 10,
-    zoomB = 500,
-    zoomMin = 2,
+    zoomAnchor = true,
+    zoomA = 5,
+    zoomB = 175,
+    zoomMin = 5,
     zoomPoints = {}, -- calibration samples { z = camera zoom, off = px below the plate }, newest last, at most 8
 }
 
@@ -193,6 +194,11 @@ local function sanitize(db)
         db.minimap = { hide = defaults.minimap.hide }
     elseif type(db.minimap.hide) ~= "boolean" then
         db.minimap.hide = defaults.minimap.hide -- other keys (LibDBIcon's minimapPos) are left alone
+    end
+    -- Saved settings that still hold the three old untouched defaults were never calibrated: give them the fitted
+    -- curve. Any other combination is the player's own and stays (no schema bump needed).
+    if db.zoomA == 10 and db.zoomB == 500 and db.zoomMin == 2 then
+        db.zoomA, db.zoomB, db.zoomMin = defaults.zoomA, defaults.zoomB, defaults.zoomMin
     end
     for key, r in pairs(ZOOM_RANGES) do
         local v = db[key]

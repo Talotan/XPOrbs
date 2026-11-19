@@ -23,6 +23,7 @@ def build(env, settings=True, colorpicker=True, mouse_foci=True, pre=None):
     env.stub = env.ns.stub
     env.stub.makeBar("MainStatusTrackingBarContainer", 400, 20, 800, 10, True)
     env.db = env.G.XPOrbsDB
+    env.db.zoomAnchor, env.db.zoomA, env.db.zoomB, env.db.zoomMin = False, 10, 500, 2  # old anchor, see Game
     env.opt = env.ns.Options
     env.orbs = env.ns.Orbs
     env.slash = env.G.SlashCmdList.XPORBS

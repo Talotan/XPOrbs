@@ -96,10 +96,10 @@ def test_fit_negative_slope_clamps_to_mean(env):
 # ---------------------------------------------------------------- defaults and sanitising
 
 
-def test_defaults_off(env):
+def test_defaults_are_the_fitted_curve_and_on(env):
     g = make(env)
-    d = g.db
-    assert (d.zoomAnchor, d.zoomA, d.zoomB, d.zoomMin) == (False, 10, 500, 2)
+    d = g.ns.defaults  # (make() pins the old numbers on the live db)
+    assert (d.zoomAnchor, d.zoomA, d.zoomB, d.zoomMin) == (True, 5, 175, 5)
     assert pts(g) == []
     assert "zoomA" not in g.ns.ranges and "zoomAnchor" not in g.ns.ranges
 
@@ -123,15 +123,28 @@ def test_initdb_sanitises_junk(env):
     )
     g.ns.InitDB(g.ns)
     d = g.db
-    assert (
-        d.zoomAnchor is False and d.zoomA == 10 and d.zoomB == 3000 and d.zoomMin == 0.5
-    )
+    assert d.zoomAnchor is True and d.zoomA == 5 and d.zoomB == 3000 and d.zoomMin == 0.5
     got = pts(g)
     assert len(got) == 8 and got[-1] == (15, 69)  # oldest dropped, junk gone
     g.db.zoomPoints = "junk"
     g.db.zoomA = 1000
     g.ns.InitDB(g.ns)
     assert pts(g) == [] and g.db.zoomA == 300
+
+
+def test_old_untouched_defaults_migrate_to_the_fitted_curve(env):
+    g = make(env)
+    g.db.zoomAnchor = False  # the old default; the switch itself is left alone
+    g.db.zoomA, g.db.zoomB, g.db.zoomMin = 10, 500, 2
+    set_points(g, [(5, 50)])
+    g.ns.InitDB(g.ns)
+    d = g.db
+    assert (d.zoomA, d.zoomB, d.zoomMin) == (5, 175, 5)
+    assert d.zoomAnchor is False and pts(g) == [(5, 50)]
+    for a, b, zmin in [(10, 500, 3), (11, 500, 2), (10, 400, 2)]:  # any custom value is kept
+        d.zoomA, d.zoomB, d.zoomMin = a, b, zmin
+        g.ns.InitDB(g.ns)
+        assert (d.zoomA, d.zoomB, d.zoomMin) == (a, b, zmin)
 
 
 def test_reset_restores_defaults_with_a_fresh_points_table(env):
@@ -141,7 +154,7 @@ def test_reset_restores_defaults_with_a_fresh_points_table(env):
     set_points(g, [(5, 50), (10, 40)])
     g.slash("reset")
     d = g.db
-    assert (d.zoomAnchor, d.zoomA, d.zoomB, d.zoomMin) == (False, 10, 500, 2)
+    assert (d.zoomAnchor, d.zoomA, d.zoomB, d.zoomMin) == (True, 5, 175, 5)
     assert pts(g) == []
     assert not OWN(g, d.zoomPoints, g.ns.defaults.zoomPoints)
 
@@ -282,7 +295,7 @@ def test_calib_save_fit_reset(env):
     g.slash("calib fit")
     assert g.db.zoomA == pytest.approx(10) and g.db.zoomB == pytest.approx(500)
     g.slash("calib reset")
-    assert pts(g) == [] and (g.db.zoomA, g.db.zoomB, g.db.zoomMin) == (10, 500, 2)
+    assert pts(g) == [] and (g.db.zoomA, g.db.zoomB, g.db.zoomMin) == (5, 175, 5)
     g.slash("calib fit")
     assert "two or more different zooms" in chat_tail(g)[0]
     g.stub.zoom = 5
@@ -362,6 +375,7 @@ def test_nudge_save_and_fit_through_the_panel(env):
     g.slash("calib save")
     assert pts(g) == [(5, pytest.approx(10 + 100 + 2))]
     g.db.zoomPoints = g.env.lua.table_from([g.db.zoomPoints[1]])  # keep only the nudged point
+    g.db.zoomA, g.db.zoomB = 10, 500  # undo the curve shift the save made
     g.stub.zoom = 20
     g.slash("calib save")  # off 35, nudge already reset
     assert pts(g)[1] == (20, pytest.approx(35))
@@ -474,3 +488,60 @@ def test_marker_is_a_four_arm_reticle_beyond_the_orb(env):
     for a in arms:
         pt = a.points[1]
         assert max(abs(pt[4]), abs(pt[5])) == 12  # arm centre; arms span 6..18 px from the centre
+
+
+# ---------------------------------------------------------------- save refits at once
+
+
+def marker_off(g):
+    return -marker_anchor(g)[5]
+
+
+def panel_setup(g):
+    plate = restricted_plate(g, hostile=True)
+    g.stub.plates["target"] = plate
+    g.slash("calib")
+    return g.ns.Calib.panel.scripts.OnMouseWheel, g.ns.Calib.panel
+
+
+def test_save_one_point_shifts_a_and_the_marker_stays(env):
+    g = make(env)
+    wheel, panel = panel_setup(g)
+    g.stub.zoom = 5
+    for _ in range(5):
+        wheel(panel, -1)  # wheel down: +10 px in all
+    before = marker_off(g)
+    assert before == pytest.approx(120)
+    g.slash("calib save")
+    assert g.db.zoomB == pytest.approx(500) and g.db.zoomA == pytest.approx(20)
+    g.stub.tick(0.2)
+    assert marker_off(g) == pytest.approx(before, abs=0.5)
+
+
+def test_save_two_or_more_points_refits_and_the_marker_stays(env):
+    g = make(env)
+    wheel, panel = panel_setup(g)
+    g.stub.zoom = 5
+    g.slash("calib save")
+    g.stub.zoom = 20
+    wheel(panel, -1)  # +2 px
+    before = marker_off(g)
+    g.slash("calib save")
+    g.stub.tick(0.2)
+    assert marker_off(g) == pytest.approx(before, abs=0.5)
+    assert "curve refit" in "".join(chat_lines_of(g))
+
+
+def chat_lines_of(g):
+    return [str(g.stub.chat[i]) for i in range(1, len(g.stub.chat) + 1)]
+
+
+DEV_POINTS = [(14.78, 15.83), (4.78, 42.64), (38.77, 6.90), (50, 8), (24.46, 14.44), (14.45, 22.60),
+               (6.45, 27.47), (0.78, 40)]  # fmt: skip
+
+
+def test_fit_of_the_calibration_points_matches_the_defaults(env):
+    g = make(env)
+    t = g.env.lua.table_from
+    a, b = g.ns.OrbMath.FitZoom(t([t({"z": z, "off": o}) for z, o in DEV_POINTS]), 5)
+    assert a == pytest.approx(5.27, abs=0.02) and b == pytest.approx(174.4, abs=0.2)
