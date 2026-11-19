@@ -52,10 +52,11 @@ local POPMODE_TIP = {
     direct = "The pop opens at the estimated position and flows straight into the stream, nearest to the bar first. "
         .. "Never uses the nameplate, so it looks the same with nameplates off.",
 }
-local WIDE_DESC = "Mob not moused over: orbs start spread over an area (wider when zoomed in) instead of one point. "
-    .. "No effect on Crossfade."
-local WIDE_TIP = "Off: orbs start from one point at the estimated position. A mob you moused over always starts at "
-    .. "the position the mouse saw, Wide or not."
+local SPREAD_DESC = "Pops and stream starts spread wider when zoomed in and tighter when zoomed out. Off: always the "
+    .. "same spread."
+local SPREAD_TIP = "Applies to all three styles: the nameplate pop, the pop or stream start at the estimated position. "
+    .. "At the default camera zoom nothing changes. A mob you didn't mouse over always starts over a wide area that "
+    .. "scales with zoom, whatever this says."
 local DESC_DIM = 0.55 -- dimmed descriptions stay readable (rows and controls use DIM)
 local SHAPES = { "bar", "round" }
 local SHAPE_NAME = { bar = "Horizontal", round = "Circular" }
@@ -76,7 +77,7 @@ local child -- the scroll child every row hangs off
 Options.controls = {} -- key -> the widget (checkbox, slider, swatch, radio)
 Options.rows = {} -- key -> the row frame (dimming and layout)
 Options.resets = {} -- key -> the per-row reset button
-Options.descs = {} -- style / popMode / "wide" -> its description FontString
+Options.descs = {} -- style / popMode / "zoomSpread" -> its description FontString
 Options.CONTENT_H = CONTENT_H
 
 local function D()
@@ -918,35 +919,22 @@ local function build()
             subs[pm]:SetChecked(d.popMode == pm)
         end
     end
-    -- Wide is db.unknownOrigin ("wide" / "off"); /xporbs wide and /xporbs unknown write the same key
+    -- Zoom-scaled spread (db.zoomSpread, /xporbs wide): applies to every style, so it never dims. The unknown-position
+    -- oval (db.unknownOrigin) is separate and has no control here.
     y = y + 238
-    local wrow, wcb = checkbox(y, "wide", "Wide start", {
-        get = function()
-            return D().unknownOrigin == "wide"
-        end,
-        set = function(v)
-            D().unknownOrigin = v and "wide" or "off"
-        end,
-    })
-    addReset(wrow, "unknownOrigin", { "unknownOrigin" }, function()
-        return ns.defaults.unknownOrigin == "wide" and "on" or "off"
-    end)
-    tipOn(wcb, "Wide start", WIDE_TIP)
-    local wd = text(child, "GameFontHighlight", WIDE_DESC, LABEL_X, -(y + 28), 490)
-    wd:SetWordWrap(true)
-    wd:SetTextColor(GREY, GREY, GREY)
-    Options.descs.wide = wd
+    local _, scb = checkbox(y, "zoomSpread", "Zoom-scaled spread")
+    tipOn(scb, "Zoom-scaled spread", SPREAD_TIP)
+    local sd = text(child, "GameFontHighlight", SPREAD_DESC, LABEL_X, -(y + 28), 490)
+    sd:SetWordWrap(true)
+    sd:SetTextColor(GREY, GREY, GREY)
+    Options.descs.zoomSpread = sd
     postRefresh[#postRefresh + 1] = function()
-        local d = D()
-        local on = d.style == "popstream"
+        local on = D().style == "popstream"
         for _, pm in ipairs(POPMODES) do
             -- dimmed but still clickable: picking one also picks Popstream
             Options.rows["popMode_" .. pm]:SetAlpha(on and 1 or DIM)
             Options.descs[pm]:SetAlpha(on and 1 or DESC_DIM)
         end
-        local wideOn = d.style ~= "crossfade"
-        setDim(wrow, { wcb }, wideOn)
-        wd:SetAlpha(wideOn and 1 or DESC_DIM)
     end
 
     y = header("XP bar", y + 28 + 50)

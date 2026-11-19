@@ -1,6 +1,7 @@
 """Schema 6: three kill styles. Popstream (sub-choice Nameplate = the 1.1 popstream, Direct = the P2 "streampop"),
 Crossfade, Direct Stream ("stream"). The P2 wide burst is gone: a save holding it becomes Popstream (Nameplate) with
-the Wide tickbox on. Wide is db.unknownOrigin ("wide" / "off"); /xporbs wide and /xporbs unknown both write it."""
+Zoom-scaled spread on. That tickbox is db.zoomSpread (/xporbs wide on|off): the spawn spread of located orbs scales
+with camera zoom. The unknown-position oval (db.unknownOrigin, /xporbs unknown) is separate and never follows it."""
 
 import math
 
@@ -44,34 +45,35 @@ def seeded(env):
 
 
 @pytest.mark.parametrize(
-    "saved, style, mode, wide",
+    "saved, style, mode",
     [
-        ("popstream", "popstream", "nameplate", "off"),
-        ("streampop", "popstream", "direct", "off"),
-        ("wide", "popstream", "nameplate", "wide"),
-        ("mob", "popstream", "nameplate", "wide"),
-        ("crossfade", "crossfade", "nameplate", "off"),
-        ("stream", "stream", "nameplate", "off"),
-        ("bogus", "popstream", "nameplate", "off"),
-        (None, "popstream", "nameplate", "off"),
+        ("popstream", "popstream", "nameplate"),
+        ("streampop", "popstream", "direct"),
+        ("wide", "popstream", "nameplate"),
+        ("mob", "popstream", "nameplate"),
+        ("crossfade", "crossfade", "nameplate"),
+        ("stream", "stream", "nameplate"),
+        ("bogus", "popstream", "nameplate"),
+        (None, "popstream", "nameplate"),
     ],
 )
-def test_v5_styles_map_to_the_three_style_scheme(env, saved, style, mode, wide):
+def test_v5_styles_map_to_the_three_style_scheme(env, saved, style, mode):
     old = {"version": 5, "unknownOrigin": "off"}
     if saved is not None:
         old["style"] = saved
     db = load(env, old)
-    assert (db.version, db.style, db.popMode, db.unknownOrigin) == (
-        6,
-        style,
-        mode,
-        wide,
-    )
+    assert (db.version, db.style, db.popMode) == (6, style, mode)
+    assert db.unknownOrigin == "off"  # the migration never touches the unknown-position setting
+    assert db.zoomSpread is True  # new key, on by default (and the old wide burst maps to it on)
 
 
-def test_the_migration_keeps_wide_on_when_it_already_was(env):
-    db = load(env, {"version": 5, "style": "crossfade", "unknownOrigin": "wide"})
-    assert (db.style, db.unknownOrigin) == ("crossfade", "wide")
+def test_the_migration_turns_zoom_spread_on_for_the_old_wide_burst(env):
+    db = load(env, {"version": 6, "style": "popstream", "zoomSpread": False})
+    assert db.zoomSpread is False  # a v6 save keeps its choice
+    db = load(env, {"version": 6, "style": "wide", "zoomSpread": False})
+    assert (db.style, db.zoomSpread) == ("popstream", True)
+    db = load(env, {"version": 6, "zoomSpread": "yes"})
+    assert db.zoomSpread is True  # junk -> the default
 
 
 def test_a_v6_save_keeps_its_choices_and_old_names_are_still_mapped(env):
@@ -96,10 +98,11 @@ def test_a_v6_save_keeps_its_choices_and_old_names_are_still_mapped(env):
 
 def test_defaults(env):
     db = load(env, {})
-    assert (db.style, db.popMode, db.unknownOrigin, db.version) == (
+    assert (db.style, db.popMode, db.unknownOrigin, db.zoomSpread, db.version) == (
         "popstream",
         "nameplate",
         "wide",
+        True,
         6,
     )
 
@@ -149,13 +152,12 @@ def test_render_style_resolves_every_name(env):
 )
 def test_style_command_and_its_aliases(env, cmd, style, mode, label):
     m5 = build(env)
-    m5.db.unknownOrigin = "off"
+    m5.db.unknownOrigin, m5.db.zoomSpread = "off", False
     m5.slash(cmd)
     assert (m5.db.style, m5.db.popMode) == (style, mode)
     assert m5.say()[-1].endswith("kill style: " + label)
-    assert m5.db.unknownOrigin == (
-        "wide" if cmd in ("style wide", "style mob") else "off"
-    )
+    assert m5.db.zoomSpread is (cmd in ("style wide", "style mob"))
+    assert m5.db.unknownOrigin == "off"
 
 
 def test_style_popstream_alone_keeps_the_sub_choice_and_bad_combinations_change_nothing(
@@ -172,23 +174,21 @@ def test_style_popstream_alone_keeps_the_sub_choice_and_bad_combinations_change_
         assert "use popstream [nameplate|direct], crossfade or stream" in m5.say()[-1]
 
 
-def test_wide_and_unknown_commands_write_the_same_setting_and_refresh_the_panel(env):
+def test_wide_command_writes_zoom_spread_and_never_the_unknown_setting(env):
     m5 = build(env)
     show(m5)
+    m5.db.unknownOrigin = "wide"
     m5.slash("wide off")
-    assert m5.db.unknownOrigin == "off" and m5.say()[-1].endswith("wide: off")
-    assert ctl(m5, "wide").checked is False
-    m5.slash("unknown wide")
-    assert m5.db.unknownOrigin == "wide" and m5.say()[-1].endswith("wide: on")
-    assert ctl(m5, "wide").checked is True
-    m5.slash("unknown off")
-    assert m5.db.unknownOrigin == "off"
+    assert m5.db.zoomSpread is False and m5.say()[-1].endswith("zoom-scaled spread: off")
+    assert ctl(m5, "zoomSpread").checked is False and m5.db.unknownOrigin == "wide"
     m5.slash("wide on")
-    assert m5.db.unknownOrigin == "wide"
+    assert m5.db.zoomSpread is True and ctl(m5, "zoomSpread").checked is True
     m5.slash("wide sideways")
-    assert m5.db.unknownOrigin == "wide" and "use on or off" in m5.say()[-1]
-    m5.slash("unknown late")
-    assert m5.db.unknownOrigin == "wide" and "use off or wide" in m5.say()[-1]
+    assert m5.db.zoomSpread is True and "use on or off" in m5.say()[-1]
+    m5.slash("unknown off")
+    assert m5.db.unknownOrigin == "off" and m5.db.zoomSpread is True
+    assert m5.say()[-1].endswith("unknown origin: off")
+    assert ctl(m5, "zoomSpread").checked is True
 
 
 def test_help_describes_each_style(env):
@@ -209,7 +209,8 @@ def test_help_describes_each_style(env):
         "Direct Stream: a plain stream from the estimated mob position (no pop, no nameplate)"
         in text
     )
-    assert "/xporbs wide on|off" in text and "alias: unknown wide|off" in text
+    assert "/xporbs wide on|off - zoom-scaled spread" in text
+    assert "/xporbs unknown wide|off - where orbs start when the mob's position is unknown" in text
 
 
 def test_status_names_the_style_and_wide(env):
@@ -218,9 +219,8 @@ def test_status_names_the_style_and_wide(env):
     g.slash("wide off")
     g.slash("status")
     lines = chat_lines(g)
-    assert any(
-        line.endswith("kill style: Popstream (Direct), wide: off") for line in lines
-    )
+    assert any(line.endswith("kill style: Popstream (Direct), zoom-scaled spread: off") for line in lines)
+    assert any(line.endswith("unknown origin: off") for line in lines)  # make() pins "off"
     assert any("orbs: driver=" in line and "style=streampop" in line for line in lines)
 
 
@@ -307,59 +307,152 @@ def test_style_section_rows_and_sub_radios(env):
     )
 
 
-def test_sub_radios_dim_unless_popstream_and_wide_dims_under_crossfade(env):
+def test_sub_radios_dim_unless_popstream_and_the_spread_never_dims(env):
     m5 = build(env)
     show(m5)
     rows, o = m5.opt.rows, m5.opt
-    assert rows["popMode_direct"].alpha == 1 and ctl(m5, "popMode_direct").IsEnabled(
-        ctl(m5, "popMode_direct")
-    )
+    assert rows["popMode_direct"].alpha == 1 and ctl(m5, "popMode_direct").IsEnabled(ctl(m5, "popMode_direct"))
     m5.stub.click(ctl(m5, "style_crossfade"))
     assert rows["popMode_direct"].alpha == pytest.approx(0.4)
-    assert o.descs["direct"].alpha == pytest.approx(
-        0.55
-    )  # dimmed descriptions stay readable
+    assert o.descs["direct"].alpha == pytest.approx(0.55)  # dimmed descriptions stay readable
     # dimmed but clickable: picking a sub-choice also picks Popstream
     assert ctl(m5, "popMode_direct").IsEnabled(ctl(m5, "popMode_direct"))
-    assert rows["wide"].alpha == pytest.approx(0.4) and not ctl(m5, "wide").IsEnabled(
-        ctl(m5, "wide")
-    )
-    assert o.descs["wide"].alpha == pytest.approx(0.55)
+    assert rows["zoomSpread"].alpha in (None, 1) and ctl(m5, "zoomSpread").IsEnabled(ctl(m5, "zoomSpread"))
     m5.stub.click(ctl(m5, "style_stream"))
-    assert rows["popMode_nameplate"].alpha == pytest.approx(0.4)
-    assert rows["wide"].alpha == 1 and ctl(m5, "wide").IsEnabled(ctl(m5, "wide"))
+    assert rows["popMode_nameplate"].alpha == pytest.approx(0.4) and rows["zoomSpread"].alpha in (None, 1)
     m5.stub.click(ctl(m5, "popMode_direct"))
     assert (m5.db.style, m5.db.popMode) == ("popstream", "direct")
     assert ctl(m5, "style_popstream").checked and not ctl(m5, "style_stream").checked
-    assert rows["popMode_nameplate"].alpha == 1 and rows["wide"].alpha == 1
+    assert rows["popMode_nameplate"].alpha == 1
 
 
-def test_wide_checkbox_label_and_description(env):
+def test_spread_checkbox_label_position_and_reset(env):
     from test_m5 import panel_texts
 
     m5 = build(env)
     show(m5)
     texts = panel_texts(m5)
-    assert "Wide start" in texts and "Wide" not in texts
-    assert m5.opt.descs["wide"].text.startswith(
-        "Mob not moused over: orbs start spread over an area"
-    )
-
-
-def test_wide_checkbox_writes_unknown_origin_and_has_its_own_reset(env):
-    m5 = build(env)
-    show(m5)
-    m5.db.unknownOrigin = "wide"  # build() pins "off" for the older tests
-    show(m5)
-    cb = ctl(m5, "wide")
-    assert cb.checked is True and m5.opt.rows["wide"].points[1][5] == -1038
-    assert m5.opt.descs["wide"].points[1][5] == -(1038 + 28)
+    assert "Zoom-scaled spread" in texts and "Wide start" not in texts
+    assert m5.opt.descs["zoomSpread"].text.startswith("Pops and stream starts spread wider when zoomed in")
+    cb = ctl(m5, "zoomSpread")
+    assert cb.checked is True and m5.opt.rows["zoomSpread"].points[1][5] == -1038
+    assert m5.opt.descs["zoomSpread"].points[1][5] == -(1038 + 28)
     m5.stub.click(cb)
-    assert m5.db.unknownOrigin == "off" and cb.checked is False
-    btn = m5.opt.resets["unknownOrigin"]
+    assert m5.db.zoomSpread is False and cb.checked is False
+    btn = m5.opt.resets["zoomSpread"]
     assert btn.shown
     m5.stub.click(btn)
-    assert m5.db.unknownOrigin == "wide" and cb.checked is True and not btn.shown
+    assert m5.db.zoomSpread is True and cb.checked is True and not btn.shown
+    assert "unknownOrigin" not in [k for k in m5.opt.controls]  # no Options control for the unknown oval
+
+
+# ---------------------------------------------------------------- zoom-scaled spread vs the unknown-position oval
+
+ORIGIN = (960, 626)
+
+
+def fire_known(g, style, n, **kw):
+    from test_v09 import burst as _burst
+
+    opts = {
+        "plate": restricted_plate(g, cx=700, cy=400),
+        "n": n,
+        "x": ORIGIN[0],
+        "y": ORIGIN[1],
+        "ex": ORIGIN[0],
+        "ey": ORIGIN[1],
+        "est": "mouseover",  # a located mob
+        "kind": "kill",
+        "style": style,
+    }
+    opts.update(kw)
+    return _burst(g, **opts)
+
+
+def max_dist(recs, ax="x0", ay="y0"):
+    return max(math.hypot(getattr(o, ax) - ORIGIN[0], getattr(o, ay) - ORIGIN[1]) for o in recs)
+
+
+@pytest.mark.parametrize("zoom, f", [(15, 1.0), (5, 2.0), (35, 0.5), (10, 4 / 3)])
+def test_direct_stream_start_disc_scales_with_zoom(env, zoom, f):
+    seeded(env)
+    g = make(env, fixed_random=False)
+    g.stub.zoom = zoom
+    g.db.zoomSpread = True
+    assert fire_known(g, "stream", 40, plate=None) == "stream"
+    d = max_dist(recs(g))
+    assert 6 * f * 0.85 < d <= 6 * f + 1e-9  # START_RADIUS 6 x the zoom factor
+    g.tick(0.05, 80)
+    g.db.zoomSpread = False
+    fire_known(g, "stream", 40, plate=None)
+    d = max_dist(recs(g))
+    assert 6 * 0.85 < d <= 6 + 1e-9  # off: the fixed spread
+    g.tick(0.05, 80)
+
+
+@pytest.mark.parametrize("zoom, f", [(15, 1.0), (5, 2.0), (35, 0.5)])
+def test_direct_pop_ring_scales_with_zoom(env, zoom, f):
+    seeded(env)
+    g = make(env, fixed_random=False)
+    g.stub.zoom = zoom
+    for on, k in ((True, f), (False, 1.0)):
+        g.db.zoomSpread = on
+        assert fire_known(g, "streampop", 30) == "streampop"
+        ds = [math.hypot(o.ax - ORIGIN[0], o.ay - ORIGIN[1]) for o in recs(g)]
+        assert min(ds) >= 18 * k - 1e-6 and max(ds) <= 30 * k + 1e-6  # ring 18-30 px x the factor
+        g.tick(0.05, 80)
+
+
+@pytest.mark.parametrize("zoom, f", [(15, 1.0), (5, 2.0), (35, 0.5)])
+def test_crossfade_plate_ring_scales_with_zoom(env, zoom, f):
+    seeded(env)
+    g = make(env, fixed_random=False)
+    g.stub.zoom = zoom
+    for on, k in ((True, f), (False, 1.0)):
+        g.db.zoomSpread = on
+        assert fire_known(g, "crossfade", 30) == "crossfade"
+        ds = [math.hypot(o.ax - ORIGIN[0], o.ay - ORIGIN[1]) for o in recs(g)]
+        assert min(ds) >= (24 - 8) * k - 1e-6 and max(ds) <= (36 + 8) * k + 1e-6  # ring 24-36 + drift 0-8
+        assert max(ds) > 30 * k  # really spread to the scaled size, not stuck at the fixed one
+        g.tick(0.05, 80)
+
+
+@pytest.mark.parametrize("zoom, f", [(5, 2.0), (35, 0.5), (10, 4 / 3)])
+def test_nameplate_pop_scales_with_zoom_and_is_identity_at_15(env, zoom, f):
+    from test_v010 import pop_orb_offset
+
+    g = make(env)  # math.random fixed at 0.5: the same ring point every burst
+
+    def offset(z, on):
+        g.stub.zoom, g.db.zoomSpread = z, on
+        burst(g, plate=restricted_plate(g), n=1, x=300, y=300, ex=300, ey=300, kind="kill", est="mouseover")
+        g.stub.tick(0.1)  # mid-bloom, before the exit launch: the offset is ring + drift, both scaled
+        out = pop_orb_offset(g)
+        g.tick(0.05, 80)  # play it out so the next burst starts clean
+        return out
+
+    base = offset(15, True)
+    assert offset(15, False) == pytest.approx(base)  # zoom 15 = today's size
+    assert offset(zoom, False) == pytest.approx(base)  # off: fixed whatever the zoom
+    scaled = offset(zoom, True)
+    assert scaled == pytest.approx((base[0] * f, base[1] * f))
+
+
+@pytest.mark.parametrize("spread", [True, False])
+def test_unknown_position_stays_wide_whatever_the_tickbox_says(env, spread):
+    from test_p2_unknown import RX, RY
+
+    seeded(env)
+    g = make(env, fixed_random=False)
+    g.stub.zoom = 5  # factor 2
+    g.db.zoomSpread = spread
+    g.db.unknownOrigin = "wide"
+    for style in ("stream", "popstream"):
+        fire_known(g, style, 60, est="default")
+        norms = [math.hypot((o.x0 - ORIGIN[0]) / RX, (o.y0 - ORIGIN[1]) / RY) for o in recs(g)]
+        assert max(norms) <= 2.0 + 1e-9 and max(norms) > 1.7  # the zoom-scaled oval, as before
+        assert g.orbs.lastUnknown == "wide"
+        g.tick(0.05, 80)
 
 
 def test_the_style_reset_restores_style_and_sub_choice(env):

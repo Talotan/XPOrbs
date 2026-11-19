@@ -304,7 +304,7 @@ def test_scroll_frame_without_any_template_still_scrolls(env):
         ("popMode_direct", 884),
         ("style_crossfade", 936),
         ("style_stream", 982),
-        ("wide", 1038),
+        ("zoomSpread", 1038),
         ("targetFrame", 1142),
         ("debug", 1280),
     ],

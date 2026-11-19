@@ -19,11 +19,15 @@ ns.defaults = {
     sound = false, -- chime as orbs arrive
     soundVoice = "glass", -- which chime: "coin" or "glass" (media/coin1-6.ogg, media/glass1-6.ogg)
     debug = false,
-    -- the "Wide" tickbox: where orbs start when the mob's position is unknown, "wide" (a zoom-scaled oval) or "off"
-    -- (one point); Orbs.lua UNKNOWN
+    -- where orbs start when the mob's position is unknown: "wide" (a zoom-scaled oval) or "off" (one point, kept for
+    -- future quest/exploration streams); Orbs.lua UNKNOWN. Not an Options control.
     unknownOrigin = "wide",
+    -- the "Zoom-scaled spread" tickbox: the spawn spread of located orbs (pop rings, the stream's start disc) scales
+    -- with camera zoom like the unknown oval (x1 at zoom 15); false = the fixed spread
+    zoomSpread = true,
     style = "popstream", -- kill style (schema 6): "popstream", "crossfade" or "stream" (Direct Stream)
-    popMode = "nameplate", -- Popstream's sub-choice: "nameplate" (pop on the nameplate) or "direct" (pop at the estimate)
+    -- Popstream's sub-choice: "nameplate" (pop on the nameplate) or "direct" (pop at the estimate)
+    popMode = "nameplate",
     glow = true, -- arrival flash on/off
     glowShape = "bar", -- "bar" (horizontal flash on the fill edge) or "round" (circular glow at the frame centre)
     glowIntensity = 100, -- arrival flash strength in percent (25-200): scales its alpha and, a little, its size
@@ -77,8 +81,9 @@ end
 local SCHEMA = 6
 
 -- Kill styles (schema 6): three archetypes, Popstream with a Nameplate / Direct sub-choice. Every name a save, a slash
--- command or a test may hold -> { style, popMode (nil: keep the current one), true: switch Wide on }. The 1.1 / P2
--- names map as: streampop = Popstream (Direct), wide / mob (the dropped wide burst) = Popstream (Nameplate) + Wide.
+-- command or a test may hold -> { style, popMode (nil: keep the current one), true: switch Zoom-scaled spread on }.
+-- The 1.1 / P2 names map as: streampop = Popstream (Direct), wide / mob (the dropped wide burst) = Popstream
+-- (Nameplate) + Zoom-scaled spread.
 local STYLE_ALIAS = {
     popstream = { "popstream" },
     crossfade = { "crossfade" },
@@ -111,7 +116,8 @@ function ns.StyleLabel(db)
     return ns.STYLE_LABEL[s] or tostring(s)
 end
 
--- Writes a style name (any alias) into db; false when the name isn't one. Aliases that carry a popMode or Wide set them.
+-- Writes a style name (any alias) into db; false when the name isn't one. Aliases that carry a popMode or the
+-- zoom-scaled spread set them.
 function ns.SetStyle(db, name)
     local a = STYLE_ALIAS[name]
     if not a then
@@ -122,7 +128,7 @@ function ns.SetStyle(db, name)
         db.popMode = a[2]
     end
     if a[3] then
-        db.unknownOrigin = "wide"
+        db.zoomSpread = true
     end
     return true
 end
@@ -148,7 +154,8 @@ end
 -- v5: purple/blue orbs to match the XP bar and a 1.0 s flight: only values still equal to the 1.0.x defaults are
 -- replaced (a custom colour or flight time is kept).
 -- v6: three kill styles. popstream -> Popstream (Nameplate), streampop -> Popstream (Direct), wide / mob -> Popstream
--- (Nameplate) with Wide on, crossfade and stream unchanged, anything else -> the default (STYLE_ALIAS).
+-- (Nameplate) with Zoom-scaled spread on (zoomSpread, new, default on), crossfade and stream unchanged, anything
+-- else -> the default (STYLE_ALIAS).
 -- v0.13 added classColor / glow / glowShape and v0.14 added glowIntensity / glowOffsetX / glowOffsetY: no schema bump,
 -- deepFill adds the missing keys (a stored false or an existing value is never overwritten, a missing key gets the
 -- default).
@@ -191,6 +198,7 @@ end
 
 local BOOLEANS = {
     "enabled", "classColor", "restedTint", "trail", "questBursts", "showAtMax", "debug", "glow", "sound", "zoomAnchor",
+    "zoomSpread",
 }
 local ZOOM_RANGES = { zoomA = { -100, 300 }, zoomB = { 0, 3000 }, zoomMin = { 0.5, 10 } }
 ns.zoomRanges = ZOOM_RANGES -- { min, max } per key; Calib.lua clamps fitted values with these
@@ -236,7 +244,8 @@ local function sanitize(db)
         end
     end
     -- an old name in a schema-6 save (hand-edited, or written by an older copy) is mapped like the v6 migration
-    if db.style ~= "popstream" and db.style ~= "crossfade" and db.style ~= "stream" and not ns.SetStyle(db, db.style) then
+    local st = db.style
+    if st ~= "popstream" and st ~= "crossfade" and st ~= "stream" and not ns.SetStyle(db, st) then
         db.style = defaults.style
     end
     if db.popMode ~= "nameplate" and db.popMode ~= "direct" then
@@ -375,8 +384,9 @@ function commands.help()
     say("  Crossfade: a pop on the nameplate, the orbs reappear just above the bar (nameplate; estimate sets the "
         .. "direction)")
     say("  stream = Direct Stream: a plain stream from the estimated mob position (no pop, no nameplate)")
-    say("/xporbs wide on|off - Wide start: a mob not moused over starts over a zoom-scaled area (alias: unknown "
-        .. "wide|off)")
+    say("/xporbs wide on|off - zoom-scaled spread: pops and stream starts spread wider when zoomed in, tighter "
+        .. "zoomed out (on by default)")
+    say("/xporbs unknown wide|off - where orbs start when the mob's position is unknown")
     say("/xporbs pop on|off - alias: popstream / stream")
     say("/xporbs pick [clear|FrameName] - click to pick the XP bar frame, or name it (clear = auto-detect)")
     say("/xporbs zoomanchor on|off - anchor orbs on the mob's body using the camera zoom (no arg: show state)")

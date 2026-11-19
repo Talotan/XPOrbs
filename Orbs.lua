@@ -82,7 +82,8 @@ local XF_BLOOM_SIZE = 1.6 -- start-size multiplier during the bloom, easing to 1
 local XF_FADE_IN = 0.06 -- s: alpha fade-in at birth
 local XF_EASE_OUT = 0.70 -- ease-out weight of copy B's launch (PopEase default 0.5): fast entry, slowing into the bar
 -- Profile of the crossfade plate-copy machinery (o.prof), a static table built once so nothing allocates per frame.
--- bloom: seconds the bloom from P-hat to the ring point takes; bsize: start-size multiplier of the bloom; fadeIn: alpha fade-in seconds; flight: flightTime multiplier;
+-- bloom: seconds the bloom from P-hat to the ring point takes; bsize: start-size multiplier of the bloom; fadeIn:
+-- alpha fade-in seconds; flight: flightTime multiplier;
 -- ease: ease-out weight of the launch; hold: base seconds before the flight; rmin/rmax/drift: ring radius range and
 -- extra upward drift of the ring point.
 -- leave = true (crossfade) switches on the leave / reappear behaviour: leaveDist px along u over leaveTime s with
@@ -98,13 +99,26 @@ local XF_PROFILE = { bloom = XF_HOLD, bsize = XF_BLOOM_SIZE, fadeIn = XF_FADE_IN
     bDmin = 80, bDmax = 320, bFrac = 0.30, bL = 0.60, jlo = 0.94, jspan = 0.12, cAhead = 0.4, cJit = 0.1,
     gh1 = 12, gh2 = 24,
     ux = 0, uy = 1, bx = 0, by = 0 }
--- db.unknownOrigin (the "Wide" tickbox) for the "mob position unknown" case (est == "default"): "wide" starts the
--- stream (Popstream (Nameplate), Direct Stream) or the pop (Popstream (Direct)) somewhere over an ellipse (semi-axes rx * screen width, ry * screen height at camera zoom zRef) instead of one point; "off" keeps the
+-- db.unknownOrigin for the "mob position unknown" case (est == "default"): "wide" (the default) starts the stream
+-- (Popstream (Nameplate), Direct Stream) or the pop (Popstream (Direct)) somewhere over an ellipse (semi-axes
+-- rx * screen width, ry * screen height at camera zoom zRef) instead of one point; "off" keeps the
 -- single point. The ellipse scales by clamp((zRef + zK) / (zoom + zK), fMin, fMax): wider zoomed in (the mob is
 -- bigger on screen), narrower zoomed out. One table keeps Burst's upvalues down.
+-- The same zoom factor scales the spawn spread of located orbs when db.zoomSpread is on (UNKNOWN.factor).
 local UNKNOWN = { rx = 0.064, ry = 0.04, zRef = 15, zK = 5, fMin = 0.5, fMax = 2, level = { off = 0, wide = 1 } }
 
--- Popstream (Direct) (render style "streampop": db.style "popstream", popMode "direct"): screen space only, no plate frame. Every orb is born at the start point
+-- clamp((zRef + zK) / (zoom + zK), fMin, fMax) for the current camera zoom: 1 at zoom 15, 2 zoomed in, 0.5 zoomed out;
+-- 1 when the zoom can't be read. A field of UNKNOWN, so Burst (near Lua 5.1's upvalue cap) needs no new upvalue.
+function UNKNOWN.factor()
+    local z = Orbs.ReadZoom()
+    if z and z > -UNKNOWN.zK then
+        return max(UNKNOWN.fMin, min(UNKNOWN.fMax, (UNKNOWN.zRef + UNKNOWN.zK) / (z + UNKNOWN.zK)))
+    end
+    return 1
+end
+
+-- Popstream (Direct) (render style "streampop": db.style "popstream", popMode "direct"): screen space only, no plate
+-- frame. Every orb is born at the start point
 -- within `born` s, pops out to a ring of rmin..rmax px (RingAngle, ease-out cubic over `bloom` s, size bsize -> 1,
 -- alpha fade-in over fadeIn s), keeps drifting (driftUp / driftOut px/s along its ring angle) until its launch, then
 -- flies the normal stream path from where the drift ended. Launches are ordered nearest-to-the-bar first, spread over
@@ -117,9 +131,9 @@ local SP_PROFILE = { born = 0.03, bloom = 0.16, bsize = 1.5, fadeIn = 0.05, rmin
 XF_PROFILE.sp = SP_PROFILE -- reached through XF_PROFILE from Burst, which cannot take another upvalue
 
 -- Per-burst plan of n orbs around (x, y): the ring centre (uv > 0: one random point of the zoom-scaled unknown-origin
--- ellipse, scale f, shared by every orb), ring points and launch holds ordered by distance from the ring point to
--- (dx, dy).
-function SP_PROFILE.plan(n, x, y, dx, dy, uv, f)
+-- ellipse, scale f, shared by every orb), ring points (radius x sf, the zoom-scaled spread) and launch holds ordered by
+-- distance from the ring point to (dx, dy).
+function SP_PROFILE.plan(n, x, y, dx, dy, uv, f, sf)
     local m = SP_PROFILE
     local dist, idx = {}, {}
     local cx, cy = x, y
@@ -130,7 +144,7 @@ function SP_PROFILE.plan(n, x, y, dx, dy, uv, f)
     end
     for i = 1, n do
         local ang = OrbMath.RingAngle(i, n, random)
-        local rad = m.rmin + random() * (m.rmax - m.rmin)
+        local rad = (m.rmin + random() * (m.rmax - m.rmin)) * sf
         local rx, ry = cx + cos(ang) * rad, cy + sin(ang) * rad
         m.cx[i], m.cy[i], m.ang[i], m.rx[i], m.ry[i] = cx, cy, ang, rx, ry
         dist[i], idx[i] = (dx - rx) * (dx - rx) + (dy - ry) * (dy - ry), i
@@ -565,8 +579,9 @@ function releasePop(g)
     freePop[#freePop + 1] = g
 end
 
--- Fills g for m orbs (rested: the first nP). Anchors g.f to the plate with a single point. Errors propagate (pcall'd).
-local function setupPop(g, plate, m, scale, nP, rc, bc, ux, uy, zy)
+-- Fills g for m orbs (rested: the first nP). Anchors g.f to the plate with a single point. sf scales the ring radius
+-- and drift (the zoom-scaled spread, 1 = fixed). Errors propagate (pcall'd).
+local function setupPop(g, plate, m, scale, nP, rc, bc, ux, uy, zy, sf)
     local d = ns.db
     local f, tex = g.f, g.tex
     f:ClearAllPoints()
@@ -603,9 +618,9 @@ local function setupPop(g, plate, m, scale, nP, rc, bc, ux, uy, zy)
             t.xoShown = false
         end
         local ang = OrbMath.RingAngle(i, m, random)
-        local rad = POP_R_MIN + random() * (POP_R_MAX - POP_R_MIN)
+        local rad = (POP_R_MIN + random() * (POP_R_MAX - POP_R_MIN)) * sf
         g.dx[i], g.dy[i] = cos(ang) * rad, sin(ang) * rad
-        g.drift[i] = random() * POP_DRIFT
+        g.drift[i] = random() * POP_DRIFT * sf
         g.size[i] = d.size * scale * (rested and RESTED_SIZE or 1)
         g.rot[i] = random() * TWO_PI
     end
@@ -633,7 +648,7 @@ local function takePopFrame()
 end
 
 -- Returns true when a pop was started. Never throws; every failure just means "no pop".
-local function startPop(plate, n, scale, nPurple, ux, uy, zy)
+local function startPop(plate, n, scale, nPurple, ux, uy, zy, sf)
     if type(plate) ~= "table" or not readable(plate) then
         return false
     end
@@ -644,7 +659,7 @@ local function startPop(plate, n, scale, nPurple, ux, uy, zy)
     local d = ns.db
     local m = min(n, POP_MAX)
     local nP = nPurple > 0 and floor(nPurple * m / n + 0.5) or 0
-    local ok, err = pcall(setupPop, g, plate, m, scale, nP, d.restedColor, normalC, ux, uy, zy)
+    local ok, err = pcall(setupPop, g, plate, m, scale, nP, d.restedColor, normalC, ux, uy, zy, sf)
     if not ok then
         if not popErrSeen then
             popErrSeen = true
@@ -1041,16 +1056,13 @@ function Orbs:Burst(p)
     if p.est == "default" and p.kind ~= "other" and (style == "stream" or sp or plated) then
         uv = UNKNOWN.level[d.unknownOrigin] or 0
     end
-    local uf = 1 -- ellipse scale for this burst: one zoom read, unreadable -> 1
-    if uv > 0 then
-        local z = Orbs.ReadZoom()
-        if z and z > -UNKNOWN.zK then
-            uf = max(UNKNOWN.fMin, min(UNKNOWN.fMax, (UNKNOWN.zRef + UNKNOWN.zK) / (z + UNKNOWN.zK)))
-        end
-    end
+    -- one zoom read per burst (unreadable -> 1): uf scales the unknown-origin ellipse (always), sf the spawn spread of
+    -- the pop rings and the stream's start disc (only with Zoom-scaled spread on; 1 = the fixed spread)
+    local uf = UNKNOWN.factor()
+    local sf = d.zoomSpread and uf or 1
     if p.plate ~= nil and style == "popstream" then
         local ux, uy = OrbMath.ExitVector(x, y, px, py, dx, dy)
-        popped = startPop(p.plate, n, scale, nPurple, ux, uy, zy)
+        popped = startPop(p.plate, n, scale, nPurple, ux, uy, zy, sf)
     elseif p.plate ~= nil and style == "crossfade" then
         xg = startXf(p.plate, zy)
     end
@@ -1096,7 +1108,7 @@ function Orbs:Burst(p)
     if xg then
         XF_PROFILE.plan(px, py, dx, dy)
     elseif sp then
-        prof.plan(n, x, y, dx, dy, uv, uf)
+        prof.plan(n, x, y, dx, dy, uv, uf, sf)
     end
     local xfCount = 0
     local cur, curLive = nil, false -- the orb being built, and whether it is in `live` yet
@@ -1136,8 +1148,8 @@ function Orbs:Burst(p)
                 -- crossfade: A blooms out to its ring point around P-hat and rests there; B starts near the bar, and
                 -- A has left before B's flight begins
                 local ang = OrbMath.RingAngle(i, n, random)
-                local rad = prof.rmin + random() * (prof.rmax - prof.rmin)
-                o.ax, o.ay = x + cos(ang) * rad, y + sin(ang) * rad + random() * prof.drift
+                local rad = (prof.rmin + random() * (prof.rmax - prof.rmin)) * sf
+                o.ax, o.ay = x + cos(ang) * rad, y + sin(ang) * rad + random() * prof.drift * sf
                 o.ux, o.uy = prof.ux, prof.uy
                 o.ld = prof.ld
                 o.ls = random() * prof.leaveStagger
@@ -1145,7 +1157,7 @@ function Orbs:Burst(p)
                 local sa, sr = random() * TWO_PI, prof.bSpread * sqrt(random())
                 o.x0, o.y0 = prof.bx + cos(sa) * sr, prof.by + sin(sa) * sr
             else
-                local ang, rad = random() * TWO_PI, START_RADIUS * sqrt(random())
+                local ang, rad = random() * TWO_PI, START_RADIUS * sf * sqrt(random())
                 o.x0, o.y0 = x + cos(ang) * rad, y + sin(ang) * rad
             end
             -- (Popstream (Direct) picked its shared ring centre in plan; uv is 0 for crossfade)
@@ -1530,34 +1542,35 @@ function ns.commands.style(arg)
     ns.Print("kill style: " .. ns.StyleLabel(db()))
 end
 
-local function wideState()
-    return db().unknownOrigin == "wide" and "on" or "off"
+local function spreadState()
+    return db().zoomSpread and "on" or "off"
 end
 
--- /xporbs wide on|off: the "Wide" tickbox (db.unknownOrigin "wide" / "off"): where orbs start when the mob is not
--- located. /xporbs unknown wide|off is the older spelling of the same setting.
+-- /xporbs wide on|off: the "Zoom-scaled spread" tickbox (db.zoomSpread): located orbs' spawn spread scales with zoom.
 function ns.commands.wide(arg)
     local w = string.match(arg or "", "%S+")
-    if w == "on" or w == "wide" then
-        db().unknownOrigin = "wide"
-        refreshPanel()
-    elseif w == "off" then
-        db().unknownOrigin = "off"
+    if w == "on" or w == "off" then
+        db().zoomSpread = w == "on"
         refreshPanel()
     elseif w ~= nil then
-        ns.Print("wide: use on or off (now " .. wideState() .. ")")
+        ns.Print("wide: use on or off (now " .. spreadState() .. ")")
         return
     end
-    ns.Print("wide: " .. wideState())
+    ns.Print("zoom-scaled spread: " .. spreadState())
 end
 
+-- /xporbs unknown off|wide: where the stream starts when the mob is not located (no Options control; "off" is kept
+-- for future quest/exploration streams)
 function ns.commands.unknown(arg)
     local w = string.match(arg or "", "%S+")
     if w ~= nil and UNKNOWN.level[w] == nil then
         ns.Print("unknown: use off or wide (now " .. tostring(db().unknownOrigin) .. ")")
         return
     end
-    ns.commands.wide(w)
+    if w ~= nil then
+        db().unknownOrigin = w
+    end
+    ns.Print("unknown origin: " .. tostring(db().unknownOrigin))
 end
 
 function ns.commands.pop(arg)
@@ -1593,5 +1606,9 @@ table.insert(ns.statusProviders, function()
 end)
 
 table.insert(ns.statusProviders, function()
-    return "kill style: " .. ns.StyleLabel(db()) .. ", wide: " .. wideState()
+    return "kill style: " .. ns.StyleLabel(db()) .. ", zoom-scaled spread: " .. spreadState()
+end)
+
+table.insert(ns.statusProviders, function()
+    return "unknown origin: " .. tostring(db().unknownOrigin)
 end)

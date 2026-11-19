@@ -54,8 +54,9 @@ Settings are saved per account in `XPOrbsDB`. The options panel is under Esc > O
 | `/xporbs test stress [n]` | Fire `n` test bursts (default 20, up to 100) spread over about 2 seconds, to see how a big pull looks and runs. |
 | `/xporbs perf [reset]` | Print the addon's memory use, the average and worst time of an orb frame, and how much of the orb pool is in use. `reset` zeroes the frame timings. |
 | `/xporbs style popstream [nameplate\|direct]` | Set the kill style to Popstream, optionally with its pop on the nameplate or direct. With no argument, print the current style. |
-| `/xporbs style crossfade\|stream` | Set the kill style to Crossfade or Direct Stream (`stream`). The older names still work: `streampop` is Popstream (Direct), and `wide` is Popstream (Nameplate) with Wide start on. |
-| `/xporbs wide on\|off` | Turn Wide start on or off (on by default; `/xporbs unknown wide\|off` does the same). |
+| `/xporbs style crossfade\|stream` | Set the kill style to Crossfade or Direct Stream (`stream`). The older names still work: `streampop` is Popstream (Direct), and `wide` is Popstream (Nameplate) with zoom-scaled spread on. |
+| `/xporbs wide on\|off` | Turn the zoom-scaled spread on or off (on by default). |
+| `/xporbs unknown wide\|off` | Where orbs start when the mob's position is unknown: `wide` (the default) spreads them over an area that scales with camera zoom, `off` starts them at one point. |
 | `/xporbs pop on\|off` | Shortcut: `on` sets Popstream, `off` sets Direct Stream. |
 | `/xporbs pick` | Arm the frame picker, then left-click the XP bar (it also works on bars that ignore the mouse). Right-click or wait 15 s to cancel. |
 | `/xporbs pick FrameName` | Set the XP bar by frame name, for example `/xporbs pick EQOL_XPBar`. Find a name with `/fstack`. |
@@ -67,7 +68,7 @@ Settings are saved per account in `XPOrbsDB`. The options panel is under Esc > O
 
 The panel has these settings: enable, trail, quest bursts, kill orbs at max level and the arrival chime with its sound (Coin or Glass); orb quantity,
 maximum orbs per burst, orb size and flight time (1 s by default); orb colour (or your class colour), rested tint and rested colour; the shape of the
-target frame, a landing offset, and the arrival glow with its intensity; the kill style and Wide start; the XP bar frame; and the
+target frame, a landing offset, and the arrival glow with its intensity; the kill style and the zoom-scaled spread; the XP bar frame; and the
 debug log. The panel also has a test button and a reset button.
 
 The default colours are a purple for normal orbs and a blue for rested ones, picked to match the Forever XP bar. If
@@ -150,9 +151,14 @@ whether the pop needs the mob's nameplate.
   nameplate; the estimated position sets the direction the orbs leave in. Without a nameplate it is a plain stream.
 - **Direct Stream** (`stream`): no pop, just the stream from the estimated position. Never uses the nameplate.
 
-**Wide start** (on by default) applies when you didn't mouse over the mob, so its position is only a guess: the stream (or
-Popstream Direct's pop) starts somewhere in an area around the guess instead of at one point. The area grows as you
-zoom the camera in and shrinks as you zoom out. It has no effect on Crossfade, whose pop is drawn on the nameplate.
+**Zoom-scaled spread** (on by default): the pops and the stream's start spread wider when you zoom the camera in and
+tighter when you zoom out, because the mob looks bigger or smaller on screen. At the default zoom nothing changes. It
+applies to all three styles: the nameplate pop, Crossfade's pop and the spread at the estimated position. Off keeps a
+fixed spread.
+
+When you didn't mouse over the mob, its position is only a guess, so the stream (or Popstream Direct's pop) starts
+somewhere in an area around the guess instead of at one point. That area also scales with zoom, whatever the tickbox
+says (`/xporbs unknown off` starts them at one point).
 
 Non-kill XP always uses a plain stream.
 

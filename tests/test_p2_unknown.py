@@ -1,4 +1,5 @@
-"""db.unknownOrigin, the "Wide" tickbox (schema 6), for the "mob position unknown" case (est == "default").
+"""db.unknownOrigin for the "mob position unknown" case (est == "default"); separate from the Zoom-scaled spread
+tickbox (db.zoomSpread, test_p2_styles.py), which never changes it.
 
 "off" is the single-point start. "wide" (the default) spreads the stream's start over an ellipse that scales with
 camera zoom. Popstream (Nameplate) with a plate, Direct Stream and Popstream (Direct, see test_p2_streampop.py) are
@@ -128,10 +129,10 @@ def test_command_sets_prints_and_rejects_junk(env):
     assert g.ns.defaults.unknownOrigin == "wide"
     g.db.unknownOrigin = "wide"  # make() pins "off" on the live db
     g.slash("unknown")
-    assert chat_lines(g)[-1].endswith("wide: on")
-    for w, shown in (("off", "off"), ("wide", "on")):
+    assert chat_lines(g)[-1].endswith("unknown origin: wide")
+    for w in ("off", "wide"):
         g.slash("unknown " + w)
-        assert g.db.unknownOrigin == w and chat_lines(g)[-1].endswith("wide: " + shown)
+        assert g.db.unknownOrigin == w and chat_lines(g)[-1].endswith("unknown origin: " + w)
     g.slash("unknown wide")
     g.slash("unknown sideways")
     assert g.db.unknownOrigin == "wide"
@@ -142,7 +143,7 @@ def test_help_mentions_the_command(env):
     g = make(env)
     g.slash("help")
     assert any(
-        "/xporbs wide on|off" in line and "alias: unknown wide|off" in line for line in chat_lines(g)
+        "/xporbs unknown wide|off" in line for line in chat_lines(g)
     )
 
 
@@ -180,7 +181,7 @@ def test_status_has_its_own_line_and_the_orbs_line_is_unchanged(env):
     g.slash("unknown off")
     g.slash("status")
     lines = chat_lines(g)
-    assert any(line.endswith("wide: off") for line in lines)
+    assert any(line.endswith("unknown origin: off") for line in lines)
     assert any("orbs: driver=" in line and "unknown" not in line for line in lines)
 
 
@@ -302,6 +303,7 @@ def test_plain_stream_spreads_over_the_scaled_ellipse_or_starts_at_one_point(env
     norms = [math.hypot((o.x0 - ORIGIN[0]) / RX, (o.y0 - ORIGIN[1]) / RY) for o in recs]
     assert max(norms) <= 2.0 + 1e-9 and max(norms) > 1.7 and g.orbs.lastUnknown == "wide"
     settle(g)
+    g.db.zoomSpread = False  # the located start disc would otherwise scale with zoom 5 too
     fire(g, "stream", "off", n=20)
     assert max(math.hypot(o.x0 - ORIGIN[0], o.y0 - ORIGIN[1]) for o in live_recs(g)) <= 6
     assert g.orbs.lastUnknown is None
