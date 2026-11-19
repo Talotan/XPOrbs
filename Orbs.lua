@@ -141,6 +141,48 @@ end
 -- bigger on screen), narrower zoomed out. One table keeps Burst's upvalues down.
 local UNKNOWN = { rx = 0.064, ry = 0.04, zRef = 15, zK = 5, fMin = 0.5, fMax = 2, level = { off = 0, wide = 1 } }
 
+-- Stream pop style (db.style "streampop"): screen space only, no plate frame. Every orb is born at the start point
+-- within `born` s, pops out to a ring of rmin..rmax px (RingAngle, ease-out cubic over `bloom` s, size bsize -> 1,
+-- alpha fade-in over fadeIn s), keeps drifting (driftUp / driftOut px/s along its ring angle) until its launch, then
+-- flies the normal stream path from where the drift ended. Launches are ordered nearest-to-the-bar first, spread over
+-- launchSpan s from launch0. The first control point leaves along the ring angle blended (cBlend of it, the rest
+-- towards the bar) so nothing flies back through the middle. cx/cy (ring centre: the start point, or the orb's own
+-- unknown-origin ellipse point), ang, rx/ry (ring point) and hd (hold) are per-burst scratch arrays (see plan).
+local SP_PROFILE = { born = 0.03, bloom = 0.16, bsize = 1.5, fadeIn = 0.05, rmin = 14, rmax = 26, launch0 = 0.16,
+    launchSpan = 0.20, jlo = 0.94, jspan = 0.12, driftUp = 15, driftOut = 8, cBlend = 0.6, cx = {}, cy = {}, ang = {},
+    rx = {}, ry = {}, hd = {} }
+XF_PROFILE.sp = SP_PROFILE -- reached through XF_PROFILE from Burst, which cannot take another upvalue
+
+-- Per-burst plan of n orbs around (x, y): ring centres (uv > 0: spread over the zoom-scaled unknown-origin ellipse,
+-- scale f), ring points and launch holds ordered by distance from the ring point to (dx, dy).
+function SP_PROFILE.plan(n, x, y, dx, dy, uv, f)
+    local m = SP_PROFILE
+    local dist, idx = {}, {}
+    for i = 1, n do
+        local cx, cy = x, y
+        if uv > 0 then
+            local a, rr = random() * TWO_PI, sqrt(random())
+            cx = x + cos(a) * rr * UNKNOWN.rx * f * UIParent:GetWidth()
+            cy = y + sin(a) * rr * UNKNOWN.ry * f * UIParent:GetHeight()
+        end
+        local ang = OrbMath.RingAngle(i, n, random)
+        local rad = m.rmin + random() * (m.rmax - m.rmin)
+        local rx, ry = cx + cos(ang) * rad, cy + sin(ang) * rad
+        m.cx[i], m.cy[i], m.ang[i], m.rx[i], m.ry[i] = cx, cy, ang, rx, ry
+        dist[i], idx[i] = (dx - rx) * (dx - rx) + (dy - ry) * (dy - ry), i
+    end
+    table.sort(idx, function(a, b)
+        if dist[a] ~= dist[b] then
+            return dist[a] < dist[b]
+        end
+        return a < b
+    end)
+    local span = max(n - 1, 1)
+    for rank = 0, n - 1 do
+        m.hd[idx[rank + 1]] = m.launch0 + m.launchSpan * rank / span
+    end
+end
+
 local overlay, driver, flash, flashShape
 local freeTex, texCreated, texInUse = {}, 0, 0
 local live, nLive = {}, 0
@@ -484,6 +526,28 @@ local function drawHold(o, t)
     end
     safeA(o, g, o.px + (rx - o.px) * e + o.dvx * dv, o.py + (ry - o.py) * e + o.dvy * dv,
         o.size * (1 + (prof.bsize - 1) * (1 - e)), a * g.fm)
+end
+
+-- Stream pop hold: t seconds after the orb's birth, before its launch. Screen space: out from the ring centre to the
+-- ring point (ease-out cubic, size boost easing off, alpha fade-in), then drifting. Allocates nothing.
+local function drawSpHold(o, t)
+    local m = SP_PROFILE
+    local h = t / m.bloom
+    local dv = t - m.bloom
+    if h > 1 then
+        h = 1
+    end
+    if dv < 0 then
+        dv = 0
+    end
+    local e = 1 - (1 - h) * (1 - h) * (1 - h)
+    local a = t < m.fadeIn and t / m.fadeIn or 1
+    local x, y = o.px + (o.ax - o.px) * e + o.dvx * dv, o.py + (o.ay - o.py) * e + o.dvy * dv
+    local s = o.size * (1 + (m.bsize - 1) * (1 - e))
+    place(o.under, x, y, s * GLOW * UNDER_SIZE, a * UNDER_ALPHA)
+    place(o.orb, x, y, s * GLOW, a)
+    place(o.spark, x, y, s * SPARKLE, a * SPARKLE_ALPHA)
+    o.spark:SetRotation(o.rot0 + TWO_PI * (o.el - o.delay))
 end
 
 local function drawOrb(o, p, dx, dy)
@@ -840,7 +904,11 @@ local function drive(self, dt)
         if t >= 0 then
             local ft = t - o.hold -- flight time; negative during the crossfade hold
             if ft < 0 then
-                drawHold(o, t)
+                if o.g then
+                    drawHold(o, t)
+                else
+                    drawSpHold(o, t) -- stream pop: the hold of a screen-space orb
+                end
             else
                 local p = ft / o.dur
                 if p >= 1 then
@@ -962,7 +1030,7 @@ local function styleOf(v)
     if v == "mob" then
         return "wide" -- the old name of the wide burst
     end
-    if v == "popstream" or v == "wide" or v == "crossfade" or v == "stream" then
+    if v == "popstream" or v == "wide" or v == "crossfade" or v == "stream" or v == "streampop" then
         return v
     end
     return "popstream"
@@ -1011,7 +1079,7 @@ end
 -- kind=, plate= (optional nameplate of the dead mob), style= (optional override of db.style),
 -- ex=, ey= (P-hat, the estimated mob position in UIParent coords; default = MobEstimate.Default), est=, estW= (source
 -- label and mouseover weight, informational) }. n < 1 is a no-op.
--- Returns "pop+stream" | "wide" | "crossfade" | "stream".
+-- Returns "pop+stream" | "wide" | "crossfade" | "stream" | "streampop" (a plate is ignored by "streampop").
 function Orbs:Burst(p)
     if type(p) ~= "table" or type(p.n) ~= "number" or p.n < 1 then
         return
@@ -1041,13 +1109,14 @@ function Orbs:Burst(p)
         px, py = ns.MobEstimate.Default(UIParent:GetWidth(), UIParent:GetHeight())
     end
     local popped, xg = false, nil
-    local zy = p.plate ~= nil and zoomAnchorY(d) or nil
+    local sp = style == "streampop" -- screen space only: never any plate frame
+    local zy = p.plate ~= nil and not sp and zoomAnchorY(d) or nil
     -- unknown-origin spread: only when nobody hovered the mob, and either the plain stream (which starts at P-hat) or
     -- a plate-space pop or copy is really drawn
     local uv = 0
     -- (crossfade is exempt: its plate copy is exact and its screen copy starts near the bar)
     local plated = p.plate ~= nil and style ~= "crossfade"
-    if p.est == "default" and p.kind ~= "other" and (style == "stream" or plated) then
+    if p.est == "default" and p.kind ~= "other" and (style == "stream" or sp or plated) then
         uv = UNKNOWN.level[d.unknownOrigin] or 0
     end
     local uf = 1 -- ellipse scale for this burst: one zoom read, unreadable -> 1
@@ -1066,7 +1135,7 @@ function Orbs:Burst(p)
     if xg then
         x, y = px, py
     end
-    if not (popped or xg or style == "stream") then
+    if not (popped or xg or sp or style == "stream") then
         uv = 0
     end
     Orbs.lastUnknown = uv > 0 and d.unknownOrigin or nil
@@ -1089,13 +1158,15 @@ function Orbs:Burst(p)
         n = fit
     end
     local mob = xg ~= nil and style == "wide"
-    local prof = mob and MOB_PROFILE or XF_PROFILE
+    local prof = sp and XF_PROFILE.sp or mob and MOB_PROFILE or XF_PROFILE -- (Burst is at the upvalue limit)
     local extra = popped and STREAM_DELAY or 0
     local stagger = (popped or xg) and STAGGER_POP or STAGGER
     if mob then
         stagger = MOB_BORN -- born together; the launch is what gets staggered (o.hold)
     elseif xg then
         stagger = XF_PROFILE.born -- crossfade: the pop is one quick burst
+    elseif sp then
+        stagger = prof.born -- stream pop: all born at the start point together
     end
     local spread, lift = nil, nil -- PopControl defaults
     if popped or xg then
@@ -1107,6 +1178,8 @@ function Orbs:Burst(p)
         mobPlan(n, x, y, dx, dy)
     elseif xg then
         XF_PROFILE.plan(px, py, dx, dy)
+    elseif sp then
+        prof.plan(n, x, y, dx, dy, uv, uf)
     end
     local xfCount = 0
     local cur, curLive = nil, false -- the orb being built, and whether it is in `live` yet
@@ -1134,7 +1207,15 @@ function Orbs:Burst(p)
                     xg.refs = xg.refs + 1
                 end
             end
-            if o.g then
+            if sp then
+                -- stream pop: the flight starts where the drift after the pop ends
+                local ang = prof.ang[i]
+                o.hold = prof.hd[i] + (rested and RESTED_DELAY or 0)
+                o.px, o.py, o.ax, o.ay = prof.cx[i], prof.cy[i], prof.rx[i], prof.ry[i]
+                o.dvx, o.dvy = cos(ang) * prof.driftOut, prof.driftUp + sin(ang) * prof.driftOut
+                local hd = o.hold - prof.bloom
+                o.x0, o.y0 = o.ax + o.dvx * hd, o.ay + o.dvy * hd
+            elseif o.g then
                 -- the flight starts where the bloom ends: on the ring around P-hat
                 local ang = OrbMath.RingAngle(i, n, random)
                 if mob then
@@ -1162,8 +1243,20 @@ function Orbs:Burst(p)
                 local ang, rad = random() * TWO_PI, START_RADIUS * sqrt(random())
                 o.x0, o.y0 = x + cos(ang) * rad, y + sin(ang) * rad
             end
-            placeUnknown(o, uv, x, y, uf)
-            if mob and o.g then
+            placeUnknown(o, sp and 0 or uv, x, y, uf) -- (stream pop spread its own ring centres in plan)
+            if sp then
+                -- leave along the ring angle blended towards the bar (nobody flies back through the middle)
+                local ang, k = prof.ang[i], prof.cBlend
+                local vx, vy = dx - o.x0, dy - o.y0
+                local vl = sqrt(vx * vx + vy * vy)
+                if vl > 1e-6 then
+                    vx, vy = vx / vl, vy / vl
+                else
+                    vx, vy = 0, 1
+                end
+                local r = (45 + random() * 55) * POP_STREAM_SPREAD * 2.2
+                o.c1x, o.c1y = o.x0 + (cos(ang) * k + vx * (1 - k)) * r, o.y0 + (sin(ang) * k + vy * (1 - k)) * r
+            elseif mob and o.g then
                 -- leave outwards along the ring angle, then curve home (nobody flies back through the middle)
                 local ang, r = prof.ang[i], (45 + random() * 55) * POP_STREAM_SPREAD * 2.2
                 o.c1x, o.c1y = o.x0 + cos(ang) * r, o.y0 + (0.8 * sin(ang) + POP_STREAM_LIFT) * r
@@ -1179,9 +1272,9 @@ function Orbs:Burst(p)
             end
             local ddx, ddy = dx - o.x0, dy - o.y0
             o.dist0 = sqrt(ddx * ddx + ddy * ddy)
-            o.delay = random() * stagger + (rested and not mob and RESTED_DELAY or 0) + extra
+            o.delay = random() * stagger + (rested and not mob and not sp and RESTED_DELAY or 0) + extra
             local jlo, jspan = 0.85, 0.3
-            if o.g and prof.jlo then
+            if (o.g or sp) and prof.jlo then
                 jlo, jspan = prof.jlo, prof.jspan
             end
             o.dur = max(MIN_DUR, d.flightTime * (o.g and flight or 1) * (jlo + random() * jspan))
@@ -1189,6 +1282,8 @@ function Orbs:Burst(p)
             o.fadeIn = fadeIn -- plate-copy orbs fade in during the hold (prof.fadeIn); crossfade's B over bFade
             if o.g then
                 o.fadeIn = prof.leave and prof.bFade / o.dur or 0
+            elseif sp then
+                o.fadeIn = 0 -- the pop already faded in
             end
             o.rested = rested
             o.size = d.size * scale * (rested and RESTED_SIZE or 1)
@@ -1255,6 +1350,9 @@ function Orbs:Burst(p)
     if xg then
         return mob and "wide" or "crossfade"
     end
+    if sp then
+        return "streampop"
+    end
     return popped and "pop+stream" or "stream"
 end
 
@@ -1300,7 +1398,7 @@ local function testOrigin(style, ex, ey)
         if sx then
             return sx, sy, sl
         end
-    elseif style == "stream" and num(ex) and num(ey) then
+    elseif (style == "stream" or style == "streampop") and num(ex) and num(ey) then
         return ex, ey, "estimate"
     end
     local fx, fy = Target:TargetFrameOrigin()
@@ -1398,8 +1496,8 @@ local function startStress(arg)
     ns.Print(string.format("stress: %d test bursts over about %g s", n, STRESS_TIME))
 end
 
--- /xporbs test [pct] [rested] [popstream|wide|crossfade|stream]  ("mob" = wide; the old "frame" / "plate" words
--- are ignored)
+-- /xporbs test [pct] [rested] [popstream|wide|crossfade|stream|streampop]  ("mob" = wide; the old "frame" /
+-- "plate" words are ignored)
 -- /xporbs test stress [n]
 function ns.commands.test(arg)
     local first, count = string.match(arg or "", "^%s*(%S+)%s*(%S*)")
@@ -1412,7 +1510,7 @@ function ns.commands.test(arg)
     for tok in string.gmatch(arg or "", "%S+") do
         if tok == "rested" then
             rested = true
-        elseif tok == "popstream" or tok == "wide" or tok == "crossfade" or tok == "stream" then
+        elseif tok == "popstream" or tok == "wide" or tok == "crossfade" or tok == "stream" or tok == "streampop" then
             force = tok
         elseif tok == "mob" then
             force = "wide"
@@ -1502,17 +1600,18 @@ function Orbs:SoundDisabled()
     return soundDead
 end
 
--- /xporbs style popstream|wide|crossfade|stream  ("mob" = wide; /xporbs pop on|off = alias for popstream|stream)
+-- /xporbs style popstream|wide|crossfade|stream|streampop  ("mob" = wide; /xporbs pop on|off = alias for
+-- popstream|stream)
 function ns.commands.style(arg)
     local w = string.match(arg or "", "%S+")
     if w == "mob" then
         w = "wide"
     end
-    if w == "popstream" or w == "wide" or w == "crossfade" or w == "stream" then
+    if w == "popstream" or w == "wide" or w == "crossfade" or w == "stream" or w == "streampop" then
         db().style = w
         refreshPanel()
     elseif w ~= nil then
-        ns.Print("style: use popstream, wide, crossfade or stream")
+        ns.Print("style: use popstream, wide, crossfade, stream or streampop")
         return
     end
     ns.Print("kill style: " .. styleOf(db().style))

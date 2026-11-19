@@ -64,7 +64,7 @@ def test_mob_is_still_accepted_as_an_alias(env):
     m5.slash("style mob")
     assert m5.db.style == "wide" and m5.say()[-1].endswith("kill style: wide")
     m5.slash("style bogus")
-    assert "use popstream, wide, crossfade or stream" in m5.say()[-1]
+    assert "use popstream, wide, crossfade, stream or streampop" in m5.say()[-1]
     g = make(env)
     g.stub.plates["target"] = restricted_plate(g)
     g.stub.units["target"] = g.env.lua.table_from({"guid": "G1", "isTarget": True})

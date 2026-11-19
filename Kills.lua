@@ -211,7 +211,7 @@ local function emitBurst(b)
     b.rested = restedAmt
     local x, y, origin = chooseOrigin(b, ex, ey)
     local plate
-    if b.kind == "kill" and db.style ~= "stream" then
+    if b.kind == "kill" and db.style ~= "stream" and db.style ~= "streampop" then
         if b.plate ~= nil then
             if not plateReused(b.plate, b.entry) then
                 plate = b.plate
