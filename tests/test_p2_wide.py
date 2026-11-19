@@ -298,6 +298,6 @@ def test_crossfade_orbs_have_no_drift_and_narrow_jitter(env):
     plate = restricted_plate(g, cx=700, cy=400)
     assert burst(g, plate=plate, n=10, x=300, y=300, ex=700, ey=500, kind="kill", style="crossfade") == "crossfade"
     for o in recs(g):
-        # bloom 0.22 + leave start 0..0.15 + leave 0.20 + gap 0.12; B flies flightTime * 0.45 * (0.94..1.06)
-        assert (o.dvx, o.dvy) == (0, 0) and 0.54 <= o.hold <= 0.69 and o.hold == pytest.approx(0.54 + o.ls)
-        assert 0.94 * 0.45 * g.db.flightTime - 1e-9 <= o.dur <= 1.06 * 0.45 * g.db.flightTime + 1e-9
+        # bloom 0.22 + leave start 0..0.15 + leave 0.18 + gap 0.10; B flies flightTime * 0.40 * (0.94..1.06)
+        assert (o.dvx, o.dvy) == (0, 0) and 0.50 <= o.hold <= 0.65 and o.hold == pytest.approx(0.50 + o.ls)
+        assert 0.94 * 0.40 * g.db.flightTime - 1e-9 <= o.dur <= 1.06 * 0.40 * g.db.flightTime + 1e-9

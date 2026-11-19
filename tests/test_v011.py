@@ -180,8 +180,8 @@ def test_crossfade_alpha_is_zero_at_birth_then_fades_in(env):
 def test_crossfade_flight_is_the_short_last_stretch(env):
     g = make(env)
     xf_burst(g)
-    dur = g.db.flightTime * 0.45  # copy B flies 0.45 x flightTime (jitter factor 1.0 at random 0.5)
-    start = DELAY + 0.22 + 0.075 + 0.20 + 0.12  # hold: bloom + leave start + leave + gap (random 0.5)
+    dur = g.db.flightTime * 0.40  # copy B flies 0.40 x flightTime (jitter factor 1.0 at random 0.5)
+    start = DELAY + 0.22 + 0.075 + 0.18 + 0.10  # hold: bloom + leave start + leave + gap (random 0.5)
     g.stub.tick(start + 0.5 * dur)
     assert a_orb_count(g) == 0 and len(stream_textures(g)) == 3  # copy A is long gone; only B flies
     g.stub.tick(0.5 * dur - 0.01)  # still flying just before the end
@@ -204,7 +204,7 @@ def test_crossfade_arrival_time_follows_its_own_timeline(env):
     g2 = make(env)
     xf_burst(g2, n=3)
     xf = arrival_time(g2)  # delay + bloom + leave start + leave + gap + flight (the last orb: stagger up to 0.08)
-    assert DELAY + 0.22 + 0.075 + 0.20 + 0.12 + g2.db.flightTime * 0.45 - 0.01 <= xf <= 1.6
+    assert DELAY + 0.22 + 0.075 + 0.18 + 0.10 + g2.db.flightTime * 0.40 - 0.01 <= xf <= 1.6
 
 
 def test_pop_ease_default_unchanged_and_weighted(env):

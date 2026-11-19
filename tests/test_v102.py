@@ -204,12 +204,12 @@ def test_driver_error_releases_crossfade_frames(env):
     assert free == created and alive == 0 and xf == 0 and g.orbs.Info(g.orbs)[1] == 0
 
 
-@pytest.mark.parametrize("style", ["popstream", "crossfade"])
-def test_burst_error_after_a_pop_started_releases_the_frame(env, style):
+@pytest.mark.parametrize("style, fn", [("popstream", "PopControl"), ("crossfade", "RingAngle")])
+def test_burst_error_after_a_pop_started_releases_the_frame(env, style, fn):
     g = make(env)
     g.db.style = style
     plate = restricted_plate(g)
-    raise_in(env, g.ns.OrbMath, "PopControl")
+    raise_in(env, g.ns.OrbMath, fn)
     with pytest.raises(Exception):
         burst(g, plate=plate, n=5, x=500, y=500, kind="kill")
     free, created, alive, xf = g.orbs.PoolInfo(g.orbs)

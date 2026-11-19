@@ -74,27 +74,31 @@ local STREAM_DELAY = 0.30 -- extra start delay of the stream when a pop happened
 -- Crossfade style: the orbs leave the corpse and reappear just above the bar; most of the trip is implied, not drawn.
 -- Copy A is drawn relative to the plate's BOTTOM (exact, whatever P-hat is): it blooms to a ring (XF_HOLD), then
 -- accelerates away along u (the unit vector from P-hat towards the bar) for leaveDist px, fading out. Copy B (screen
--- space) appears only after A is gone and a short gap with nothing drawn: it starts about D = clamp(0.15 * screen
--- height, 80, 160) px short of the bar (along -u, within a bSpread px disc) and flies the last stretch.
+-- space) appears only after A is gone and a short gap with nothing drawn: it starts about D = clamp(min(0.15 * screen
+-- height, 0.45 * L), 40, 160) (L = P-hat to bar) px short of the bar (along -u, within a bSpread px disc) and
+-- flies the last stretch.
 local XF_HOLD = 0.22 -- s: bloom at the plate (copy A only)
 local XF_BLOOM_R = 18 -- px: ring radius reached (ease-out cubic) by the end of the bloom
 local XF_BLOOM_SIZE = 1.5 -- start-size multiplier during the bloom, easing to 1.0 by its end
 local XF_FADE_IN = 0.06 -- s: alpha fade-in at birth
-local XF_EASE_OUT = 0.25 -- ease-out weight of copy B's launch (PopEase default 0.5 = launch slope 1.5)
+local XF_EASE_OUT = 0.70 -- ease-out weight of copy B's launch (PopEase default 0.5): fast entry, slowing into the bar
 -- Per-orb profiles of the plate-copy machinery (o.prof), static tables built once so nothing allocates per frame.
 -- s0/s1: flight p range of the A -> B crossfade (0 = none); bloom: seconds the bloom from P-hat to the ring point
 -- takes; bsize: start-size multiplier of the bloom; fadeIn: alpha fade-in seconds; flight: flightTime multiplier;
 -- ease: ease-out weight of the launch; hold: base seconds before the flight; rmin/rmax/drift: ring radius range and
 -- extra upward drift of the ring point.
 -- leave = true (crossfade) switches on the leave / reappear behaviour: leaveDist px along u over leaveTime s with
--- ease-in (q^2), alpha 1 -> 0, size 1 -> 0.8; each orb's leave starts a random 0..leaveStagger s after the bloom; B's
+-- ease-in (q^2), alpha 1 - q^2, size 1 -> 0.8; each orb's leave starts a random 0..leaveStagger s after the bloom; B's
 -- flight starts gap s after A is gone (so hold = bloom + stagger + leaveTime + gap); B fades in over bFade s, starts at
--- (bDmin..bDmax, bFrac * screen height) px from the bar and flies flightTime * flight * (jlo..jlo + jspan); cspread
--- and clift shape its gentle curve (PopControl). ux, uy, bx, by are per-burst scratch (see XF_PROFILE.plan).
+-- (bDmin..bDmax, min(bFrac * screen height, bL * L)) px from the bar and flies flightTime * flight *
+-- (jlo..jlo + jspan); cAhead / cJit put its first control point cAhead * dist ahead along u, jittered sideways by
+-- +-cJit * dist (no lift); gh1 / gh2 are the px its trail ghosts sit behind it (along -u) during the fade-in.
+-- ux, uy, bx, by are per-burst scratch (see XF_PROFILE.plan).
 local XF_PROFILE = { s0 = 0, s1 = 0, bloom = XF_HOLD, bsize = XF_BLOOM_SIZE, fadeIn = XF_FADE_IN,
-    flight = 0.45, ease = XF_EASE_OUT, hold = XF_HOLD, rmin = XF_BLOOM_R, rmax = XF_BLOOM_R, drift = 0,
-    leave = true, leaveDist = 70, leaveTime = 0.20, leaveStagger = 0.15, gap = 0.12, bFade = 0.08, bSpread = 14,
-    bDmin = 80, bDmax = 160, bFrac = 0.15, cspread = 0.25, clift = 0.2, jlo = 0.94, jspan = 0.12,
+    flight = 0.40, ease = XF_EASE_OUT, hold = XF_HOLD, rmin = XF_BLOOM_R, rmax = XF_BLOOM_R, drift = 0,
+    leave = true, leaveDist = 90, leaveTime = 0.18, leaveStagger = 0.15, gap = 0.10, bFade = 0.08, bSpread = 14,
+    bDmin = 40, bDmax = 160, bFrac = 0.15, bL = 0.45, jlo = 0.94, jspan = 0.12, cAhead = 0.4, cJit = 0.1,
+    gh1 = 12, gh2 = 24,
     ux = 0, uy = 1, bx = 0, by = 0 }
 -- Wide burst style (db.style "wide", once "mob"): one burst of orbs at the mob (like the pop, all born within
 -- MOB_BORN). Orbs launch in order, nearest to the bar first: hold = launch0 + launchSpan * rank / (n - 1) + up to
@@ -470,7 +474,7 @@ local function drawHold(o, t)
                 safeA(o, g, rx, ry, 0, 0)
             else
                 local k = prof.leaveDist * q * q
-                safeA(o, g, rx + o.ux * k, ry + o.uy * k, o.size * (1 - 0.2 * q), (1 - q) * g.fm)
+                safeA(o, g, rx + o.ux * k, ry + o.uy * k, o.size * (1 - 0.2 * q), (1 - q * q) * g.fm)
             end
             return
         end
@@ -511,6 +515,13 @@ local function drawOrb(o, p, dx, dy)
     o.spark:SetRotation(o.rot0 + TWO_PI * (o.el - o.delay))
     if o.g1 then
         local pk = p - GHOST_STEP
+        if g and p < fi and o.prof.leave then
+            -- crossfade B fading in: the ghosts sit behind it along -u, so it arrives "from" the implied path
+            local gh = o.prof
+            place(o.g1, ex - o.ux * gh.gh1, ey - o.uy * gh.gh1, s * GLOW * GHOST1_SIZE, a * GHOST1_ALPHA)
+            place(o.g2, ex - o.ux * gh.gh2, ey - o.uy * gh.gh2, s * GLOW * GHOST2_SIZE, a * GHOST2_ALPHA)
+            return
+        end
         if pk > 0 then
             local gx, gy = OrbMath.Cubic(OrbMath.PopEase(pk, ew), x0, y0, c1x, c1y, c2x, c2y, dx, dy)
             place(o.g1, gx, gy, s * GLOW * GHOST1_SIZE, a * GHOST1_ALPHA)
@@ -991,7 +1002,7 @@ function XF_PROFILE.plan(px, py, dx, dy) -- a method of the profile: one upvalue
     else
         vx, vy = 0, 1
     end
-    local D = max(m.bDmin, min(m.bDmax, m.bFrac * UIParent:GetHeight()))
+    local D = max(m.bDmin, min(m.bDmax, m.bFrac * UIParent:GetHeight(), m.bL * len))
     m.ux, m.uy = vx, vy
     m.bx, m.by = dx - vx * D, dy - vy * D
 end
@@ -1088,9 +1099,6 @@ function Orbs:Burst(p)
     if popped or xg then
         spread, lift = POP_STREAM_SPREAD, POP_STREAM_LIFT
     end
-    if xg and not mob then
-        spread, lift = XF_PROFILE.cspread, XF_PROFILE.clift -- B only flies the last stretch: a gentle curve
-    end
     local fadeIn = popped and FADE_IN_POP or FADE_IN
     local flight = xg and prof.flight or 1
     if mob then
@@ -1156,6 +1164,13 @@ function Orbs:Burst(p)
                 -- leave outwards along the ring angle, then curve home (nobody flies back through the middle)
                 local ang, r = prof.ang[i], (45 + random() * 55) * POP_STREAM_SPREAD * 2.2
                 o.c1x, o.c1y = o.x0 + cos(ang) * r, o.y0 + (0.8 * sin(ang) + POP_STREAM_LIFT) * r
+            elseif o.g and prof.leave then
+                -- crossfade B: first control point ahead along u (towards the bar), jittered sideways, no lift
+                local ddx, ddy = dx - o.x0, dy - o.y0
+                local d0 = sqrt(ddx * ddx + ddy * ddy)
+                local j = (random() * 2 - 1) * prof.cJit * d0
+                o.c1x = o.x0 + o.ux * prof.cAhead * d0 - o.uy * j
+                o.c1y = o.y0 + o.uy * prof.cAhead * d0 + o.ux * j
             else
                 o.c1x, o.c1y = OrbMath.PopControl(i, n, o.x0, o.y0, random, spread, lift)
             end
