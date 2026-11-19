@@ -50,10 +50,10 @@ Settings are saved per account in `XPOrbsDB`. The options panel is under Esc > O
 | `/xporbs help` | List the commands. |
 | `/xporbs options` | Open the options panel. |
 | `/xporbs status` | Print the version, the settings that matter, and the state of each part of the addon. |
-| `/xporbs test [pct] [rested] [popstream\|crossfade\|stream]` | Fire a test burst. `pct` is the percent of a level it represents (default 5, up to 1000). `rested` colours part of it as rested. A style name overrides the saved style for this burst. |
+| `/xporbs test [pct] [rested] [popstream\|wide\|crossfade\|stream]` | Fire a test burst. `pct` is the percent of a level it represents (default 5, up to 1000). `rested` colours part of it as rested. A style name overrides the saved style for this burst. |
 | `/xporbs test stress [n]` | Fire `n` test bursts (default 20, up to 100) spread over about 2 seconds, to see how a big pull looks and runs. |
 | `/xporbs perf [reset]` | Print the addon's memory use, the average and worst time of an orb frame, and how much of the orb pool is in use. `reset` zeroes the frame timings. |
-| `/xporbs style popstream\|crossfade\|stream` | Set the kill style. With no argument, print the current one. |
+| `/xporbs style popstream\|wide\|crossfade\|stream` | Set the kill style. With no argument, print the current one. |
 | `/xporbs pop on\|off` | Shortcut: `on` sets `popstream`, `off` sets `stream`. |
 | `/xporbs pick` | Arm the frame picker, then left-click the XP bar (it also works on bars that ignore the mouse). Right-click or wait 15 s to cancel. |
 | `/xporbs pick FrameName` | Set the XP bar by frame name, for example `/xporbs pick EQOL_XPBar`. Find a name with `/fstack`. |
@@ -137,9 +137,10 @@ The stream then flies in screen space from that point to the destination.
 
 - `popstream` (default): up to 12 orbs pop out around the plate for about half a second, then the full stream flies
   from the estimated position to the bar. Without a plate, only the stream is drawn.
+- `wide`: a wider burst at the plate whose orbs peel off one by one, nearest to the bar first, into the stream.
 - `crossfade`: the orbs bloom on the plate, then leave it and fade out. After a short gap they reappear a little way
-  below the bar and fly the last stretch; most of the trip is implied rather than drawn.
-- `stream`: only the screen-space stream, with no plate frame.
+  short of the bar and fly the last stretch; most of the trip is implied rather than drawn.
+- `stream`: only the screen-space stream, straight from the estimated position, with no plate frame.
 
 Non-kill XP always uses a plain stream.
 
