@@ -6,7 +6,8 @@ local ADDON, ns = ...
 -- fallback that needed a death position) was retired with the plate measuring in v0.17; the number stays unused so log
 -- lines keep their meaning.
 -- When the chat line is a secret value (instances) there is no amount or name to match on. The caller then registers a
--- marker (AddSecretChat); a marker pairs the oldest queued death with the oldest unclaimed XP delta, FIFO, as a kill.
+-- marker (AddSecretChat); a marker pairs the oldest queued death within secretTTL of it with the oldest unclaimed
+-- XP delta, FIFO, as a kill.
 -- Without a marker an unclaimed delta is still "other" (a quest turn-in near a grey-mob death must not become a kill).
 
 local KillMatcher = {}
@@ -67,7 +68,9 @@ end
 
 function KillMatcher:Stats()
     local s = self.stats
-    return { tier1 = s.tier1, tier2 = s.tier2, tier4 = s.tier4, dropped = s.dropped, other = s.other, secret = s.secret }
+    return {
+        tier1 = s.tier1, tier2 = s.tier2, tier4 = s.tier4, dropped = s.dropped, other = s.other, secret = s.secret,
+    }
 end
 
 -- Each delta claims one equal-amount kill (still pending, or already emitted and owed a delta), FIFO.
@@ -169,23 +172,38 @@ function KillMatcher:Poll()
             i = i + 1
         end
     end
-    while #self.deltas > 0 and #self.secret > 0 and #self.deaths > 0 do
-        local delta = table.remove(self.deltas, 1)
-        table.remove(self.secret, 1)
-        local d = table.remove(self.deaths, 1) -- no name to match on: the oldest death
-        out[#out + 1] = {
-            plate = d.plate,
-            guid = d.guid,
-            entry = d.entry,
-            amount = delta.amount,
-            rested = nil,
-            tier = d.tier,
-            kind = "kill",
-            secret = true,
-        }
-        local key = "tier" .. d.tier
-        self.stats[key] = (self.stats[key] or 0) + 1
-        self.stats.secret = self.stats.secret + 1
+    -- A marker only pairs with a death within secretTTL of it (either direction): an unrelated secret line next to a
+    -- grey or tapped mob's death must not turn that death into a kill. Unpaired deaths expire below, deltas become
+    -- "other".
+    local mi = 1
+    while #self.deltas > 0 and mi <= #self.secret do
+        local mt, di = self.secret[mi].t, nil
+        for j, dd in ipairs(self.deaths) do
+            if math.abs(dd.t - mt) <= cfg.secretTTL then
+                di = j
+                break
+            end
+        end
+        if di then
+            local delta = table.remove(self.deltas, 1)
+            table.remove(self.secret, mi)
+            local d = table.remove(self.deaths, di) -- no name to match on: the oldest death in the window
+            out[#out + 1] = {
+                plate = d.plate,
+                guid = d.guid,
+                entry = d.entry,
+                amount = delta.amount,
+                rested = nil,
+                tier = d.tier,
+                kind = "kill",
+                secret = true,
+            }
+            local key = "tier" .. d.tier
+            self.stats[key] = (self.stats[key] or 0) + 1
+            self.stats.secret = self.stats.secret + 1
+        else
+            mi = mi + 1
+        end
     end
 
     -- Deaths nobody paid XP for (grey mob, tapped by others) expire silently.

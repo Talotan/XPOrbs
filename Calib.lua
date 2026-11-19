@@ -12,7 +12,7 @@ ns.Calib = Calib
 local OrbMath = ns.OrbMath
 local TICK = 0.1 -- marker re-anchor interval (10 Hz)
 local STEP, STEP_BIG = 2, 10 -- nudge in px (shift = big)
-local POINTS_MAX = 8
+local POINTS_MAX = ns.ZOOM_POINTS_MAX
 local MARKER_SIZE = 20
 local ARM_FROM, ARM_TO = 6, 18 -- reticle arms run from here to here (px from the centre)
 
@@ -232,7 +232,7 @@ local function makePanel()
     bg:SetAllPoints(f)
     bg:SetColorTexture(0, 0, 0, 0.8)
     if f.SetBackdrop then
-        pcall(f.SetBackdrop, f, { edgeFile = "Interface\Tooltips\UI-Tooltip-Border", edgeSize = 12 })
+        pcall(f.SetBackdrop, f, { edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border", edgeSize = 12 })
         if f.SetBackdropBorderColor then
             pcall(f.SetBackdropBorderColor, f, 0.8, 0.8, 0.8, 0.8)
         end

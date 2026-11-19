@@ -45,10 +45,18 @@ local function optionsOpen()
     return true
 end
 
+-- Closing the Settings window from addon code can be blocked (or taint the UIPanel manager) in combat, so don't try
+-- then.
 local function closeOptions()
-    local closed = HideUIPanel and pcall(HideUIPanel, SettingsPanel)
-    if not (closed and not SettingsPanel:IsShown()) then
-        pcall(SettingsPanel.Hide, SettingsPanel)
+    if InCombatLockdown and InCombatLockdown() then
+        ns.Print("can't close the options in combat")
+        return
+    end
+    if SettingsPanel and type(SettingsPanel.Close) == "function" and pcall(SettingsPanel.Close, SettingsPanel) then
+        return
+    end
+    if HideUIPanel then
+        pcall(HideUIPanel, SettingsPanel)
     end
 end
 

@@ -597,8 +597,8 @@ local function radioClick(key, v)
 end
 
 -- The "Sound" row under the chime checkbox: Blizzard's modern dropdown (WowStyle1DropdownTemplate + SetupMenu radios),
--- or two radio buttons when this client has no such template. Picking a voice plays one sample note, even with the chime
--- off, so the player can audition both before turning the chime on. The row stays enabled.
+-- or two radio buttons when this client has no such template. Picking a voice plays one sample note, even with the
+-- chime off, so the player can audition both before turning the chime on. The row stays enabled.
 local function soundVoiceRow(y)
     local row = newRow(y, 28)
     Options.rows.soundVoice = row

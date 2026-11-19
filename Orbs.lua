@@ -124,18 +124,32 @@ end
 -- flies the normal stream path from where the drift ended. Launches are ordered nearest-to-the-bar first, spread over
 -- launchSpan s from launch0. The first control point leaves along the ring angle blended (cBlend of it, the rest
 -- towards the bar) so nothing flies back through the middle. cx/cy (ring centre: the start point, or the orb's own
--- unknown-origin ellipse point), ang, rx/ry (ring point) and hd (hold) are per-burst scratch arrays (see plan).
+-- unknown-origin ellipse point), ang, rx/ry (ring point), hd (hold), dist and idx (launch order) are per-burst
+-- scratch arrays (see plan).
 local SP_PROFILE = { born = 0.03, bloom = 0.16, bsize = 1.5, fadeIn = 0.05, rmin = 18, rmax = 30, launch0 = 0.16,
     launchSpan = 0.20, jlo = 0.94, jspan = 0.12, driftUp = 15, driftOut = 8, cBlend = 0.6, cx = {}, cy = {}, ang = {},
-    rx = {}, ry = {}, hd = {} }
+    rx = {}, ry = {}, hd = {}, dist = {}, idx = {} }
 XF_PROFILE.sp = SP_PROFILE -- reached through XF_PROFILE from Burst, which cannot take another upvalue
+
+-- table.sort comparator over SP_PROFILE.idx: nearest ring point first (dist), ties by index. File-level so a burst
+-- allocates no closure.
+local function byRingDist(a, b)
+    local dist = SP_PROFILE.dist
+    if dist[a] ~= dist[b] then
+        return dist[a] < dist[b]
+    end
+    return a < b
+end
 
 -- Per-burst plan of n orbs around (x, y): the ring centre (uv > 0: one random point of the zoom-scaled unknown-origin
 -- ellipse, scale f, shared by every orb), ring points (radius x sf, the zoom-scaled spread) and launch holds ordered by
 -- distance from the ring point to (dx, dy).
 function SP_PROFILE.plan(n, x, y, dx, dy, uv, f, sf)
     local m = SP_PROFILE
-    local dist, idx = {}, {}
+    local dist, idx = m.dist, m.idx
+    for i = #idx, n + 1, -1 do -- table.sort sorts #idx slots: drop what a larger earlier burst left behind
+        idx[i] = nil
+    end
     local cx, cy = x, y
     if uv > 0 then -- one random point of the ellipse is the shared pop centre, so the pop keeps its ring shape
         local a, rr = random() * TWO_PI, sqrt(random())
@@ -149,12 +163,7 @@ function SP_PROFILE.plan(n, x, y, dx, dy, uv, f, sf)
         m.cx[i], m.cy[i], m.ang[i], m.rx[i], m.ry[i] = cx, cy, ang, rx, ry
         dist[i], idx[i] = (dx - rx) * (dx - rx) + (dy - ry) * (dy - ry), i
     end
-    table.sort(idx, function(a, b)
-        if dist[a] ~= dist[b] then
-            return dist[a] < dist[b]
-        end
-        return a < b
-    end)
+    table.sort(idx, byRingDist)
     local span = max(n - 1, 1)
     for rank = 0, n - 1 do
         m.hd[idx[rank + 1]] = m.launch0 + m.launchSpan * rank / span
@@ -974,12 +983,6 @@ local function lighten(c)
     return c + (1 - c) * SPARKLE_WHITE
 end
 
--- The render style ("popstream" = Popstream (Nameplate), "streampop" = Popstream (Direct), "crossfade", "stream" =
--- Direct Stream) of a style name (any alias, see Core STYLE_ALIAS) and a popMode.
-local function styleOf(v, mode)
-    return ns.RenderStyle(v, mode)
-end
-
 -- Wide start of one stream orb: o.x0, o.y0 moves to a random point of the unknown-origin ellipse around (x, y)
 -- (uv == 0: left alone). f scales the ellipse (the camera-zoom factor, read once per burst).
 local function placeUnknown(o, uv, x, y, f)
@@ -1030,7 +1033,7 @@ function Orbs:Burst(p)
         nPurple = 0
     end
     local x, y = p.x, p.y
-    local style = styleOf(p.style or d.style, p.popMode or d.popMode)
+    local style = ns.RenderStyle(p.style or d.style, p.popMode or d.popMode)
     if p.kind == "other" then
         style = "stream" -- quest and other XP: no pop (Kills passes the origin; the centre is the default)
     end
@@ -1057,9 +1060,10 @@ function Orbs:Burst(p)
         uv = UNKNOWN.level[d.unknownOrigin] or 0
     end
     -- one zoom read per burst (unreadable -> 1): uf scales the unknown-origin ellipse (always), sf the spawn spread of
-    -- the pop rings and the stream's start disc (only with Zoom-scaled spread on; 1 = the fixed spread)
+    -- the pop rings and the stream's start disc (only with Zoom-scaled spread on and a located kill; 1 = the fixed
+    -- spread)
     local uf = UNKNOWN.factor()
-    local sf = d.zoomSpread and uf or 1
+    local sf = d.zoomSpread and p.kind ~= "other" and uf or 1
     if p.plate ~= nil and style == "popstream" then
         local ux, uy = OrbMath.ExitVector(x, y, px, py, dx, dy)
         popped = startPop(p.plate, n, scale, nPurple, ux, uy, zy, sf)
@@ -1354,7 +1358,7 @@ local function fireTest(pct, rested, force, forceMode)
         guid = tg
     end
     local ex, ey, est, estW = ns.Mouseover:Estimate(guid)
-    local x, y, label = testOrigin(styleOf(force or d.style, forceMode or d.popMode), ex, ey)
+    local x, y, label = testOrigin(ns.RenderStyle(force or d.style, forceMode or d.popMode), ex, ey)
     local mode = Orbs:Burst({
         x = x,
         y = y,
@@ -1598,7 +1602,7 @@ table.insert(ns.statusProviders, function()
         ceiling(),
         tostring(Target.lastName),
         Target.lastOk and "no" or "yes",
-        styleOf(db().style, db().popMode),
+        ns.RenderStyle(db().style, db().popMode),
         nPops,
         popsCreated,
         POP_FRAMES

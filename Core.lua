@@ -201,6 +201,7 @@ local BOOLEANS = {
     "zoomSpread",
 }
 local ZOOM_RANGES = { zoomA = { -100, 300 }, zoomB = { 0, 3000 }, zoomMin = { 0.5, 10 } }
+ns.ZOOM_POINTS_MAX = ZOOM_POINTS_MAX
 ns.zoomRanges = ZOOM_RANGES -- { min, max } per key; Calib.lua clamps fitted values with these
 local COLOURS = { "color", "restedColor" }
 

@@ -95,7 +95,9 @@ def test_registered_once_with_name_and_minimap_db(m):
     assert obj.icon == "Interface\\AddOns\\XPOrbs\\media\\icon"
     # the texture path the game resolves must exist as a 64x64 32-bit TGA
     tga = (ROOT / "media" / "icon.tga").read_bytes()
-    assert obj.icon != toc_fields()["IconTexture"]  # the minimap button stays borderless (LibDBIcon rings it)
+    assert (
+        obj.icon != toc_fields()["IconTexture"]
+    )  # the minimap button stays borderless (LibDBIcon rings it)
     assert tga[2] == 2 and tga[12:16] == bytes([64, 0, 64, 0]) and tga[16] == 32
     assert obj.label == "XP Orbs" and obj.text == "XP Orbs"
 
@@ -275,6 +277,7 @@ function(G)
     local sp = { shown = false, hides = 0 }
     function sp:IsShown() return self.shown end
     function sp:Hide() self.shown = false; self.hides = self.hides + 1 end
+    function sp:Close() self.shown = false end
     G.SettingsPanel = sp
     return sp
 end
@@ -289,7 +292,9 @@ def open_window(m, ours=True):
         show(m)
         m.opt.panel.Show(m.opt.panel)
     else:
-        m.opt.panel.Hide(m.opt.panel)  # stub frames start shown; a real canvas panel is hidden off-category
+        m.opt.panel.Hide(
+            m.opt.panel
+        )  # stub frames start shown; a real canvas panel is hidden off-category
     return sp
 
 
