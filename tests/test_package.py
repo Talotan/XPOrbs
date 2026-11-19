@@ -36,6 +36,7 @@ def test_toc_files_present(zip_names_and_toc):
         "media/sparkle.tga",
         "media/flash.tga",
         "media/icon.tga",
+        "media/icon-list.tga",
         "LICENSE",
         "Libs/README.md",
         "Libs/LibStub/LibStub.lua",

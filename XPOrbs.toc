@@ -6,7 +6,7 @@
 ## X-Curse-Project-ID: 1807336
 ## X-Wago-ID: ZKbqJJ61
 ## Version: 1.1.0
-## IconTexture: Interface\AddOns\XPOrbs\media\icon
+## IconTexture: Interface\AddOns\XPOrbs\media\icon-list
 ## AddonCompartmentFunc: XPOrbs_OnAddonCompartmentClick
 ## AddonCompartmentFuncOnEnter: XPOrbs_OnAddonCompartmentEnter
 ## AddonCompartmentFuncOnLeave: XPOrbs_OnAddonCompartmentLeave

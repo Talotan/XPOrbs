@@ -46,8 +46,8 @@ def toc_fields():
 
 
 def test_icon_texture_is_a_64px_32bit_tga():
-    assert toc_fields()["IconTexture"] == "Interface\\AddOns\\XPOrbs\\media\\icon"
-    path = ROOT / "media" / "icon.tga"
+    assert toc_fields()["IconTexture"] == "Interface\\AddOns\\XPOrbs\\media\\icon-list"
+    path = ROOT / "media" / "icon-list.tga"  # bordered: AddOns list draws no frame
     assert path.is_file()
     hdr = path.read_bytes()[:18]
     w, h = struct.unpack("<HH", hdr[12:16])
@@ -95,6 +95,7 @@ def test_registered_once_with_name_and_minimap_db(m):
     assert obj.icon == "Interface\\AddOns\\XPOrbs\\media\\icon"
     # the texture path the game resolves must exist as a 64x64 32-bit TGA
     tga = (ROOT / "media" / "icon.tga").read_bytes()
+    assert obj.icon != toc_fields()["IconTexture"]  # the minimap button stays borderless (LibDBIcon rings it)
     assert tga[2] == 2 and tga[12:16] == bytes([64, 0, 64, 0]) and tga[16] == 32
     assert obj.label == "XP Orbs" and obj.text == "XP Orbs"
 
