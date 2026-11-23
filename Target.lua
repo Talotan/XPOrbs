@@ -9,12 +9,12 @@ ns.Target = Target
 local OrbMath = ns.OrbMath
 
 local BAR_FRAMES = { "MainStatusTrackingBarContainer", "StatusTrackingBarManager", "MainMenuExpBar" }
--- Known replacement XP bars from other UI addons, tried after the user's pick and before Blizzard's frames (the
--- seed of roadmap M8, a proper table of supported bar addons). EQOL_XPBar is EnhanceQoL's.
-local KNOWN_BARS = { "EQOL_XPBar" }
 local FALLBACK_Y = 20
 
 Target.lastName = nil -- frame name used by the last GetDestination() call (nil on fallback)
+Target.lastSource = nil -- id of the bar source that supplied it (nil for a pick, a Blizzard container or the fallback)
+Target.lastSourceLabel = nil -- that source's display label
+Target.lastSourceViaPick = false -- true when a saved pick was redirected to its source (see PICK_ALIASES)
 Target.lastOk = false
 Target.lastXP, Target.lastXPMax = nil, nil -- the last readable XP pair: aimed at when the current reading is secret
 
@@ -99,6 +99,154 @@ local function tryFrame(name, xp, xpMax, centre)
     return tryObject(_G[name], xp, xpMax, centre)
 end
 
+-- Bar sources: where other UI suites keep their XP bar. Each resolve() returns a frame or nil and runs under pcall; the
+-- frame only counts if tryObject can measure it (visible, usable geometry). Tried in this order after the user's
+-- pick and before Blizzard's own containers. frameNames lists the globals the frame may be registered under, used for
+-- Target.lastName when the frame itself can't report a name.
+local function frameIsVisible(frame)
+    if type(frame) ~= "table" then
+        return false
+    end
+    local ok, visible = pcall(isVisible, frame)
+    return ok and visible == true
+end
+
+-- Blizzard's own experience StatusBar: StatusTrackingBarManager keeps the bars in containers, and the one that carries
+-- the exhaustion (rested) overlay is the XP bar, wherever the manager put it (a watched faction shown as the
+-- experience bar takes the main container and moves XP to the secondary one).
+local function blizzardExperienceBar()
+    local manager = _G.StatusTrackingBarManager
+    local containers = type(manager) == "table" and manager.barContainers
+    if type(containers) ~= "table" then
+        return nil
+    end
+    local firstFound
+    for _, container in pairs(containers) do
+        local bars = type(container) == "table" and container.bars
+        if type(bars) == "table" then
+            for _, bar in pairs(bars) do
+                if type(bar) == "table" and (bar.ExhaustionTick or bar.ExhaustionLevelFillBar) then
+                    local statusBar = type(bar.StatusBar) == "table" and bar.StatusBar or bar
+                    if frameIsVisible(statusBar) then
+                        return statusBar
+                    end
+                    firstFound = firstFound or statusBar
+                end
+            end
+        end
+    end
+    return firstFound
+end
+
+local BAR_SOURCES = {
+    {
+        id = "ellesmere",
+        label = "EllesmereUI",
+        frameNames = { "EllesmereEAB_XPBar_Bar" },
+        resolve = function()
+            return _G.EllesmereEAB_XPBar_Bar
+        end,
+    },
+    {
+        id = "flare",
+        label = "FlareUI",
+        resolve = function()
+            local root = _G.FlareUI_XPBar
+            local leftBar = type(root) == "table" and root.Left
+            -- the left bar shows reputation instead of XP at max level
+            if type(leftBar) == "table" and type(leftBar.info) == "table" and leftBar.info.kind == "xp" then
+                return leftBar
+            end
+            return nil
+        end,
+    },
+    {
+        id = "daylight",
+        label = "DaylightUI",
+        resolve = function()
+            local daylight = _G.DaylightUI
+            if type(daylight) ~= "table" or type(daylight.GetModule) ~= "function" then
+                return nil
+            end
+            local infoPanel = daylight:GetModule("InfoPanel")
+            if type(infoPanel) == "table" and infoPanel.enabled and type(infoPanel.ns) == "table"
+                and type(infoPanel.ns.XP) == "table" then
+                return infoPanel.ns.XP.bar
+            end
+            return nil
+        end,
+    },
+    {
+        id = "smoothxp",
+        label = "Smooth Experience Bar",
+        frameNames = { "SmoothExperienceBarFrame", "SmoothExperienceBarDefaultFrame" },
+        resolve = function()
+            local mainFrame = _G.SmoothExperienceBarFrame
+            if frameIsVisible(mainFrame) then
+                return mainFrame
+            end
+            return _G.SmoothExperienceBarDefaultFrame
+        end,
+    },
+    {
+        id = "enhanceqol",
+        label = "EnhanceQoL",
+        frameNames = { "EQOL_XPBar" },
+        resolve = function()
+            return _G.EQOL_XPBar
+        end,
+    },
+    { id = "blizzard", label = "Blizzard XP bar", resolve = blizzardExperienceBar },
+}
+
+local SOURCE_BY_ID = {}
+for _, source in ipairs(BAR_SOURCES) do
+    SOURCE_BY_ID[source.id] = source
+end
+
+-- Containers that players saved with /xporbs pick on these UIs, mapped to the source that knows the real bar. The
+-- saved variable is left alone; GetDestination just prefers the source while it resolves.
+local PICK_ALIASES = {
+    DaylightUIInfoPanel = "daylight",
+    DaylightUIInfoPanelBody = "daylight",
+    FlareUI_XPBar = "flare",
+    EllesmereEAB_XPBar = "ellesmere",
+}
+
+-- The name Target.lastName reports for a source's frame: its own GetName(), else the listed global that is this
+-- frame, else the source label.
+local function sourceFrameName(source, frame)
+    local ok, frameName = pcall(function()
+        return frame:GetName()
+    end)
+    if ok and type(frameName) == "string" and readable(frameName) and frameName ~= "" then
+        return frameName
+    end
+    for _, globalName in ipairs(source.frameNames or {}) do
+        if rawequal(_G[globalName], frame) then
+            return globalName
+        end
+    end
+    return source.label
+end
+
+-- Same as tryObject for a bar source: x, y, w, h, vertical, frameName; nil when the resolver fails, throws, or the
+-- frame it returns can't be measured.
+local function trySource(source, xp, xpMax, centre)
+    if not source then
+        return nil
+    end
+    local okResolve, frame = pcall(source.resolve)
+    if not okResolve or type(frame) ~= "table" then
+        return nil
+    end
+    local x, y, w, h, vertical = tryObject(frame, xp, xpMax, centre)
+    if not x then
+        return nil
+    end
+    return x, y, w, h, vertical, sourceFrameName(source, frame)
+end
+
 local PORTRAIT_NAME = "PlayerPortrait" -- Target.lastName when the player portrait was the destination
 
 -- The player portrait frame to aim at: PlayerFrame.PlayerFrameContainer.PlayerPortrait (pcall'd walk), else the
@@ -148,7 +296,7 @@ function Target:GetDestination(centre, portrait)
         end
     end
     local x, y, fw, fh, fv
-    local name
+    local name, usedSource, viaPick
     if portrait then
         local c1, c2, c3 = playerPortraitCandidates()
         x, y, fw, fh, fv = tryObject(c1, xp, xpMax, true)
@@ -165,14 +313,26 @@ function Target:GetDestination(centre, portrait)
             centre = (ns.db ~= nil and ns.db.glowShape == "round") or xp == nil or xpMax == nil
         end
     else
-        name = ns.db and ns.db.targetFrame
-        x, y, fw, fh, fv = tryFrame(name, xp, xpMax, centre)
+        local picked = ns.db and ns.db.targetFrame
+        local aliasSource = type(picked) == "string" and SOURCE_BY_ID[PICK_ALIASES[picked]] or nil
+        if aliasSource then
+            local sourceName
+            x, y, fw, fh, fv, sourceName = trySource(aliasSource, xp, xpMax, centre)
+            if x then
+                name, usedSource, viaPick = sourceName, aliasSource, true
+            end
+        end
+        if not x then
+            name = picked
+            x, y, fw, fh, fv = tryFrame(name, xp, xpMax, centre)
+        end
     end
     if not x then
-        for i = 1, #KNOWN_BARS do
-            name = KNOWN_BARS[i]
-            x, y, fw, fh, fv = tryFrame(name, xp, xpMax, centre)
+        for i = 1, #BAR_SOURCES do
+            local sourceName
+            x, y, fw, fh, fv, sourceName = trySource(BAR_SOURCES[i], xp, xpMax, centre)
             if x then
+                name, usedSource = sourceName, BAR_SOURCES[i]
                 break
             end
         end
@@ -188,11 +348,14 @@ function Target:GetDestination(centre, portrait)
     end
     if x then
         self.lastName, self.lastOk, self.lastW, self.lastH, self.lastVertical = name, true, fw, fh, fv == true
+        self.lastSource, self.lastSourceLabel = usedSource and usedSource.id, usedSource and usedSource.label
+        self.lastSourceViaPick = viaPick == true
         x, y = OrbMath.ApplyOffset(x, y, ns.db and ns.db.glowOffsetX, ns.db and ns.db.glowOffsetY)
         return x, y, true
     end
     local okw, w = pcall(UIParent.GetWidth, UIParent)
     self.lastName, self.lastOk, self.lastW, self.lastH, self.lastVertical = nil, false, nil, nil, false
+    self.lastSource, self.lastSourceLabel, self.lastSourceViaPick = nil, nil, false
     local fx, fy = OrbMath.ApplyOffset(okw and num(w) and w / 2 or 0, FALLBACK_Y, ns.db and ns.db.glowOffsetX,
         ns.db and ns.db.glowOffsetY)
     return fx, fy, false
@@ -691,5 +854,5 @@ table.insert(ns.statusProviders, function()
     local picked = ns.db and ns.db.targetFrame
     Target:GetDestination()
     return string.format("xp bar frame: %s, using %s", picked and ("picked " .. picked) or "auto",
-        Target.lastName or "bottom-centre fallback")
+        Target.lastSourceLabel or Target.lastName or "bottom-centre fallback")
 end)

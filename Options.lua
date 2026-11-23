@@ -582,7 +582,11 @@ local function destinationText()
     local d, T = D(), ns.Target
     pcall(T.GetDestination, T)
     local using, picked = T.lastName, d.targetFrame
-    if picked and using == picked then
+    if picked and T.lastSourceViaPick then
+        return picked .. " (picked; using " .. T.lastSourceLabel .. ")"
+    elseif T.lastSourceLabel and not picked then
+        return T.lastSourceLabel .. " (auto)"
+    elseif picked and using == picked then
         return picked .. " (picked)"
     elseif picked then
         return "Picked frame " .. picked .. " is unavailable; using " .. (using or "the bottom-centre fallback")

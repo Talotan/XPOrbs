@@ -1600,7 +1600,7 @@ table.insert(ns.statusProviders, function()
         texInUse,
         texCreated,
         ceiling(),
-        tostring(Target.lastName),
+        tostring(Target.lastName) .. (Target.lastSourceLabel and (" [" .. Target.lastSourceLabel .. "]") or ""),
         Target.lastOk and "no" or "yes",
         ns.RenderStyle(db().style, db().popMode),
         nPops,

@@ -225,6 +225,17 @@ function stub.makeStatusBar(name, left, bottom, width, height, lo, hi, v, orient
     f.sb = { lo = lo, hi = hi, v = v, orient = orient, reverse = reverse == true }
     return f
 end
+-- An unnamed frame that is not registered as a global (a child of some addon's table, like FlareUI_XPBar.Left).
+-- Pass lo/hi/v/orient to make it a StatusBar.
+function stub.makeFreeBar(left, bottom, width, height, visible, lo, hi, v, orient, reverse)
+    local f = CreateFrame("Frame")
+    f.left, f.bottom, f.width, f.height = left, bottom, width, height
+    f.shown = visible ~= false
+    if lo ~= nil then
+        f.sb = { lo = lo, hi = hi, v = v, orient = orient or "HORIZONTAL", reverse = reverse == true }
+    end
+    return f
+end
 -- A named, visible frame that takes no mouse input (like EQOL_XPBar): rect only, registered as a global.
 function stub.drawOnly(name, left, bottom, width, height, parent)
     local f = stub.namedFrame(name, parent)
