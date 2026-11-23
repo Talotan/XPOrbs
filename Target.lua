@@ -54,7 +54,18 @@ local function statusFill(f)
     return (v - lo) / (hi - lo), orient == "VERTICAL", rev
 end
 
--- Returns x, y, w, h (UIParent units) and whether the point came from a vertical StatusBar.
+-- Fill-edge point of a plain (non-StatusBar) frame the player marked as vertical (glow shape "vertical"): the XP
+-- fraction measured from the bottom up. Guarded like OrbMath.FillEdge, so an unreadable XP pair aims at the bottom.
+local function verticalFillEdge(l, b, w, h, xp, xpMax)
+    local frac = 0
+    if num(xp) and num(xpMax) and xpMax > 0 then
+        frac = xp / xpMax
+    end
+    return OrbMath.StatusFill(l, b, w, h, frac, true, false)
+end
+
+-- Returns x, y, w, h (UIParent units) and whether the point came from a vertical bar: a vertical StatusBar, or any
+-- other frame while the glow shape is "vertical".
 local function frameEdge(f, xp, xpMax, centre)
     if not isVisible(f) then
         return nil
@@ -76,6 +87,10 @@ local function frameEdge(f, xp, xpMax, centre)
     if frac then
         local sx, sy = OrbMath.StatusFill(l, b, w, h, frac, vertical, reverse)
         return sx, sy, w, h, vertical
+    end
+    if ns.db and ns.db.glowShape == "vertical" then
+        local sx, sy = verticalFillEdge(l, b, w, h, xp, xpMax)
+        return sx, sy, w, h, true
     end
     local x, y = OrbMath.FillEdge(l, b, w, h, xp, xpMax)
     return x, y, w, h

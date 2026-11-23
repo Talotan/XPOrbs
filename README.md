@@ -69,6 +69,7 @@ close it); right-click either one to turn the orbs on or off.
 | `/xporbs pick` | Arm the frame picker, then left-click the XP bar (it also works on bars that ignore the mouse). Right-click or wait 15 s to cancel. |
 | `/xporbs pick FrameName` | Set the XP bar by frame name, for example `/xporbs pick EQOL_XPBar`. Find a name with `/fstack`. |
 | `/xporbs pick clear` | Forget the picked frame and go back to auto-detection. |
+| `/xporbs setup` | Open the XP bar setup window: pick the bar, set the glow shape and landing offset, and test. |
 | `/xporbs zoomanchor on\|off` | Turn the zoom-aware anchor on or off (on by default): plate effects sit on the mob's body, using the camera zoom to work out how far below the nameplate that is. |
 | `/xporbs calib [off\|reset\|fit\|save]` | Open the anchor calibration panel: target a mob, nudge the marker onto its body, save a point, and repeat at a few zooms. `reset` restores the default curve. |
 | `/xporbs minimap on\|off` | Show or hide the minimap button. |
@@ -187,7 +188,11 @@ Non-kill XP always uses a plain stream.
 Orbs land on the fill edge of the XP bar: the frame you picked with `/xporbs pick`, otherwise the XP bar of
 EllesmereUI, FlareUI, DaylightUI, Smooth Experience Bar or EnhanceQoL when one is shown, otherwise the default UI's
 XP bar. When the frame is a status bar, the orbs land on the point it actually
-draws, whichever way it fills (left, right, up or down); a vertical bar gets the round glow.
+draws, whichever way it fills (left, right, up or down); a vertical bar it recognises gets an upright (vertical) glow.
+The glow shape can also be set by hand: Horizontal, Vertical (for a bar that fills bottom to top, even a frame the
+addon can't read as a status bar) or Circular. If no XP bar can be found, a small setup window opens (a few seconds after
+you log in, or at your first burst, and never twice in one session) so you can pick the bar, choose the glow shape
+and landing offset, and fire a test burst. Tick "Don't ask again" to stop it opening by itself; `/xporbs setup` opens it any time.
 
 Picking: `/xporbs pick` and then a click on your XP bar works even when the bar has no name of its own: the picker
 finds the bar by its XP values, and refuses to save a huge container that is not the bar. It also works on any named

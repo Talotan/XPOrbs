@@ -31,4 +31,5 @@ Orbs.lua
 Calib.lua
 Kills.lua
 Options.lua
+Setup.lua
 Minimap.lua

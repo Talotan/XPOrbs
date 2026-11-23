@@ -257,7 +257,7 @@ def test_scroll_frame_exists_with_the_specified_anchors_and_content_height(m):
     assert pts[0][0] == "TOPLEFT" and (pts[0][3], pts[0][4]) == (0, -40)
     assert pts[1][0] == "BOTTOMRIGHT" and (pts[1][3], pts[1][4]) == (-28, 44)
     assert o.child.width == 584 and o.child.height == pytest.approx(
-        1356, abs=2
+        1384, abs=2
     )  # v0.14: 894 + 176; +28 chime checkbox, +28 Sound row, +28 minimap checkbox, +32 Chime volume slider, +46 Stream pop radio; schema 6:
     # 3 styles + 2 Popstream sub-radios + the Wide checkbox and its description (+72)
 
@@ -297,16 +297,16 @@ def test_scroll_frame_without_any_template_still_scrolls(env):
         ("color", 430),
         ("restedTint", 458),
         ("restedColor", 486),
-        ("glow", 732),
+        ("glow", 760),
         ("glowShape", 554),
-        ("style_popstream", 832),
-        ("popMode_nameplate", 874),
-        ("popMode_direct", 916),
-        ("style_crossfade", 968),
-        ("style_stream", 1014),
-        ("zoomSpread", 1070),
-        ("targetFrame", 1174),
-        ("debug", 1312),
+        ("style_popstream", 860),
+        ("popMode_nameplate", 902),
+        ("popMode_direct", 944),
+        ("style_crossfade", 996),
+        ("style_stream", 1042),
+        ("zoomSpread", 1098),
+        ("targetFrame", 1202),
+        ("debug", 1340),
     ],
 )
 def test_row_positions_follow_the_spec(m, key, y):
@@ -421,9 +421,9 @@ def test_style_radios_use_the_radio_template_and_each_has_a_description(m):
 def test_style_description_positions(m):
     d = m.opt.descs
     for st, y in (
-        ("popstream", 832 + 24),
-        ("crossfade", 968 + 24),
-        ("stream", 1014 + 24),
+        ("popstream", 860 + 24),
+        ("crossfade", 996 + 24),
+        ("stream", 1042 + 24),
     ):
         pt = d[st].points[1]
         assert (pt[4], pt[5]) == (56, -y) and d[
@@ -454,9 +454,15 @@ def test_glow_shape_radios(m):
         ctl(m, "glowShape_round")
     )  # clicking the selected one keeps it selected
     assert ctl(m, "glowShape_round").checked
-    assert m.opt.shapeDesc.text.startswith(
-        "Horizontal: orbs land on the bar's fill edge."
-    )  # v0.14 wording
+    assert m.opt.shapeDesc.text.startswith("Horizontal: orbs land on the bar's fill edge")
+    # C3: the third radio, in the order Horizontal, Vertical, Circular
+    assert ctl(m, "glowShape_vertical").template == "UIRadioButtonTemplate"
+    m.stub.click(ctl(m, "glowShape_vertical"))
+    assert m.db.glowShape == "vertical"
+    assert ctl(m, "glowShape_vertical").checked
+    assert not ctl(m, "glowShape_bar").checked and not ctl(m, "glowShape_round").checked
+    xs = [ctl(m, "glowShape_" + k).points[1][4] for k in ("bar", "vertical", "round")]
+    assert xs == sorted(xs) and len(set(xs)) == 3
 
 
 # ---------------------------------------------------------------- dimming

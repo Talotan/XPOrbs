@@ -15,7 +15,7 @@ local floor = math.floor
 local HEADER_X, LABEL_X, CTRL_X, VALUE_X, RESET_X = 16, 32, 260, 472, 548
 local SLIDER_W = 200
 local RULE_W = 552
-local CONTENT_W, CONTENT_H = 584, 1102 -- |last y| + 16
+local CONTENT_W, CONTENT_H = 584, 1130 -- |last y| + 16
 local DIM = 0.4
 local SWATCH_OFF_ALPHA = 0.35
 local GREY = 0.70
@@ -58,9 +58,11 @@ local SPREAD_TIP = "Applies to all three styles: the nameplate pop, the pop or s
     .. "At the default camera zoom nothing changes. A mob you didn't mouse over always starts over a wide area that "
     .. "scales with zoom, whatever this says."
 local DESC_DIM = 0.55 -- dimmed descriptions stay readable (rows and controls use DIM)
-local SHAPES = { "bar", "round" }
-local SHAPE_NAME = { bar = "Horizontal", round = "Circular" }
-local SHAPE_DESC = "Horizontal: orbs land on the bar's fill edge. Circular: orbs land on the centre of a round frame "
+local SHAPES = { "bar", "vertical", "round" }
+local SHAPE_NAME = { bar = "Horizontal", vertical = "Vertical", round = "Circular" }
+local SHAPE_SPACING = 100 -- px between the shape radios
+local SHAPE_DESC = "Horizontal: orbs land on the bar's fill edge (a vertical bar the addon recognises gets the "
+    .. "vertical glow automatically). Vertical: a bar that fills bottom to top. Circular: the centre of a round frame "
     .. "such as a portrait."
 local MAX_TIP = "At max level, each kill sends a small burst of orbs to your portrait."
 local SOUND_TIP = "Coin: a soft coin clink. Glass: a glassy tink. One per arriving orb (up to six per burst). "
@@ -851,7 +853,7 @@ local function build()
     label(shrow, "Target frame shape", LABEL_X)
     local shapeBtns = {}
     for i, sh in ipairs(SHAPES) do
-        local x = CTRL_X + (i - 1) * 130
+        local x = CTRL_X + (i - 1) * SHAPE_SPACING
         local rb = newRadio(shrow, x, SHAPE_NAME[sh])
         rb:SetScript("OnClick", function()
             radioClick("glowShape", sh)
@@ -869,7 +871,7 @@ local function build()
         return SHAPE_NAME[ns.defaults.glowShape] or tostring(ns.defaults.glowShape)
     end)
     y = y + 26
-    local sdrow = newRow(y, 56)
+    local sdrow = newRow(y, 84)
     Options.rows.glowShapeDesc = sdrow
     local sd = sdrow:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
     sd:SetPoint("TOPLEFT", sdrow, "TOPLEFT", CTRL_X, 0)
@@ -882,7 +884,7 @@ local function build()
     Options.shapeDesc = sd
 
     -- the shape and offsets describe the target frame, so they stay live with Show glow off; only the intensity dims
-    y = y + 62
+    y = y + 90
     slider(y, "glowOffsetX", "Target offset X", "%d px", " px")
     y = y + 32
     slider(y, "glowOffsetY", "Target offset Y", "%d px", " px")

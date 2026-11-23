@@ -333,7 +333,7 @@ def test_the_rows_below_moved_down_by_the_slider_row_and_the_content_grew(env):
     m = opts(env)
     show(m)
     assert m.opt.rows["minimap"].points[1][5] == -234
-    assert m.opt.CONTENT_H == m.opt.child.height == 1356
+    assert m.opt.CONTENT_H == m.opt.child.height == 1384
 
 
 def test_dragging_plays_one_sample_at_the_new_volume_at_most_every_150_ms(env):

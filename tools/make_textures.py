@@ -140,6 +140,7 @@ def main():
         "orb": build((64, 64), orb),
         "sparkle": build((64, 64), sparkle),
         "flash": build((128, 32), flash),
+        "flash_v": build((32, 128), flash),  # the flash transposed, for vertical bars
     }
     for name, img in imgs.items():
         save_tga(img, MEDIA / f"{name}.tga")

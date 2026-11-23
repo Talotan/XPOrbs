@@ -418,3 +418,32 @@ end
 function fm:GetParentKey()
     return self.parentKey
 end
+
+-- ---------------------------------------------------------------- setup-window extensions (C3, new helpers only)
+-- C_Timer.After is controllable: callbacks queue in stub.timers (delay, fn) until stub.runTimers() runs them. Setting
+-- the global C_Timer to nil gives the client that has no timers. InCombatLockdown reads stub.inCombat. Backdrop and
+-- keyboard calls are recorders (the Frame itself has no such methods in wowstub).
+stub.timers = {}
+C_Timer = {
+    After = function(delay, callback)
+        stub.timers[#stub.timers + 1] = { delay = delay, fn = callback }
+    end,
+}
+function stub.runTimers()
+    local pending = stub.timers
+    stub.timers = {}
+    for _, timer in ipairs(pending) do
+        timer.fn()
+    end
+end
+stub.inCombat = false
+function InCombatLockdown()
+    return stub.inCombat
+end
+for _, name in ipairs({ "SetBackdrop", "SetBackdropColor", "SetBackdropBorderColor", "EnableKeyboard",
+    "SetPropagateKeyboardInput" }) do
+    fm[name] = function(self, ...)
+        self.calls = self.calls or {}
+        self.calls[name] = { ... }
+    end
+end

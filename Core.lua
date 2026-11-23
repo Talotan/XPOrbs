@@ -30,10 +30,13 @@ ns.defaults = {
     -- Popstream's sub-choice: "nameplate" (pop on the nameplate) or "direct" (pop at the estimate)
     popMode = "nameplate",
     glow = true, -- arrival flash on/off
-    glowShape = "bar", -- "bar" (horizontal flash on the fill edge) or "round" (circular glow at the frame centre)
+    -- "bar" (horizontal flash on the fill edge), "vertical" (the same flash upright, filling bottom to top) or "round"
+    -- (circular glow at the frame centre)
+    glowShape = "bar",
     glowIntensity = 100, -- arrival flash strength in percent (25-200): scales its alpha and, a little, its size
     glowOffsetX = 0, -- UIParent px added to the landing point (where orbs aim and the glow is drawn)
     glowOffsetY = 0,
+    setupDismissed = false, -- true: the "find your XP bar" window (Setup.lua) never opens by itself
     -- the minimap button (Minimap.lua); LibDBIcon also keeps its own minimapPos in here, so unknown keys must survive
     minimap = { hide = false },
     -- zoom-aware mob anchor (Orbs.lua): orbs sit (zoomA + zoomB / max(cameraZoom, zoomMin)) px below the plate;
@@ -200,7 +203,7 @@ end
 
 local BOOLEANS = {
     "enabled", "classColor", "restedTint", "trail", "questBursts", "showAtMax", "debug", "glow", "sound", "zoomAnchor",
-    "zoomSpread",
+    "zoomSpread", "setupDismissed",
 }
 local ZOOM_RANGES = { zoomA = { -100, 300 }, zoomB = { 0, 3000 }, zoomMin = { 0.5, 10 } }
 ns.ZOOM_POINTS_MAX = ZOOM_POINTS_MAX
@@ -257,7 +260,7 @@ local function sanitize(db)
     if db.unknownOrigin ~= "off" and db.unknownOrigin ~= "wide" then -- also maps the dropped "late"/"inplace"
         db.unknownOrigin = defaults.unknownOrigin
     end
-    if db.glowShape ~= "bar" and db.glowShape ~= "round" then
+    if db.glowShape ~= "bar" and db.glowShape ~= "vertical" and db.glowShape ~= "round" then
         db.glowShape = defaults.glowShape
     end
     if db.soundVoice ~= "coin" and db.soundVoice ~= "glass" then
@@ -392,6 +395,7 @@ function commands.help()
     say("/xporbs unknown wide|off - where orbs start when the mob's position is unknown")
     say("/xporbs pop on|off - alias: popstream / stream")
     say("/xporbs pick [clear|FrameName] - click to pick the XP bar frame, or name it (clear = auto-detect)")
+    say("/xporbs setup - open the XP bar setup window: pick the bar, set the glow shape and landing offset, and test")
     say("/xporbs zoomanchor on|off - anchor orbs on the mob's body using the camera zoom (no arg: show state)")
     say("/xporbs calib [off|reset|fit|save] - calibrate the zoom anchor on a targeted mob")
     say("/xporbs reset - restore default settings")
@@ -450,7 +454,7 @@ function commands.status()
     end
 end
 
--- /xporbs test, style, pop, pick and options are defined by Orbs.lua, Target.lua and Options.lua.
+-- /xporbs test, style, pop, pick, setup and options are defined by Orbs.lua, Target.lua, Setup.lua and Options.lua.
 
 -- Restore every setting to its default. The schema version, the debug flag and the log are kept.
 function commands.reset()

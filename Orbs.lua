@@ -14,6 +14,9 @@ local ORB_TEX = "Interface\\AddOns\\XPOrbs\\media\\orb"
 Orbs.ORB_TEX = ORB_TEX -- Calib.lua draws its marker with the same art
 local SPARKLE_TEX = "Interface\\AddOns\\XPOrbs\\media\\sparkle"
 local FLASH_TEX = "Interface\\AddOns\\XPOrbs\\media\\flash"
+local FLASH_TEX_VERTICAL = "Interface\\AddOns\\XPOrbs\\media\\flash_v" -- the flash transposed (32x128)
+-- arrival flash art per shape (orb.tga is a radial gradient); one table so the driver holds one upvalue, not three
+local FLASH_SHAPE_TEX = { bar = FLASH_TEX, vertical = FLASH_TEX_VERTICAL, round = ORB_TEX }
 -- Every chime file, built once so nothing is concatenated while orbs fly: CHIME_PATHS[voice][volume][note]. The game
 -- has no per-sound volume, so each volume level (ns.ranges.soundVolume, percent) is its own pre-rendered folder, made
 -- by tools/make_sounds.py.
@@ -918,11 +921,18 @@ local function drive(self, dt)
             local c = flashRested and ns.db.restedColor or normalC
             local kA, kS = OrbMath.GlowIntensity(ns.db.glowIntensity)
             local a = min(1, min(1, FLASH_ALPHA + FLASH_STEP * arrivedRecently) * (1 - flashAge / FLASH_TIME) * kA)
-            -- the bar-shaped flash is horizontal, so a vertical StatusBar destination gets the round glow instead
-            local shape = (portraitMode or ns.db.glowShape == "round" or Target.lastVertical) and "round" or "bar"
+            -- round for a portrait or the Circular shape; upright for the Vertical shape, and under Horizontal for a
+            -- destination that is a vertical bar; otherwise the horizontal flash
+            local glowShape = ns.db.glowShape
+            local shape = "bar"
+            if portraitMode or glowShape == "round" then
+                shape = "round"
+            elseif glowShape == "vertical" or (glowShape == "bar" and Target.lastVertical) then
+                shape = "vertical"
+            end
             if shape ~= flashShape then
                 flashShape = shape
-                flash:SetTexture(shape == "round" and ORB_TEX or FLASH_TEX) -- orb.tga is a radial gradient
+                flash:SetTexture(FLASH_SHAPE_TEX[shape])
             end
             flash:SetVertexColor(c[1] + (1 - c[1]) * FLASH_WHITE, c[2] + (1 - c[2]) * FLASH_WHITE,
                 c[3] + (1 - c[3]) * FLASH_WHITE)
@@ -931,6 +941,9 @@ local function drive(self, dt)
             if shape == "round" then
                 local dia = OrbMath.GlowDiameter(Target.lastW, Target.lastH, ns.db.size)
                 flash:SetSize(dia * kS, dia * kS)
+            elseif shape == "vertical" then
+                local tall = ns.db.size * FLASH_W * kS
+                flash:SetSize(tall / FLASH_ASPECT, tall)
             else
                 local w = ns.db.size * FLASH_W * kS
                 flash:SetSize(w, w / FLASH_ASPECT)
@@ -1058,7 +1071,10 @@ function Orbs:Burst(p)
         x, y = UIParent:GetWidth() / 2, UIParent:GetHeight() * 0.65
     end
     portraitMode = Target:PortraitMode() == true -- once per burst, never per frame
-    local dx, dy = Target:GetDestination(aimCentre(d), portraitMode)
+    local dx, dy, destFound = Target:GetDestination(aimCentre(d), portraitMode)
+    if destFound == false and ns.Setup then
+        ns.Setup:NoBarFound() -- once per session offers the "find your XP bar" window (Setup.lua); cheap after that
+    end
     local normal = resolveNormal(d)
     -- P-hat: our best guess of where the mob is on screen (Kills passes the mouseover/cursor estimate)
     local px, py = p.ex, p.ey
