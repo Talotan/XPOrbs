@@ -391,3 +391,30 @@ function stub.setClass(classFile, r, g, b, api)
         C_ClassColor, RAID_CLASS_COLORS = nil, nil
     end
 end
+
+-- ---------------------------------------------------------------- pick-smart extensions (new methods only)
+-- Frame trees for the picker's StatusBar search: stub.child(parent, key, f) links f under parent (parent[key] = f when a
+-- key is given, which is what GetParentKey reports), GetChildren lists them, GetObjectType says StatusBar for a frame
+-- with sb readings, GetFrameLevel reads f.level.
+function stub.child(parent, key, f)
+    f.createdParent = parent
+    parent.kids = parent.kids or {}
+    parent.kids[#parent.kids + 1] = f
+    if key then
+        f.parentKey = key
+        parent[key] = f
+    end
+    return f
+end
+function fm:GetChildren()
+    return (table.unpack or unpack)(self.kids or {})
+end
+function fm:GetObjectType()
+    return self.sb and "StatusBar" or "Frame"
+end
+function fm:GetFrameLevel()
+    return self.level or 0
+end
+function fm:GetParentKey()
+    return self.parentKey
+end

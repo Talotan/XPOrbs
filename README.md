@@ -22,7 +22,8 @@ unrelated to XP orbs stay out, so the addon stays light. What's planned is in th
 - WoW Forever only (`## Interface: 16001`). It has not been tested on Retail or any Classic client.
 - The English client is tested. Other languages should work, because the XP message patterns are built from the
   client's own strings, but this is untested.
-- The default UI XP bar, EnhanceQoL's XP bar, or another frame you pick with `/xporbs pick`.
+- The default UI XP bar; the XP bars of EllesmereUI, FlareUI, DaylightUI, Smooth Experience Bar and EnhanceQoL are
+  detected automatically; any other frame you pick with `/xporbs pick`.
 
 ## Installation
 
@@ -176,12 +177,14 @@ Non-kill XP always uses a plain stream.
 
 ### Destination
 
-Orbs land on the fill edge of the XP bar: the frame you picked with `/xporbs pick`, otherwise EnhanceQoL's XP bar
-(`EQOL_XPBar`) when it is shown, otherwise the first visible one of `MainStatusTrackingBarContainer`,
-`StatusTrackingBarManager` and `MainMenuExpBar`. When the frame is a status bar, the orbs land on the point it actually
+Orbs land on the fill edge of the XP bar: the frame you picked with `/xporbs pick`, otherwise the XP bar of
+EllesmereUI, FlareUI, DaylightUI, Smooth Experience Bar or EnhanceQoL when one is shown, otherwise the default UI's
+XP bar. When the frame is a status bar, the orbs land on the point it actually
 draws, whichever way it fills (left, right, up or down); a vertical bar gets the round glow.
 
-Picking: `/xporbs pick` and then a click works on any named frame, including bars that ignore the mouse (the picker
+Picking: `/xporbs pick` and then a click on your XP bar works even when the bar has no name of its own: the picker
+finds the bar by its XP values, and refuses to save a huge container that is not the bar. It also works on any named
+frame, including bars that ignore the mouse (the picker
 scans the frames under the cursor and takes the smallest named one, skipping nameplates and screen-sized
 containers). If the click finds nothing, type the name instead: `/xporbs pick FrameName`. If the target frame shape is set to
 circular, they land on the centre of the frame instead, which suits a round frame such as a portrait. At max level,
@@ -206,7 +209,8 @@ screen. "Quest bursts" turns this off.
 
 - When you did not hover the mob, the start of the stream is the fixed default point, not the mob's real position.
   The pop on the plate itself is always correct.
-- Of the custom XP bar addons, only EnhanceQoL's is detected automatically. Pick any other with `/xporbs pick`.
+- EllesmereUI, FlareUI, DaylightUI, Smooth Experience Bar and EnhanceQoL are detected automatically. For any other
+  custom XP bar, use `/xporbs pick`.
 - Quest and exploration XP start at a fixed point instead of the quest window or the objective tracker.
 - In instances, the client may hide GUIDs and names from addons. The addon then pairs events by order instead of by
   name, and a kill may have no plate, so it gets only the stream from the estimated point.

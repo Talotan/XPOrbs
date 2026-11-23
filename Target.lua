@@ -214,17 +214,20 @@ local PICK_ALIASES = {
 }
 
 -- The name Target.lastName reports for a source's frame: its own GetName(), else the listed global that is this
--- frame, else the source label.
+-- frame, else the source label. Runs every frame while orbs fly, so it allocates nothing (no closures, no tables).
+local NO_NAMES = {}
+
 local function sourceFrameName(source, frame)
-    local ok, frameName = pcall(function()
-        return frame:GetName()
-    end)
-    if ok and type(frameName) == "string" and readable(frameName) and frameName ~= "" then
-        return frameName
+    if type(frame.GetName) == "function" then
+        local ok, frameName = pcall(frame.GetName, frame)
+        if ok and type(frameName) == "string" and readable(frameName) and frameName ~= "" then
+            return frameName
+        end
     end
-    for _, globalName in ipairs(source.frameNames or {}) do
-        if rawequal(_G[globalName], frame) then
-            return globalName
+    local globalNames = source.frameNames or NO_NAMES
+    for i = 1, #globalNames do
+        if rawequal(rawget(_G, globalNames[i]), frame) then
+            return globalNames[i]
         end
     end
     return source.label
@@ -245,6 +248,67 @@ local function trySource(source, xp, xpMax, centre)
         return nil
     end
     return x, y, w, h, vertical, sourceFrameName(source, frame)
+end
+
+-- What a saved pick (db.targetFrame) means, parsed once per saved string and cached so the per-frame lookup does no
+-- string work: "@id" names a bar source, "Root.key.key" is a path of fields below a global frame, anything else is a
+-- plain global frame name.
+local PLAIN_PICK = { kind = "name" }
+local PARSED_PICKS = {}
+
+local function parsePick(saved)
+    local cached = PARSED_PICKS[saved]
+    if cached then
+        return cached
+    end
+    local parsed = PLAIN_PICK
+    if string.sub(saved, 1, 1) == "@" then
+        local source = SOURCE_BY_ID[string.lower(string.sub(saved, 2))]
+        if source then
+            parsed = { kind = "source", source = source }
+        end
+    elseif string.find(saved, ".", 1, true) and not string.find(saved, "^%.") and not string.find(saved, "%.$")
+        and not string.find(saved, "%.%.") then
+        local keys = {}
+        for key in string.gmatch(saved, "[^.]+") do
+            keys[#keys + 1] = key
+        end
+        parsed = { kind = "path", keys = keys, whole = saved }
+    end
+    PARSED_PICKS[saved] = parsed
+    return parsed
+end
+
+-- The object a parsed path points at: _G[keys[1]][keys[2]]..., read raw so no metamethod runs. Falls back to a global
+-- whose name really contains dots. Allocates nothing; the result is unchecked (the caller measures it under pcall).
+local function resolvePath(parsed)
+    local keys = parsed.keys
+    local node = rawget(_G, keys[1])
+    for i = 2, #keys do
+        if type(node) ~= "table" then
+            node = nil
+            break
+        end
+        node = rawget(node, keys[i])
+    end
+    if node == nil then
+        node = rawget(_G, parsed.whole)
+    end
+    return node
+end
+
+-- The bar source a saved "@id" pick names (nil for anything else), and the text to show for a saved pick.
+function Target.PickSource(saved)
+    if type(saved) ~= "string" then
+        return nil
+    end
+    local parsed = parsePick(saved)
+    return parsed.kind == "source" and parsed.source or nil
+end
+
+function Target.PickLabel(saved)
+    local source = Target.PickSource(saved)
+    return source and source.label or saved
 end
 
 local PORTRAIT_NAME = "PlayerPortrait" -- Target.lastName when the player portrait was the destination
@@ -314,17 +378,29 @@ function Target:GetDestination(centre, portrait)
         end
     else
         local picked = ns.db and ns.db.targetFrame
-        local aliasSource = type(picked) == "string" and SOURCE_BY_ID[PICK_ALIASES[picked]] or nil
-        if aliasSource then
+        local parsed = type(picked) == "string" and parsePick(picked) or PLAIN_PICK
+        if parsed.kind == "source" then
             local sourceName
-            x, y, fw, fh, fv, sourceName = trySource(aliasSource, xp, xpMax, centre)
+            x, y, fw, fh, fv, sourceName = trySource(parsed.source, xp, xpMax, centre)
             if x then
-                name, usedSource, viaPick = sourceName, aliasSource, true
+                name, usedSource = sourceName, parsed.source
             end
-        end
-        if not x then
+        elseif parsed.kind == "path" then
             name = picked
-            x, y, fw, fh, fv = tryFrame(name, xp, xpMax, centre)
+            x, y, fw, fh, fv = tryObject(resolvePath(parsed), xp, xpMax, centre)
+        else
+            local aliasSource = type(picked) == "string" and SOURCE_BY_ID[PICK_ALIASES[picked]] or nil
+            if aliasSource then
+                local sourceName
+                x, y, fw, fh, fv, sourceName = trySource(aliasSource, xp, xpMax, centre)
+                if x then
+                    name, usedSource, viaPick = sourceName, aliasSource, true
+                end
+            end
+            if not x then
+                name = picked
+                x, y, fw, fh, fv = tryFrame(name, xp, xpMax, centre)
+            end
         end
     end
     if not x then
@@ -556,7 +632,7 @@ end
 local MAX_AREA_FRACTION = 0.5 -- frames covering more than this share of UIParent (full-screen containers) are skipped
 local PICK_SCAN_STEP = 0.25 -- seconds between hover scans
 local scanElapsed = PICK_SCAN_STEP
-local scanName, scanFrame -- last hover scan result, reused between scans
+local scanPick, scanLabel, scanFrame -- last hover scan result, reused between scans
 Target.scanCount = 0
 
 local function areaOf(f)
@@ -623,16 +699,239 @@ local function scanFrames()
     return best
 end
 
--- What a click would pick: the mouse-focus frame's first named ancestor, else (scan = true) the smallest named frame
--- under the cursor that ignores the mouse. Returns name, frame (nil when nothing usable).
-local function resolvePick(scan)
-    local name, frame = Target.PickName(mouseFocus())
-    if frame or not scan then
-        return name, frame
+-- ---- smart pick: what a click would save
+-- Order: a known addon bar under the cursor ("@id"), else a StatusBar under the cursor whose values match the player's
+-- XP (saved by name, or as a path of fields below its nearest named ancestor), else the first named ancestor of the
+-- frame under the cursor, unless that is far bigger than the frame the player pointed at.
+
+local SEARCH_DEPTH = 4 -- levels below the frame under the cursor that are searched for the XP StatusBar
+local SEARCH_BUDGET = 200 -- most frames visited in one search
+local MAX_CONTAINER_RATIO = 4 -- an unnamed bar's named ancestor may be at most this many times its area
+local FRACTION_TOLERANCE = 0.02 -- how far a 0..1 bar may be from xp / xpMax and still count as the XP bar
+
+-- The first known bar source whose frame is shown and under the cursor, and that frame. A source whose frame has a
+-- name of its own is skipped: saving that name works as it always did.
+local function barSourceUnderCursor()
+    for i = 1, #BAR_SOURCES do
+        local source = BAR_SOURCES[i]
+        local okResolve, frame = pcall(source.resolve)
+        if okResolve and frameIsVisible(frame) and not nameOf(frame) then
+            local okMouse, over = pcall(frame.IsMouseOver, frame)
+            if okMouse and over == true then
+                return source, frame
+            end
+        end
     end
-    local cand = scanFrames()
-    if cand then
-        return Target.PickName(cand)
+    return nil
+end
+
+local function readPlayerXP()
+    local okxp, xp = pcall(UnitXP, "player")
+    local okmax, xpMax = pcall(UnitXPMax, "player")
+    if okxp and okmax and num(xp) and num(xpMax) and xpMax > 0 then
+        return xp, xpMax
+    end
+    return nil
+end
+
+-- 2 when frame is a StatusBar showing exactly the player's XP, 1 when it is a 0..1 bar showing the same fraction, else
+-- nil. Never throws.
+local function xpMatchScore(frame, xp, xpMax)
+    if type(frame.GetObjectType) ~= "function" then
+        return nil
+    end
+    local okType, objectType = pcall(frame.GetObjectType, frame)
+    if not (okType and objectType == "StatusBar") then
+        return nil
+    end
+    local okRange, _, hi = pcall(frame.GetMinMaxValues, frame)
+    local okValue, value = pcall(frame.GetValue, frame)
+    if not (okRange and okValue and num(hi) and num(value)) then
+        return nil
+    end
+    if hi == xpMax and value == xp then
+        return 2
+    end
+    if hi == 1 and math.abs(value - xp / xpMax) < FRACTION_TOLERANCE then
+        return 1
+    end
+    return nil
+end
+
+local function frameLevelOf(frame)
+    if type(frame.GetFrameLevel) ~= "function" then
+        return 0
+    end
+    local ok, level = pcall(frame.GetFrameLevel, frame)
+    return ok and num(level) and level or 0
+end
+
+-- The visible StatusBar under the cursor, at or below root, that shows the player's XP: exact matches beat fraction
+-- matches, then the higher frame level wins, then the deeper one. Breadth-first, bounded by SEARCH_DEPTH and
+-- SEARCH_BUDGET. Never throws.
+local function findXPBar(root, xp, xpMax, plates)
+    local queue, depths = { root }, { 0 }
+    local head, visited = 1, 0
+    local best, bestScore, bestLevel
+    while queue[head] and visited < SEARCH_BUDGET do
+        local frame, depth = queue[head], depths[head]
+        head = head + 1
+        visited = visited + 1
+        if readable(frame) and not isPlateFrame(frame, plates) and not isOurs(frame) then
+            local okVisible, visible = pcall(isVisible, frame)
+            if okVisible and visible == true then
+                local score = xpMatchScore(frame, xp, xpMax)
+                if score then
+                    local okMouse, over = pcall(frame.IsMouseOver, frame)
+                    if okMouse and over == true then
+                        local level = frameLevelOf(frame)
+                        if not best or score > bestScore or (score == bestScore and level >= bestLevel) then
+                            best, bestScore, bestLevel = frame, score, level
+                        end
+                    end
+                end
+            end
+            if depth < SEARCH_DEPTH and type(frame.GetChildren) == "function" then
+                local children = { pcall(frame.GetChildren, frame) }
+                for i = 2, #children do
+                    if type(children[i]) == "table" then
+                        queue[#queue + 1], depths[#depths + 1] = children[i], depth + 1
+                    end
+                end
+            end
+        end
+    end
+    return best
+end
+
+-- The key under which parent holds child: child:GetParentKey() when parent really has it there, else the string key
+-- found by scanning parent's fields. nil when there is none.
+local function keyInParent(child, parent)
+    if type(child.GetParentKey) == "function" then
+        local ok, key = pcall(child.GetParentKey, child)
+        if ok and type(key) == "string" and readable(key) and key ~= "" and rawequal(rawget(parent, key), child) then
+            return key
+        end
+    end
+    for key, value in pairs(parent) do
+        if type(key) == "string" and rawequal(value, child) then
+            return key
+        end
+    end
+    return nil
+end
+
+-- "RootName.key1.key2" for an unnamed frame: its chain of parent keys up to the nearest named ancestor, checked by
+-- resolving the result again. nil when a step has no key, a name has a dot in it, or the check fails. Never throws.
+local function buildPathUnchecked(frame)
+    local reversedKeys = {}
+    local current = frame
+    for _ = 1, PICK_DEPTH do
+        local name = nameOf(current)
+        if name then
+            if string.find(name, ".", 1, true) or #reversedKeys == 0 then
+                return nil
+            end
+            local parts = { name }
+            for i = #reversedKeys, 1, -1 do
+                parts[#parts + 1] = reversedKeys[i]
+            end
+            local path = table.concat(parts, ".")
+            local parsed = parsePick(path)
+            if parsed.kind == "path" and rawequal(resolvePath(parsed), frame) then
+                return path
+            end
+            return nil
+        end
+        local okp, parent = pcall(current.GetParent, current)
+        if not (okp and type(parent) == "table" and readable(parent)) then
+            return nil
+        end
+        local key = keyInParent(current, parent)
+        if not key then
+            return nil
+        end
+        reversedKeys[#reversedKeys + 1] = key
+        current = parent
+    end
+    return nil
+end
+
+local function buildPath(frame)
+    local ok, path = pcall(buildPathUnchecked, frame)
+    return ok and path or nil
+end
+
+local function refusalText(containerName)
+    return "pick: that bar has no name of its own and its container (" .. containerName .. ") is much bigger, so it "
+        .. "was not saved. Try /xporbs pick <FrameName> (find names with /fstack), or report your UI addon on GitHub."
+end
+
+-- What a click on root (the frame under the cursor) would save. Returns pick, label, frame (the frame to highlight);
+-- or nil, nil, nil, refusalMessage when only an oversized container could be saved; or nothing at all.
+local function smartPick(root)
+    local source, sourceFrame = barSourceUnderCursor()
+    if source then
+        return "@" .. source.id, source.label, sourceFrame
+    end
+    if type(root) ~= "table" then
+        return nil
+    end
+    local pointedAt = root
+    local xp, xpMax = readPlayerXP()
+    if xp then
+        local match = findXPBar(root, xp, xpMax, plateList())
+        if match then
+            local name, namedFrame = Target.PickName(match)
+            if not name then
+                return nil
+            end
+            if rawequal(namedFrame, match) then
+                return name, name, match
+            end
+            local path = buildPath(match)
+            if path then
+                return path, path, match
+            end
+            pointedAt = match
+        end
+    end
+    local name, namedFrame = Target.PickName(pointedAt)
+    if not name then
+        return nil
+    end
+    if not rawequal(namedFrame, pointedAt) then
+        local namedArea, pointedArea = areaOf(namedFrame), areaOf(pointedAt)
+        if namedArea and pointedArea and namedArea > MAX_CONTAINER_RATIO * pointedArea then
+            return nil, nil, nil, refusalText(name)
+        end
+    end
+    return name, name, namedFrame
+end
+
+-- The frame under the cursor that smartPick starts from: the mouse focus, unless it is the screen itself, one of ours
+-- or part of a nameplate.
+local function pointedFrame()
+    local focus = mouseFocus()
+    if type(focus) ~= "table" or not readable(focus) or focus == UIParent or focus == _G.WorldFrame then
+        return nil
+    end
+    if unsafeChain(focus, plateList()) then
+        return nil
+    end
+    return focus
+end
+
+-- What a click would save: the frame under the mouse first, then (scan = true) the smallest named frame under the
+-- cursor for bars that ignore the mouse. Returns pick, label, frame, refusal.
+local function resolvePick(scan)
+    local pick, label, frame, refusal = smartPick(pointedFrame())
+    if pick or refusal or not scan then
+        return pick, label, frame, refusal
+    end
+    local candidate = scanFrames()
+    if candidate then
+        return smartPick(candidate)
     end
     return nil
 end
@@ -696,18 +995,18 @@ local function hideHighlight()
     end
 end
 
--- Highlights the frame a click would pick (same resolution as the click). The scan fallback runs at most once per
--- PICK_SCAN_STEP; in between, its last result is reused. Never throws.
+-- Highlights the frame a click would pick and says what it would save (same resolution as the click). The scan
+-- fallback runs at most once per PICK_SCAN_STEP; in between, its last result is reused. Never throws.
 local function updateHighlight()
-    local name, frame = Target.PickName(mouseFocus())
-    if frame then
-        scanName, scanFrame = nil, nil
+    local pick, label, frame = smartPick(pointedFrame())
+    if pick then
+        scanPick, scanLabel, scanFrame = nil, nil, nil
     else
         if scanElapsed >= PICK_SCAN_STEP then
             scanElapsed = 0
-            scanName, scanFrame = resolvePick(true)
+            scanPick, scanLabel, scanFrame = resolvePick(true)
         end
-        name, frame = scanName, scanFrame
+        pick, label, frame = scanPick, scanLabel, scanFrame
     end
     if not frame then
         hideHighlight()
@@ -733,7 +1032,7 @@ local function updateHighlight()
         return
     end
     hlBad, hlFor = nil, frame
-    pcall(hlLabel.SetText, hlLabel, name)
+    pcall(hlLabel.SetText, hlLabel, label)
     hl:Show()
 end
 
@@ -741,7 +1040,7 @@ local function disarm(msg)
     picking = false
     hideHighlight()
     hlBad = nil
-    scanName, scanFrame = nil, nil
+    scanPick, scanLabel, scanFrame = nil, nil, nil
     if pickFrame then
         pcall(pickFrame.UnregisterEvent, pickFrame, "GLOBAL_MOUSE_DOWN")
         pickFrame:SetScript("OnUpdate", nil)
@@ -751,19 +1050,39 @@ local function disarm(msg)
     end
 end
 
+-- Whether orbs can use a freshly saved pick right now, measured by asking GetDestination.
+local function pickIsUsable(pick)
+    local _, _, ok = Target:GetDestination()
+    if not ok then
+        return false
+    end
+    local source = Target.PickSource(pick)
+    if source then
+        return Target.lastSource == source.id
+    end
+    return Target.lastName == pick or Target.lastSourceViaPick == true
+end
+
 local function onPickMouse(_, event, button)
     if event ~= "GLOBAL_MOUSE_DOWN" or not picking then
         return
     end
     if button == "LeftButton" then
-        local name = resolvePick(true)
-        if name then
-            ns.db.targetFrame = name
-            disarm("XP bar frame set to " .. name)
+        local pick, label, _, refusal = resolvePick(true)
+        if pick then
+            ns.db.targetFrame = pick
+            local msg = "XP bar frame set to " .. label .. "."
+            if not pickIsUsable(pick) then
+                msg = "XP bar frame set to " .. label .. ", but it can't be measured right now (hidden?). "
+                    .. "Orbs use auto-detection until it shows."
+            end
+            disarm(msg)
             refreshPanel()
+        elseif refusal then
+            disarm(refusal)
         else
             disarm("pick: no named frame under the mouse (it and its parents are unnamed); still using "
-                .. (ns.db.targetFrame or "auto-detect")
+                .. (ns.db.targetFrame and Target.PickLabel(ns.db.targetFrame) or "auto-detect")
                 .. ". If your XP bar ignores the mouse, use /xporbs pick <FrameName> (find the name with /fstack)")
         end
     elseif button == "RightButton" then
@@ -808,29 +1127,46 @@ function Target:IsPicking()
     return picking
 end
 
--- /xporbs pick <FrameName>: set the destination by global frame name. Refuses anything that isn't a frame, is ours,
--- is the screen itself, or is (or sits under) a nameplate. Never throws.
-local function pickByName(name)
-    local ok, f = pcall(rawget, _G, name)
+-- /xporbs pick <text>: set the destination by hand. The text is a global frame name, a path of fields below one
+-- ("Root.key.key") or a bar source ("@flare"). Refuses anything that isn't a frame, is ours, is the screen itself, or
+-- is (or sits under) a nameplate. Never throws.
+local function pickByName(text)
+    local parsed = parsePick(text)
+    if parsed.kind == "source" then
+        local saved = "@" .. parsed.source.id
+        ns.db.targetFrame = saved
+        local msg = "pick: XP bar set to " .. parsed.source.label
+        if not pickIsUsable(saved) then
+            msg = msg .. " (not showing right now; orbs use auto-detect until it shows)"
+        end
+        ns.Print(msg)
+        refreshPanel()
+        return
+    end
+    local ok, f
+    if parsed.kind == "path" then
+        ok, f = pcall(resolvePath, parsed)
+    else
+        ok, f = pcall(rawget, _G, text)
+    end
     if not (ok and type(f) == "table" and readable(f)) then
-        ns.Print("pick: no frame called " .. name)
+        ns.Print("pick: no frame called " .. text)
         return
     end
     local okg, getLeft = pcall(function()
         return f.GetLeft
     end)
     if not (okg and getLeft) then
-        ns.Print("pick: no frame called " .. name)
+        ns.Print("pick: no frame called " .. text)
         return
     end
-    if f == UIParent or f == _G.WorldFrame or string.sub(name, 1, 9) == "NamePlate" or unsafeChain(f, plateList()) then
-        ns.Print("pick: " .. name .. " can't be used (it is the screen, a nameplate or one of this addon's frames)")
+    if f == UIParent or f == _G.WorldFrame or string.sub(text, 1, 9) == "NamePlate" or unsafeChain(f, plateList()) then
+        ns.Print("pick: " .. text .. " can't be used (it is the screen, a nameplate or one of this addon's frames)")
         return
     end
-    ns.db.targetFrame = name
-    local okv, vis = pcall(isVisible, f)
-    local msg = "pick: XP bar set to " .. name
-    if not (okv and vis == true) then
+    ns.db.targetFrame = text
+    local msg = "pick: XP bar set to " .. text
+    if not pickIsUsable(text) then
         msg = msg .. " (hidden right now; orbs use auto-detect until it shows)"
     end
     ns.Print(msg)
@@ -853,6 +1189,6 @@ end
 table.insert(ns.statusProviders, function()
     local picked = ns.db and ns.db.targetFrame
     Target:GetDestination()
-    return string.format("xp bar frame: %s, using %s", picked and ("picked " .. picked) or "auto",
+    return string.format("xp bar frame: %s, using %s", picked and ("picked " .. Target.PickLabel(picked)) or "auto",
         Target.lastSourceLabel or Target.lastName or "bottom-centre fallback")
 end)

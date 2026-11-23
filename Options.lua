@@ -582,6 +582,14 @@ local function destinationText()
     local d, T = D(), ns.Target
     pcall(T.GetDestination, T)
     local using, picked = T.lastName, d.targetFrame
+    local pickedSource = T.PickSource(picked)
+    if pickedSource then
+        if T.lastSource == pickedSource.id then
+            return pickedSource.label .. " (picked)"
+        end
+        return "Picked " .. pickedSource.label .. " is unavailable; using "
+            .. (using or "the bottom-centre fallback")
+    end
     if picked and T.lastSourceViaPick then
         return picked .. " (picked; using " .. T.lastSourceLabel .. ")"
     elseif T.lastSourceLabel and not picked then
