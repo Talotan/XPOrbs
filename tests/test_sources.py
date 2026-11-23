@@ -29,9 +29,11 @@ class World:
         self.world_frame = self.frame("WorldFrame")
         self.xp = 0
 
-    def frame(self, name, cx=0, cy=0, shown=True):
+    def frame(self, name, cx=0, cy=0, shown=True, rect=None):
         f = self.stub.namedFrame(name)
         f.cx, f.cy, f.shown = cx, cy, shown
+        if rect:  # left, bottom, width, height
+            f.left, f.bottom, f.width, f.height = rect
         return f
 
     def gain(self, amount):
@@ -79,7 +81,8 @@ def point(burst):
 # ---------------------------------------------------------------- quests
 
 
-def test_quest_xp_after_the_turn_in_starts_at_the_cursor_over_a_frame(w):
+def test_quest_xp_after_the_turn_in_starts_at_the_cursor_over_the_quest_window(w):
+    w.frame("QuestFrame", 700, 400, rect=(500, 200, 400, 400))
     button = w.frame("CompleteButton", 700, 400)
     w.cursor(700, 400, button)
     w.fire("QUEST_TURNED_IN", 11, 120, 5)
@@ -96,6 +99,7 @@ def test_quest_xp_after_the_turn_in_starts_at_the_cursor_over_a_frame(w):
 
 
 def test_quest_xp_before_the_turn_in_still_gets_the_quest_origin(w):
+    w.frame("QuestFrame", 700, 400, rect=(200, 100, 700, 500))
     button = w.frame("CompleteButton", 700, 400)
     w.cursor(300, 250, button)
     w.gain(120)
@@ -119,6 +123,44 @@ def test_world_focus_uses_the_cached_quest_window_centre(w):
     (burst,) = w.bursts()
     assert point(burst) == (500, 620)
     assert "origin=questwindow" in w.burst_lines()[0]
+
+
+def test_cursor_over_a_non_quest_frame_uses_the_cached_quest_window(w):
+    # a keyboard turn-in with the mouse resting over the chat frame must not start the orbs there
+    quest_frame = w.frame("QuestFrame", 500, 620, rect=(300, 420, 400, 400))
+    chat = w.frame("ChatFrame1", 150, 150, rect=(0, 0, 300, 300))
+    w.cursor(150, 150, chat)
+    w.fire("QUEST_COMPLETE")
+    quest_frame.shown = False
+    w.fire("QUEST_TURNED_IN", 11, 90, 0)
+    w.gain(90)
+    w.run(1.0)
+    assert point(w.bursts()[0]) == (500, 620)
+    assert "origin=questwindow" in w.burst_lines()[0]
+
+
+def test_cursor_inside_the_cached_quest_window_rect_is_the_origin(w):
+    quest_frame = w.frame("QuestFrame", 500, 620, rect=(300, 420, 400, 400))
+    w.cursor(
+        650, 450, w.world_frame
+    )  # over the window's button, which has closed by the turn-in
+    w.fire("QUEST_COMPLETE")
+    quest_frame.shown = False
+    w.fire("QUEST_TURNED_IN", 11, 90, 0)
+    w.gain(90)
+    w.run(1.0)
+    assert point(w.bursts()[0]) == (650, 450)
+    assert "origin=cursor" in w.burst_lines()[0]
+
+
+def test_cursor_over_a_visible_frame_with_no_quest_window_uses_the_default(w):
+    chat = w.frame("ChatFrame1", 150, 150, rect=(0, 0, 300, 300))
+    w.cursor(150, 150, chat)
+    w.fire("QUEST_TURNED_IN", 11, 90, 0)
+    w.gain(90)
+    w.run(1.0)
+    assert point(w.bursts()[0]) == QUEST_DEFAULT
+    assert "origin=questdefault" in w.burst_lines()[0]
 
 
 def test_a_visible_quest_frame_is_read_live_at_the_turn_in(w):
@@ -164,6 +206,9 @@ def test_no_cursor_frame_and_no_window_uses_the_left_of_centre_default(w):
 @pytest.mark.parametrize("reward", ["secret", 0, None])
 def test_unreadable_or_zero_reward_takes_the_nearest_delta(w, reward):
     w.cursor(900, 500, w.world_frame)
+    w.fire(
+        "QUEST_COMPLETE"
+    )  # the open dialog is what lets an amount-less hint claim a delta
     w.fire("QUEST_TURNED_IN", 11, w.stub.SECRET if reward == "secret" else reward, 0)
     w.gain(77)
     w.run(1.0)
@@ -172,9 +217,21 @@ def test_unreadable_or_zero_reward_takes_the_nearest_delta(w, reward):
     assert w.burst_lines()[0].endswith("source=quest")
 
 
-def test_a_delta_that_is_not_the_reward_stays_plain_other(w):
+def test_a_delta_that_differs_from_the_reward_still_takes_the_quest_origin(w):
+    # XP boosts, food or a level-cap clip make the real XP differ from the reported reward
     w.cursor(900, 500, w.world_frame)
     w.fire("QUEST_TURNED_IN", 11, 120, 0)
+    w.gain(150)
+    w.run(1.0)
+    (burst,) = w.bursts()
+    assert point(burst) == QUEST_DEFAULT
+    assert w.burst_lines()[0].endswith("source=quest")
+
+
+def test_a_delta_long_after_the_turn_in_stays_plain_other(w):
+    w.cursor(900, 500, w.world_frame)
+    w.fire("QUEST_TURNED_IN", 11, 120, 0)
+    w.run(0.8)  # beyond the matcher's nearest window
     w.gain(50)
     w.run(1.0)
     (burst,) = w.bursts()
@@ -220,6 +277,7 @@ def test_a_hidden_zone_text_is_not_used(w):
 def test_other_system_messages_and_other_amounts_are_not_exploration(w):
     w.fire("CHAT_MSG_SYSTEM", "You are now Rested.")
     w.fire("CHAT_MSG_SYSTEM", "Discovered Goldshire: 150 experience gained")
+    w.run(0.8)  # the 40 XP lands too long after the discovery to belong to it
     w.gain(40)
     w.run(1.0)
     (burst,) = w.bursts()
@@ -381,10 +439,29 @@ def test_matcher_without_expectation_does_not_wait(rig):
     assert b.source is None
 
 
-def test_matcher_hint_with_a_different_amount_does_not_match(rig):
-    hint(rig, source="quest", amount=100, x=1, y=2)
-    rig.delta(120)
+def test_matcher_hint_with_a_different_amount_matches_by_time(rig):
+    hint(rig, source="quest", amount=1000, x=1, y=2)
+    rig.delta(1100)  # XP boost: more than the reported reward
     rig.at(0.5)
+    (b,) = rig.poll()
+    assert b.source == "quest" and (b.x, b.y) == (1, 2) and b.amount == 1100
+
+
+def test_matcher_exact_amount_beats_a_nearer_inexact_hint(rig):
+    hint(rig, source="quest", amount=500, x=1, y=1)  # exact, but further away
+    rig.at(0.4)
+    hint(rig, source="quest", amount=900, x=2, y=2)  # nearer, wrong amount
+    rig.delta(500)
+    rig.at(0.9)
+    (b,) = rig.poll()
+    assert (b.x, b.y) == (1, 1)
+
+
+def test_matcher_inexact_hint_outside_the_window_does_not_match(rig):
+    hint(rig, source="quest", amount=1000, x=1, y=2)
+    rig.at(0.6)  # beyond nearestWindow
+    rig.delta(1100)
+    rig.at(1.1)
     (b,) = rig.poll()
     assert b.source is None
 
@@ -401,10 +478,11 @@ def test_matcher_hint_outside_the_time_window_does_not_match(rig):
 
 
 def test_matcher_amountless_hint_takes_only_a_close_delta(rig):
+    rig.m.ExpectSource(rig.m, 30)
     hint(rig, source="quest", x=1, y=2)
     rig.at(0.7)
     rig.delta(33)  # 0.7 s from the hint: too far for an amount-less hint
-    rig.at(1.2)
+    rig.at(1.5)  # deltaWait + the expected-source wait
     (b,) = rig.poll()
     assert b.source is None
     rig.at(1.3)
@@ -413,6 +491,60 @@ def test_matcher_amountless_hint_takes_only_a_close_delta(rig):
     rig.at(1.8)
     (b,) = rig.poll()
     assert b.source == "quest" and (b.x, b.y) == (3, 4)
+
+
+def test_matcher_amountless_hint_needs_an_expected_source(rig):
+    hint(
+        rig, source="quest", x=1, y=2
+    )  # no dialog was open: nothing says this delta is the quest's
+    rig.delta(33)
+    rig.at(0.5)
+    (b,) = rig.poll()
+    assert b.source is None
+
+
+def test_matcher_amountless_hint_does_not_take_a_delta_a_death_could_claim(rig):
+    rig.m.ExpectSource(rig.m, 30)
+    rig.death("d1")  # unpaired: its chat line is unreadable, the delta may be its XP
+    hint(rig, source="quest", x=1, y=2)
+    rig.at(0.1)
+    rig.delta(33)
+    rig.at(0.9)  # deltaWait + the expected-source wait
+    (b,) = rig.poll()
+    assert b.source is None and b.kind == "other"
+
+
+def test_matcher_inexact_hint_does_not_take_a_delta_a_death_could_claim(rig):
+    # an exploration hint (always an amount) must not grab a kill's XP of another amount on timing alone
+    rig.death("d1")
+    hint(rig, source="explore", amount=40, x=1, y=2)
+    rig.at(0.1)
+    rig.delta(33)
+    rig.at(0.9)
+    (b,) = rig.poll()
+    assert b.source is None and b.kind == "other"
+
+
+def test_matcher_amountless_hint_does_not_take_a_delta_a_secret_marker_could_claim(rig):
+    rig.m.ExpectSource(rig.m, 30)
+    rig.m.AddSecretChat(rig.m)  # the matching death has not shown up yet
+    hint(rig, source="quest", x=1, y=2)
+    rig.at(0.1)
+    rig.delta(33)
+    rig.at(0.9)
+    (b,) = rig.poll()
+    assert b.source is None
+
+
+def test_matcher_amountless_hint_takes_the_delta_once_the_death_expired(rig):
+    rig.m.ExpectSource(rig.m, 30)
+    rig.death("d1")
+    rig.at(1.6)  # the death is past deathTTL and expires; the delta is quest XP
+    hint(rig, source="quest", x=1, y=2)
+    rig.delta(33)
+    rig.at(2.1)
+    out = rig.poll()
+    assert [b.source for b in out] == ["quest"]
 
 
 def test_matcher_picks_the_hint_closest_in_time_and_consumes_it(rig):

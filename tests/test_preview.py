@@ -81,6 +81,39 @@ def hide(m):
     m.opt.panel.scripts.OnHide(m.opt.panel)
 
 
+def test_a_failed_build_hides_its_frame_and_is_not_retried(env):
+    m = make(env)
+    pv = m.ns.Preview
+    # the Test Kill button is the last thing the build makes: failing there strands the window, plate and model
+    created = m.lua.eval(
+        """
+        function()
+            local base, made, failed = CreateFrame, {}, false
+            CreateFrame = function(kind, name, parent, template)
+                -- only the first such button (the preview's own) fails; the options footer's must still work
+                if kind == "Button" and template == "UIPanelButtonTemplate" and not failed then
+                    failed = true
+                    error("template missing")
+                end
+                local f = base(kind, name, parent, template)
+                made[#made + 1] = f
+                return f
+            end
+            return made
+        end
+        """
+    )()
+    show(m)
+    first = len(lua_list(created))
+    assert first > 0 and not created[1].shown  # the half-built window is hidden, not left on screen
+    assert pv.window is None and pv.model is None and pv.popAnchor is None
+    hide(m)
+    show(m)
+    assert len(lua_list(created)) == first  # the second open built nothing
+    assert pv.Sync(pv, True) is False
+    assert pv.TestTarget(pv) is None
+
+
 def test_window_follows_the_options_panel(env):
     m = make(env)
     pv = m.ns.Preview

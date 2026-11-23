@@ -78,73 +78,86 @@ local function globalFrame(name)
     return type(frame) == "table" and frame or nil
 end
 
--- The frame under the cursor (GetMouseFoci on current clients, GetMouseFocus on older ones).
-local function mouseFocus()
-    if GetMouseFoci then
-        local ok, list = pcall(GetMouseFoci)
-        if ok and type(list) == "table" then
-            return list[1]
-        end
+-- Bounds of a frame in UIParent units (left, bottom, width, height), or nil: not visible, unreadable or degenerate.
+local function visibleRect(frame)
+    if not isVisible(frame) then
+        return nil
     end
-    if GetMouseFocus then
-        local ok, frame = pcall(GetMouseFocus)
-        if ok then
+    local okLeft, left = pcall(frame.GetLeft, frame)
+    local okBottom, bottom = pcall(frame.GetBottom, frame)
+    local okWidth, width = pcall(frame.GetWidth, frame)
+    local okHeight, height = pcall(frame.GetHeight, frame)
+    local okFrameScale, frameScale = pcall(frame.GetEffectiveScale, frame)
+    local okScale, parentScale = pcall(UIParent.GetEffectiveScale, UIParent)
+    if not (okLeft and okBottom and okWidth and okHeight and okFrameScale and okScale and num(left) and num(bottom)
+        and num(width) and num(height) and num(frameScale) and num(parentScale) and parentScale > 0
+        and width > 0 and height > 0) then
+        return nil
+    end
+    local ratio = frameScale / parentScale
+    return left * ratio, bottom * ratio, width * ratio, height * ratio
+end
+
+local function insideRect(x, y, left, bottom, width, height)
+    return left ~= nil and x >= left and x <= left + width and y >= bottom and y <= bottom + height
+end
+
+-- Quest window, remembered at QUEST_COMPLETE / QUEST_PROGRESS / QUEST_FINISHED (the window is gone by the time the
+-- turn-in is paid): its centre and its rect. A known replacement window wins over Blizzard's QuestFrame, which such
+-- addons park out of sight.
+local dialogX, dialogY, dialogTime
+local dialogLeft, dialogBottom, dialogWidth, dialogHeight
+
+-- The live quest window's frame: the first visible, on-screen replacement, else QuestFrame.
+local function liveDialogFrame()
+    for _, name in ipairs(FRAME_QUEST_REPLACEMENTS) do
+        local frame = globalFrame(name)
+        if visibleCentre(frame) then
             return frame
         end
+    end
+    local frame = globalFrame("QuestFrame")
+    if visibleCentre(frame) then
+        return frame
     end
     return nil
 end
 
--- Cursor position when the pointer is over a visible UI frame (not the 3D world): the player just clicked a button.
-local function clickPoint()
-    local focus = mouseFocus()
-    if type(focus) ~= "table" or not readable(focus) or focus == _G.WorldFrame or focus == UIParent then
-        return nil, nil
+local function cacheDialog()
+    local frame = liveDialogFrame()
+    if frame then
+        dialogX, dialogY = visibleCentre(frame)
+        dialogLeft, dialogBottom, dialogWidth, dialogHeight = visibleRect(frame)
+        dialogTime = GetTime()
     end
-    if not isVisible(focus) then
-        return nil, nil
-    end
-    return ns.Mouseover.CursorPosition()
 end
 
--- Quest window centre, remembered at QUEST_COMPLETE / QUEST_PROGRESS / QUEST_FINISHED (the window is gone by the time
--- the turn-in is paid). A known replacement window wins over Blizzard's QuestFrame, which such addons park out of
--- sight.
-local dialogX, dialogY, dialogTime
+local function dialogCacheFresh()
+    return dialogX ~= nil and GetTime() - dialogTime <= DIALOG_CACHE_TTL
+end
 
-local function readDialogCentre()
-    for _, name in ipairs(FRAME_QUEST_REPLACEMENTS) do
-        local x, y = visibleCentre(globalFrame(name))
-        if x then
-            return x, y
+-- Origin for a quest turn-in. The cursor counts only when it rests inside the quest window (live, else the rect cached
+-- when the dialog was open): that is where the player clicked. Anywhere else (a keyboard turn-in with the mouse parked
+-- over chat, the action bars or the minimap) says nothing about the quest, so use the window centre, then the usual
+-- quest window spot.
+function Sources.QuestOrigin()
+    local frame = liveDialogFrame()
+    local cursorX, cursorY = ns.Mouseover.CursorPosition()
+    if cursorX then
+        if frame then
+            if insideRect(cursorX, cursorY, visibleRect(frame)) then
+                return cursorX, cursorY, "cursor"
+            end
+        elseif dialogCacheFresh()
+            and insideRect(cursorX, cursorY, dialogLeft, dialogBottom, dialogWidth, dialogHeight) then
+            return cursorX, cursorY, "cursor"
         end
     end
-    return visibleCentre(globalFrame("QuestFrame"))
-end
-
-local function cacheDialog()
-    local x, y = readDialogCentre()
-    if x then
-        dialogX, dialogY, dialogTime = x, y, GetTime()
-    end
-end
-
-local function cachedDialogCentre()
-    if dialogX and GetTime() - dialogTime <= DIALOG_CACHE_TTL then
-        return dialogX, dialogY
-    end
-    return nil, nil
-end
-
--- Origin for a quest turn-in: where the player clicked, else the quest window, else the usual quest window spot.
-function Sources.QuestOrigin()
-    local x, y = clickPoint()
-    if x then
-        return x, y, "cursor"
-    end
-    x, y = readDialogCentre()
-    if not x then
-        x, y = cachedDialogCentre()
+    local x, y
+    if frame then
+        x, y = visibleCentre(frame)
+    elseif dialogCacheFresh() then
+        x, y = dialogX, dialogY
     end
     if x then
         return x, y, "questwindow"

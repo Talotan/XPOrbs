@@ -28,7 +28,7 @@ function KillMatcher.New(cfg)
         secretTTL = cfg.secretTTL or 1.0, -- how long a secret-chat marker waits for its death and delta
         hintTTL = cfg.hintTTL or 2.0, -- how long a source hint waits for its delta
         hintWindow = cfg.hintWindow or 1.0, -- a hint with an amount matches a delta this close in time (either order)
-        nearestWindow = cfg.nearestWindow or 0.5, -- a hint with no amount takes a delta this close in time
+        nearestWindow = cfg.nearestWindow or 0.5, -- a hint takes a delta of another amount this close in time
         sourceWait = cfg.sourceWait or 0.3, -- extra wait for a delta while a source hint is expected (ExpectSource)
         now = cfg.now,
     }
@@ -138,11 +138,34 @@ function KillMatcher:_claim()
     end
 end
 
--- The hint for an unclaimed delta: the closest-in-time hint with the same amount within hintWindow, else the closest
--- amount-less hint within nearestWindow. Returns its index or nil.
-local function findHint(hints, delta, cfg)
+-- Could a pending death or secret-chat marker still turn this delta into a kill? Poll pairs a marker with a death
+-- within secretTTL of each other and takes the oldest unclaimed delta, so an unpaired marker or death that close in
+-- time may yet own the delta. Expired ones were removed earlier in Poll, so anything left is inside its claim window.
+function KillMatcher:_couldBeKill(delta)
+    local window = self.cfg.secretTTL
+    for _, marker in ipairs(self.secret) do
+        if math.abs(marker.t - delta.t) <= window then
+            return true
+        end
+    end
+    for _, death in ipairs(self.deaths) do
+        if math.abs(death.t - delta.t) <= window then
+            return true
+        end
+    end
+    return false
+end
+
+-- The hint for an unclaimed delta, as an index or nil:
+--   1. the closest-in-time hint with the same amount within hintWindow;
+--   2. else the closest-in-time hint of any amount within nearestWindow. A reported quest reward can differ from the XP
+--      actually paid (XP boosts or food, a reward clipped at the level cap), so an exact match must not be required.
+--      An amount-less hint is only eligible here while a source is expected (an open quest dialog covers the delta)
+--      and no pending death or secret-chat marker could still claim the delta: otherwise it would steal a kill's XP.
+function KillMatcher:_findHint(delta)
+    local cfg = self.cfg
     local bestIndex, bestGap
-    for i, hint in ipairs(hints) do
+    for i, hint in ipairs(self.hints) do
         local gap = math.abs(hint.t - delta.t)
         if hint.amount == delta.amount and gap <= cfg.hintWindow and (not bestGap or gap < bestGap) then
             bestIndex, bestGap = i, gap
@@ -151,9 +174,15 @@ local function findHint(hints, delta, cfg)
     if bestIndex then
         return bestIndex
     end
-    for i, hint in ipairs(hints) do
+    -- a pending kill could still claim this delta: no hint may take it on timing alone
+    if self:_couldBeKill(delta) then
+        return nil
+    end
+    local amountlessAllowed = self.expectUntil ~= nil and delta.t <= self.expectUntil
+    for i, hint in ipairs(self.hints) do
         local gap = math.abs(hint.t - delta.t)
-        if hint.amount == nil and gap <= cfg.nearestWindow and (not bestGap or gap < bestGap) then
+        local eligible = hint.amount ~= nil or amountlessAllowed
+        if eligible and gap <= cfg.nearestWindow and (not bestGap or gap < bestGap) then
             bestIndex, bestGap = i, gap
         end
     end
@@ -294,7 +323,7 @@ function KillMatcher:Poll()
     while i <= #self.deltas do
         local delta = self.deltas[i]
         local age = now - delta.t
-        local hintIndex = age >= cfg.deltaWait and findHint(self.hints, delta, cfg) or nil
+        local hintIndex = age >= cfg.deltaWait and self:_findHint(delta) or nil
         local expecting = self.expectUntil ~= nil and delta.t <= self.expectUntil
         if hintIndex or (age >= cfg.deltaWait + (expecting and cfg.sourceWait or 0)) then
             table.remove(self.deltas, i)

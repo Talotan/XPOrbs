@@ -721,6 +721,8 @@ end
 
 local SEARCH_DEPTH = 4 -- levels below the frame under the cursor that are searched for the XP StatusBar
 local SEARCH_BUDGET = 200 -- most frames visited in one search
+local UPWARD_LEVELS = 2 -- how many parents smartPick may climb when the search below the cursor finds no bar
+local UPWARD_BUDGET_FACTOR = 2 -- all passes of one upward search together visit at most this many SEARCH_BUDGETs
 local MAX_CONTAINER_RATIO = 4 -- an unnamed bar's named ancestor may be at most this many times its area
 local FRACTION_TOLERANCE = 0.02 -- how far a 0..1 bar may be from xp / xpMax and still count as the XP bar
 
@@ -783,12 +785,13 @@ end
 
 -- The visible StatusBar under the cursor, at or below root, that shows the player's XP: exact matches beat fraction
 -- matches, then the higher frame level wins, then the deeper one. Breadth-first, bounded by SEARCH_DEPTH and
--- SEARCH_BUDGET. Never throws.
-local function findXPBar(root, xp, xpMax, plates)
+-- `budget` (default SEARCH_BUDGET). Returns the bar or nil, and how many frames it visited. Never throws.
+local function findXPBar(root, xp, xpMax, plates, budget)
     local queue, depths = { root }, { 0 }
     local head, visited = 1, 0
     local best, bestScore, bestLevel
-    while queue[head] and visited < SEARCH_BUDGET do
+    budget = budget or SEARCH_BUDGET
+    while queue[head] and visited < budget do
         local frame, depth = queue[head], depths[head]
         head = head + 1
         visited = visited + 1
@@ -816,7 +819,33 @@ local function findXPBar(root, xp, xpMax, plates)
             end
         end
     end
-    return best
+    return best, visited
+end
+
+-- Like findXPBar, but when nothing is found below root it retries from root's parent, then its grandparent. A
+-- mouse-enabled overlay (text, hit box) is often a child or sibling of the unnamed bar rather than its ancestor, so
+-- a downward-only search misses it. Stops climbing at the screen itself or a nameplate; every pass draws on one shared
+-- budget (a small multiple of SEARCH_BUDGET) so the repeated walks stay bounded.
+local function findXPBarNear(root, xp, xpMax, plates)
+    local remaining = SEARCH_BUDGET * UPWARD_BUDGET_FACTOR
+    local current = root
+    for _ = 0, UPWARD_LEVELS do
+        local match, visited = findXPBar(current, xp, xpMax, plates, math.min(SEARCH_BUDGET, remaining))
+        if match then
+            return match
+        end
+        remaining = remaining - visited
+        if remaining <= 0 or type(current.GetParent) ~= "function" then
+            return nil
+        end
+        local okParent, parent = pcall(current.GetParent, current)
+        if not (okParent and type(parent) == "table" and readable(parent)) or parent == UIParent
+            or parent == _G.WorldFrame or isPlateFrame(parent, plates) then
+            return nil
+        end
+        current = parent
+    end
+    return nil
 end
 
 -- The key under which parent holds child: child:GetParentKey() when parent really has it there, else the string key
@@ -895,7 +924,7 @@ local function smartPick(root)
     local pointedAt = root
     local xp, xpMax = readPlayerXP()
     if xp then
-        local match = findXPBar(root, xp, xpMax, plateList())
+        local match = findXPBarNear(root, xp, xpMax, plateList())
         if match then
             local name, namedFrame = Target.PickName(match)
             if not name then

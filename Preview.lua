@@ -100,6 +100,7 @@ local BACKDROP = {
 
 local window, model, plate, healthFill, popAnchor, buttonFrame
 local modelLoaded = false
+local buildFailed = false -- buildWindow threw once: do not try again this session (every attempt would leak a frame)
 local loadCheckPending = false -- a C_Timer.After for the load fallback is in flight
 local currentFacing = STAND_INS.Alliance.facing -- radians; the drag changes it and it is kept for the session
 local dragStartX, dragStartFacing, dragScale = 0, 0, 1
@@ -427,14 +428,31 @@ local function buildWindow()
     buildButtonFrame(frame)
 end
 
+-- buildWindow threw part-way. Frames cannot be destroyed, so hide the half-built window (its model and plate go with
+-- it), drop every reference the build set (TestTarget then returns nil), and remember the failure so the next options
+-- open does not build another orphan. A pending load-fallback timer finds model nil and does nothing.
+local function abandonBuild()
+    buildFailed = true
+    if window then
+        pcall(window.Hide, window)
+    end
+    window, model, plate, healthFill, popAnchor, buttonFrame = nil, nil, nil, nil, nil, nil
+    modelLoaded = false
+    Preview.window, Preview.model, Preview.plate, Preview.popAnchor = nil, nil, nil, nil
+    Preview.buttonFrame, Preview.testButton = nil, nil
+end
+
 -- Options.panel OnShow (show = true) / OnHide (false). Idempotent. Returns true when the window is up (the options
 -- panel keeps its own footer Test Kill button only when it is not).
 function Preview:Sync(show)
     if show then
+        if buildFailed then
+            return false
+        end
         if not window then
             local ok = pcall(buildWindow)
             if not ok then
-                window = nil
+                abandonBuild()
                 return false
             end
         end

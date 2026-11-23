@@ -93,7 +93,11 @@ The panel has these sections, most-used first:
 - **Sound:** the arrival chime with its sound (Coin or Glass) and volume.
 - **Advanced:** the debug log.
 
-The panel also has a test button and a reset button.
+The panel also has a reset button. To try your settings, use the Test Kill button on the test target, below.
+
+While the XP Orbs options are open, a stand-in mob (Hogger, or Gamon for Horde characters) stands in a small window to
+the right of them. Test Kill makes it die and fires a burst from it with your current settings, so you can tune the look
+without finding a mob. Drag the model to rotate it.
 
 The default colours are a purple for normal orbs and a blue for rested ones, picked to match the Forever XP bar. If
 you had kept the old default colours or the old 0.75 s flight time, they update to the new ones automatically; colours
@@ -241,9 +245,10 @@ XP that no kill claims gets a start point that says where it came from. "Explora
 exploration orbs; "Quest bursts" turns off the quest orbs and any other XP that is not a kill. Both are on by default,
 and a save from before the split starts with both matching its old "Quest bursts" choice.
 
-- **Quests:** the orbs start where you clicked Complete Quest. If the pointer was not over a window then, they start at
-  the quest window (the default one, or DaylightUI's NPC window), or a little left of the centre of the screen when
-  that is not known.
+- **Quests:** the orbs start where you clicked Complete Quest. If the pointer was not inside the quest window then (a
+  keyboard turn-in with the mouse resting over the chat or the action bars), they start at the centre of the quest
+  window (the default one, or DaylightUI's NPC window), or a little left of the centre of the screen when that is not
+  known.
 - **Exploration:** discovering a new area starts the orbs at the area name shown on screen, or at the top centre of
   the screen when no name is showing.
 - **Anything else** starts a little above the centre of the screen.

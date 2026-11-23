@@ -199,6 +199,27 @@ def test_an_unnamed_bar_with_no_path_under_a_huge_container_is_refused(m5):
     )
 
 
+def test_an_overlay_child_under_the_cursor_still_finds_the_bar_above_it(m5):
+    panel = named_bar(m5, "BigPanel", 0, 0, 1500, 800, True)
+    xp_bar = bar(m5, panel, "xp", 100, 100, 300, 14, 1000, 500)
+    overlay = m5.stub.child(xp_bar, "text", m5.stub.makeFreeBar(100, 100, 300, 14, True))
+    m5.stub.focus = overlay  # a mouse-enabled text overlay is what the cursor is over
+    over(m5, 200, 105)
+    click(m5)
+    assert m5.db.targetFrame == "BigPanel.xp"
+
+
+def test_a_sibling_overlay_under_the_same_holder_finds_the_bar_one_level_up(m5):
+    panel = named_bar(m5, "BigPanel", 0, 0, 1500, 800, True)
+    holder = m5.stub.child(panel, "strip", m5.stub.makeFreeBar(100, 100, 300, 14, True))
+    bar(m5, holder, "fill", 100, 100, 300, 14, 1000, 500)
+    overlay = m5.stub.child(holder, "hitbox", m5.stub.makeFreeBar(100, 100, 300, 14, True))
+    m5.stub.focus = overlay
+    over(m5, 200, 105)
+    click(m5)
+    assert m5.db.targetFrame == "BigPanel.strip.fill"
+
+
 def test_a_normal_named_frame_is_saved_as_before(m5):
     holder = named_bar(m5, "MyBarHolder", 100, 50, 600, 12, True)
     m5.stub.focus = holder
