@@ -49,7 +49,7 @@ STAGGER = 0.15  # s, Orbs.lua STAGGER
 START_RADIUS = 6
 UIPARENT = (1707, 960)  # a 2560x1440 screen at UI scale 2/3: the units Burst works in
 UNKNOWN_RX, UNKNOWN_RY = 0.064, 0.04  # Orbs.lua UNKNOWN: the unknown-origin ellipse, fractions of the screen
-HELIX_LINE, HELIX_LINE_UNKNOWN, POP_WIDEN, HELIX_RING_WIDEN = 8, 18, 1.6, 1.4
+HELIX_LINE, HELIX_LINE_UNKNOWN, POP_WIDEN = 8, 18, 1.6
 # Orbs.lua SP_PROFILE: per-orb bloom seconds (nearest to the bar shortest; the launch is its end), ring radii (0.84 x
 # the Nameplate pop's 30..55), partial ease-out weight, the widened ring's x-radius cap
 SP_BLOOM_MIN, SP_BLOOM_SPAN, SP_RING_MIN, SP_RING_MAX, SP_EASE_OUT, SP_WIDTH_CAP = 0.20, 0.06, 25, 46, 0.5, 64
@@ -70,14 +70,16 @@ def load_orbmath():
 
 def make_orbs(om, kind, start, end, count, rng, spread=True, popstream=False, screen=None, origin="point"):
     """The orbs of one burst, spawned like Burst does: start disc, control point, path parameters, delay, duration.
-    popstream mirrors the stream after a nameplate pop (control spread 0.45, lift 0.10, stagger 0.08, +0.30 s).
+    popstream mirrors the stream after a nameplate pop (control spread 0.45, lift 0.10, stagger 0.08, +0.30 s; a helix
+    uses the Direct Stream's spread, lift and stagger, plus the 0.30 s).
     screen=(w, h) switches on what Burst does for the screen edge (bow direction, control-point clamp, the helix's
     start line); origin is "point" (detected) or "unknown" (the ellipse; a short line for the helix)."""
-    control_scale, stagger_scale, duration_low, duration_span, _ring = om.PathShape(
-        kind
-    )
+    control_scale, stagger_scale, duration_low, duration_span = om.PathShape(kind)
+    # after a nameplate pop only a helix takes the Direct Stream's stream values (just the 0.30 s delay stays)
     base_spread, lift, stagger, extra = (
-        (0.45, 0.10, 0.08, 0.30) if popstream else (None, None, STAGGER, 0.0)
+        (0.45, 0.10, 0.08, 0.30)
+        if popstream and kind != "helix"
+        else (None, None, STAGGER, 0.30 if popstream else 0.0)
     )
     pop_spread = (
         (base_spread or 1) * control_scale if control_scale != 1 else base_spread
@@ -416,23 +418,23 @@ def screen_panel(om, kind, start, end, label, seed, scale, origin="point", count
 
 
 def streampop_panel(om, kind, start, end, label, seed, scale, origin):
-    """Popstream (Direct): a fixed pop at `start`, a ring of 25..46 px (stretched horizontally, capped, when unknown; for a
-    helix halved, and stretched 1.4x when detected) that each orb leaves at the end of its own bloom, then the stream. Mirrors SP_PROFILE.plan and the Burst blend."""
+    """Popstream (Direct): a fixed pop at `start`, a ring of 25..46 px (stretched horizontally, capped, when unknown;
+    the same for every path) that each orb leaves at the end of its own bloom, then the stream. Mirrors
+    SP_PROFILE.plan and the Burst blend."""
     width, height = UIPARENT
     panel = Panel((round(width * scale), round(height * scale)), (0, 0), scale)
     panel.marker(start, (120, 220, 140))
     panel.marker(end, (240, 200, 90))
     rng = random.Random(seed)
     count = 12
-    ring_scale = 0.5 if kind == "helix" else 1
-    widen = POP_WIDEN if origin == "unknown" else (HELIX_RING_WIDEN if kind == "helix" else 1)
+    widen = POP_WIDEN if origin == "unknown" else 1
     side = om.BowSide(start[0], start[1], end[0], end[1], width, height)
     control_scale = om.PathShape(kind)[0]
     handedness = -1 if kind == "helix" and rng.random() < 0.5 else 1
     rings = []
     for index in range(1, count + 1):
         ring_angle = om.RingAngle(index, count, rng.random)
-        radius = (SP_RING_MIN + rng.random() * (SP_RING_MAX - SP_RING_MIN)) * ring_scale
+        radius = (SP_RING_MIN + rng.random() * (SP_RING_MAX - SP_RING_MIN))
         ring_width = min(radius * widen, max(radius, SP_WIDTH_CAP))
         ring = (start[0] + math.cos(ring_angle) * ring_width, start[1] + math.sin(ring_angle) * radius)
         rings.append((ring_angle, ring))

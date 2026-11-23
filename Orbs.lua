@@ -144,10 +144,9 @@ local XF_PROFILE = { bloom = XF_HOLD, bsize = XF_BLOOM_SIZE, fadeIn = XF_FADE_IN
 -- horizontally by popWiden (a wider ring reads as "somewhere about here" without the origin jumping).
 -- The Helix starts from a short horizontal line instead of a disc or the ellipse (all in px, UIParent units): helixLine
 -- is the half-width at a detected origin, helixLineUnknown at an unknown one, helixLineJitter the half-height of both;
--- helixRingWiden stretches Popstream (Direct)'s (already halved) ring at a detected origin, popWiden does at an
--- unknown one.
+-- popWiden stretches Popstream (Direct)'s ring horizontally at an unknown origin (the same for every path).
 local UNKNOWN = { rx = 0.064, ry = 0.04, zRef = 15, zK = 5, fMin = 0.5, fMax = 2, level = { off = 0, wide = 1 },
-    popWiden = 1.6, helixLine = 8, helixLineUnknown = 18, helixLineJitter = 2, helixRingWiden = 1.4 }
+    popWiden = 1.6, helixLine = 8, helixLineUnknown = 18, helixLineJitter = 2 }
 
 -- clamp((zRef + zK) / (zoom + zK), fMin, fMax) for the current camera zoom: 1 at zoom 15, 2 zoomed in, 0.5 zoomed out;
 -- 1 when the zoom can't be read. A field of UNKNOWN, so Burst (near Lua 5.1's upvalue cap) needs no new upvalue.
@@ -208,12 +207,12 @@ local function byRingDist(a, b)
 end
 
 -- Per-burst plan of n orbs around (x, y): the ring centre (always (x, y): the origin stays put), ring points (radius x
--- spreadFactor, the zoom-scaled spread, times ringScale: a helix packs its ring tighter; the x radius also x
--- UNKNOWN.popWiden when the origin is unknown (unknownLevel > 0), or x UNKNOWN.helixRingWiden for a helix at a detected
--- one, never wider than widthCap) and bloom durations ordered by distance from the ring point to (dx, dy): the
+-- spreadFactor, the zoom-scaled spread, the same for every path; the x radius also x UNKNOWN.popWiden when the
+-- origin is unknown (unknownLevel > 0), never wider than widthCap) and bloom durations ordered by distance from the
+-- ring point to (dx, dy): the
 -- nearest gets bloomMin, the farthest bloomMin + bloomSpan (the launch is the end of the bloom); ranks[i] is orb i's
--- place in that launch order. isHelix: the burst's path is the helix.
-function SP_PROFILE.plan(n, x, y, dx, dy, unknownLevel, spreadFactor, ringScale, isHelix)
+-- place in that launch order.
+function SP_PROFILE.plan(n, x, y, dx, dy, unknownLevel, spreadFactor)
     local profile = SP_PROFILE
     local dist, idx = profile.dist, profile.idx
     for i = #idx, n + 1, -1 do -- table.sort sorts #idx slots: drop what a larger earlier burst left behind
@@ -223,12 +222,10 @@ function SP_PROFILE.plan(n, x, y, dx, dy, unknownLevel, spreadFactor, ringScale,
     local widen = 1
     if unknownLevel > 0 then
         widen = UNKNOWN.popWiden
-    elseif isHelix then
-        widen = UNKNOWN.helixRingWiden
     end
     for i = 1, n do
         local ringAngle = OrbMath.RingAngle(i, n, random)
-        local ringRadius = (profile.rmin + random() * (profile.rmax - profile.rmin)) * spreadFactor * ringScale
+        local ringRadius = (profile.rmin + random() * (profile.rmax - profile.rmin)) * spreadFactor
         local ringWidth = min(ringRadius * widen, max(ringRadius, profile.widthCap * spreadFactor)) -- x radius, capped
         local ringX, ringY = centreX + cos(ringAngle) * ringWidth, centreY + sin(ringAngle) * ringRadius
         profile.centreX[i], profile.centreY[i], profile.ringAngle[i] = centreX, centreY, ringAngle
@@ -960,12 +957,13 @@ end
 -- playChime so the note progression and the per-note gap match real arrivals. A real burst's orbs land at slightly
 -- different times, so each press draws fresh arrival times (seconds after the press) into one reused scratch table:
 -- the first note at 0, the rest spread at random inside SAMPLE_SPAN, sorted, and never closer than SAMPLE_MIN_GAP
--- (a hair over the chime's own 70 ms rate limit, logic/Chime.lua, so every note is heard). The room beyond the
+-- (the chime's own 70 ms rate limit, logic/Chime.lua, plus about one frame: notes play on frame ticks, so two notes
+-- drawn just over 70 ms apart could land on frames under it and one would be dropped). The room beyond the
 -- minimum gaps is SAMPLE_SPAN - (SAMPLE_COUNT - 1) * SAMPLE_MIN_GAP; sorted random draws share it out unevenly.
 -- One short-lived OnUpdate that removes itself after the last note; a new press restarts it.
 local SAMPLE_COUNT = 6
-local SAMPLE_SPAN = 0.42
-local SAMPLE_MIN_GAP = 0.072
+local SAMPLE_SPAN = 0.50
+local SAMPLE_MIN_GAP = 0.085
 local SAMPLE_OFFSETS = {}
 for index = 1, SAMPLE_COUNT do
     SAMPLE_OFFSETS[index] = 0
@@ -1342,7 +1340,11 @@ function Orbs:Burst(params)
     local flightScale = crossfadeGroup and profile.flight or 1 -- crossfade copy B flies faster than the normal stream
     -- the flight path is the same for the whole burst (changing the setting mid-flight never bends an orb in the air)
     local burstPath = OrbMath.PathKind(params.path or config.flightPath)
-    local ringScale = select(5, OrbMath.PathShape(burstPath))
+    if popped and burstPath == "helix" then
+        -- the stream of a helix after a nameplate pop is the Direct Stream helix (its favourite look): the same
+        -- stagger, control spread / lift (defaults) and fade-in; only the pop and STREAM_DELAY stay
+        stagger, spread, lift, fadeIn = STAGGER, nil, nil, FADE_IN
+    end
     -- per-burst screen facts for the arcs (scratch fields of XF_PROFILE, Burst has no upvalue to spare): the screen
     -- size, which side every orb bows to (the side with more room, see OrbMath.BowVector) and the base margin that
     -- keeps the control points off the screen edge (each orb adds its path amplitude)
@@ -1357,7 +1359,7 @@ function Orbs:Burst(params)
     if crossfadeGroup then
         XF_PROFILE.plan(px, py, dx, dy)
     elseif isStreamPop then
-        profile.plan(n, x, y, dx, dy, unknownLevel, spreadFactor, ringScale, burstPath == "helix")
+        profile.plan(n, x, y, dx, dy, unknownLevel, spreadFactor)
     end
     local crossfadeCount = 0 -- orbs that got a plate-space copy A (each takes 3 texture slots on crossfadeGroup)
     local building, buildingLive = nil, false -- the orb being built, and whether it is in `live` yet

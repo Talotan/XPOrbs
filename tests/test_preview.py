@@ -31,6 +31,8 @@ function(mode)
                         self.displayId = (...)
                     elseif name == "SetFacing" then
                         self.facing = (...)
+                    elseif name == "SetCamDistanceScale" then
+                        self.camDistance = (...)
                     end
                 end
             end
@@ -111,7 +113,7 @@ def test_test_burst_comes_from_the_stand_in(env):
     p = m.ns.captured
     assert m.same(p["plate"], m.ns.Preview.popAnchor)
     assert p["est"] == "mouseover" and p["estW"] == 1
-    assert p["ex"] == 1500 and p["ey"] == pytest.approx(600 + m.ns.Preview.originRise)
+    assert p["ex"] == 1500 and p["ey"] == pytest.approx(600 + m.ns.Preview.originRise())
     assert p["ey"] > 600
 
 
@@ -264,18 +266,45 @@ def pop_y_from_window_top(m, style, zoom_anchor):
 
 @pytest.mark.parametrize("zoom_anchor", [True, False])
 @pytest.mark.parametrize("style", ["popstream", "crossfade"])
-def test_the_stream_origin_lies_between_the_model_centre_and_the_pop_anchor(env, style, zoom_anchor):
+def test_the_stream_origin_rises_with_the_model_and_the_pop_anchor_stays_put(env, style, zoom_anchor):
     m = make(env)
     show(m)
     y = pop_y_from_window_top(m, style, zoom_anchor)
     pv = m.ns.Preview
-    bar_y = -(22 + 4 + 30 - 4)  # the health bar's centre
-    centre_y = -(22 + 30 + 8 + 260 - 8) / 2  # the model centre
+    bar_y = -(12 + 44 - 4)  # the health bar's centre
+    area_h = 260 - 8 - (12 + 44 + 4)  # the model area's height
+    centre_y = -(12 + 44 + 4 + 260 - 8) / 2  # the model area's centre
     origin_y = centre_y + (m.ns.captured["ey"] - 600)  # the stream origin (the model's GetCenter y is 600)
-    assert centre_y < origin_y < y < bar_y
-    assert origin_y - centre_y == pytest.approx((y - centre_y) / 2)  # ORIGIN_FRACTION 0.5
-    assert abs(y - origin_y) < abs(y - bar_y)
-    assert y == pytest.approx(pv.anchorY)  # the same point whatever the zoom-anchor setting
+    anchor_y = bar_y + 0.6 * (centre_y - bar_y)  # ANCHOR_FRACTION: the same absolute spot as before the model rose
+    assert pv.modelAreaHeight == area_h
+    assert y == pytest.approx(anchor_y) and y == pytest.approx(pv.anchorY)  # whatever the zoom-anchor setting
+    assert anchor_y == pytest.approx(-114.4)  # unchanged by the raise
+    # Hogger (the Alliance stand-in): the origin is the old spot (half way from the centre to the anchor) plus 15 %
+    old_origin_y = centre_y + (anchor_y - centre_y) / 2
+    assert origin_y - old_origin_y == pytest.approx(0.15 * area_h)
+    assert pv.originRise() == pytest.approx(origin_y - centre_y)
+    assert bar_y > centre_y and origin_y > centre_y and bar_y > origin_y  # all still inside the window, bar on top
+
+
+def test_gamon_is_zoomed_in_and_not_raised(env):
+    m = make(env)
+    m.G.UnitFactionGroup = lambda unit: "Horde"
+    show(m)
+    assert m.ns.Preview.originRise() == pytest.approx(20.8)  # the old origin spot: no raise
+    assert m.ns.Preview.model.camDistance == pytest.approx(0.80)
+
+
+def test_default_facing_is_five_degrees_clockwise_of_before(env):
+    m = make(env)
+    show(m)
+    assert m.ns.Preview.model.facing == pytest.approx(0.6 - 0.087)
+
+
+def test_the_window_has_no_title_and_the_name_uses_a_big_font(env):
+    m = make(env)
+    show(m)
+    texts = [f.text for f in m.stub.frames.values() if f.kind == "FontString"]
+    assert "Test target" not in texts and "Hogger" in texts
 
 
 # ---------------------------------------------------------------- faction stand-in
@@ -478,7 +507,7 @@ def test_sample_arrivals_are_fast_irregular_and_never_closer_than_the_chime_gap(
         offsets = drawn_offsets(m)
         gaps = [b - a for a, b in zip(offsets, offsets[1:])]
         assert len(offsets) == 6 and offsets[0] == 0 and offsets == sorted(offsets)
-        assert min(gaps) >= 0.07 and offsets[-1] <= 0.45
+        assert min(gaps) >= 0.085 - 1e-9 and offsets[-1] <= 0.50 + 1e-9
         assert max(gaps) - min(gaps) > 1e-6  # not evenly spaced
         seen.add(round(offsets[3], 6))
     assert len(seen) > 20  # fresh draw per click

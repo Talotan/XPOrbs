@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: GPL-3.0-or-later
 local ADDON, ns = ...
 
--- "Test target": a small window docked to the right of the settings panel that shows a stand-in mob (Hogger for the
+-- Test window: a small window docked to the right of the settings panel that shows a stand-in mob (Hogger for the
 -- Alliance, Gamon for the Horde) and a fake nameplate above it. While the window is shown, "Test Kill" fires the
 -- orbs FROM this stand-in: the fake plate is passed to Orbs:Burst as the nameplate anchor (so Popstream (Nameplate)
 -- and Crossfade pop on it) and the model's body centre is the mob estimate, reported as located. Why: a Test Kill
@@ -19,18 +19,24 @@ ns.Preview = Preview
 local WINDOW_W, WINDOW_H = 200, 260
 local GAP = 4 -- px between the settings panel and the window
 local PAD = 8
-local TITLE_H = 22
-local PLATE_W, PLATE_H = 128, 30
+local PLATE_TOP_Y = 12 -- px from the window's top to the plate's top (the mob's name sits there)
+local PLATE_W, PLATE_H = 128, 44
 local HEALTH_H = 8
+local MODEL_GAP = 4 -- px between the plate and the model area
 
 -- Stand-ins: Hogger (NPC 448, display id 108956) for the Alliance, Gamon (NPC 6466, display id 5205) for the Horde.
 -- Both display ids are the "displayId" in the model viewer data on each NPC's Wowhead page (wowhead.com/npc=448 and
 -- wowhead.com/npc=6466, the entries with "type":1 and the NPC id as "typeId"). Framing (facing in radians, camera
--- distance scale, vertical nudge) is per stand-in, tuned by eye in game; Gamon's values are a first guess (he is a
--- bigger model than Hogger).
+-- distance scale, vertical position z) is per stand-in, tuned by eye in game; Gamon's values are a first guess (he is
+-- a bigger model than Hogger). facing is the default turn (0.6 rad less 0.087, about 5 degrees clockwise seen from
+-- above). raise is how far the model sits above the middle of the model area, as a fraction of the area's height; z
+-- and raise belong together (a z unit is about 0.55 / 0.15 = 3.7 raise-fractions at Hogger's camera), and the stream
+-- origin rises with raise so it stays on the same spot of the body.
 local STAND_INS = {
-    Alliance = { npcId = 448, displayId = 108956, name = "Hogger", facing = 0.6, camDistance = 1.15, z = -0.1 },
-    Horde = { npcId = 6466, displayId = 5205, name = "Gamon", facing = 0.6, camDistance = 1.35, z = -0.1 },
+    Alliance = { npcId = 448, displayId = 108956, name = "Hogger", facing = 0.513, camDistance = 1.15, z = 0.45,
+        raise = 0.15 },
+    Horde = { npcId = 6466, displayId = 5205, name = "Gamon", facing = 0.513, camDistance = 0.80, z = 0.15,
+        raise = 0 },
 }
 local LOAD_WAIT = 1.0 -- seconds to wait for the first load method before trying the other one
 
@@ -52,24 +58,31 @@ local DRAIN_TIME = 0.5
 local DEAD_AT = 1.3
 local REVIVE_AT = 3.0
 
--- Layout, measured from the window's top edge (px): the health bar's centre, the model area's centre, and where the
--- pop anchor sits between them. The pop forms on the mob's body in real use, close to the stream origin (the model
--- centre), not on the nameplate, so the invisible anchor is 60% of the way from the health bar down to the centre
--- (the brief said about 40%, but it also wants the pop closer to the stream origin than to the plate, which needs
--- more than half way; this is the number to nudge after looking in game).
-local HEALTH_CENTRE_Y = TITLE_H + 4 + PLATE_H - HEALTH_H / 2
-local MODEL_TOP_Y = TITLE_H + PLATE_H + 8
-local MODEL_CENTRE_Y = (MODEL_TOP_Y + WINDOW_H - PAD) / 2
+-- Layout, measured from the window's top edge (px): the health bar's centre, the model area's centre and height, and
+-- where the pop anchor sits between the bar and the centre. The pop forms on the mob's body in real use, so the
+-- invisible anchor is ANCHOR_FRACTION of the way from the health bar down to the model area's centre. It is a fixed
+-- point of the window: the model rising (stand-in.raise) never moves it, which puts the pop higher on the body than
+-- the stream origin's old spot.
+local standIn = STAND_INS.Alliance
+local HEALTH_CENTRE_Y = PLATE_TOP_Y + PLATE_H - HEALTH_H / 2
+local MODEL_TOP_Y = PLATE_TOP_Y + PLATE_H + MODEL_GAP
+local MODEL_AREA_H = WINDOW_H - PAD - MODEL_TOP_Y
+local MODEL_CENTRE_Y = MODEL_TOP_Y + MODEL_AREA_H / 2
 local ANCHOR_FRACTION = 0.6
 local ANCHOR_Y = HEALTH_CENTRE_Y + ANCHOR_FRACTION * (MODEL_CENTRE_Y - HEALTH_CENTRE_Y)
--- The stream origin (what fireTest gets as the mob's position) sits this fraction of the way from the model centre up
--- to the pop anchor, so the stream starts a little higher than the model centre, nearer where the pop forms.
+-- The stream origin (what fireTest gets as the mob's position) sits ORIGIN_FRACTION of the way from the model area's
+-- centre up to the anchor's fixed point, plus the stand-in's raise: it moves up with the model, staying on the same
+-- spot of the body (px above the model area's centre, window scale; see originRise).
 local ORIGIN_FRACTION = 0.5
-local ORIGIN_RISE = ORIGIN_FRACTION * (MODEL_CENTRE_Y - ANCHOR_Y) -- px above the model centre (window scale)
+local ORIGIN_BASE_RISE = ORIGIN_FRACTION * (MODEL_CENTRE_Y - ANCHOR_Y)
+local function originRise()
+    return ORIGIN_BASE_RISE + (standIn.raise or 0) * MODEL_AREA_H
+end
 local ANCHOR_SIZE = 1
 local BUTTON_FRAME_W, BUTTON_FRAME_H = 120, 34
 Preview.ANCHOR_SIZE = ANCHOR_SIZE
-Preview.originRise = ORIGIN_RISE -- exposed for tests
+Preview.modelAreaHeight = MODEL_AREA_H -- exposed for tests
+Preview.originRise = originRise -- function: px above the model centre for the current stand-in (exposed for tests)
 Preview.anchorY = -ANCHOR_Y -- offset of the pop anchor's BOTTOM from the window's TOP (exposed for tests)
 
 local BACKDROP = {
@@ -82,7 +95,6 @@ local BACKDROP = {
 }
 
 local window, model, plate, healthFill, popAnchor, buttonFrame
-local standIn = STAND_INS.Alliance
 local modelLoaded = false
 local loadCheckPending = false -- a C_Timer.After for the load fallback is in flight
 local currentFacing = STAND_INS.Alliance.facing -- radians; the drag changes it and it is kept for the session
@@ -219,8 +231,18 @@ end
 local function buildPlate(parent)
     local frame = CreateFrame("Frame", nil, parent)
     frame:SetSize(PLATE_W, PLATE_H)
-    frame:SetPoint("TOP", parent, "TOP", 0, -(TITLE_H + 4))
-    local name = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    frame:SetPoint("TOP", parent, "TOP", 0, -PLATE_TOP_Y)
+    -- the mob's name is the focus: the biggest standard font that fits the 200 px window (a missing font object
+    -- leaves the default)
+    local name = frame:CreateFontString(nil, "OVERLAY")
+    for _, fontName in ipairs({ "GameFontNormalHuge", "GameFontNormalLarge", "GameFontNormal" }) do
+        local okFont, fontObject = pcall(function()
+            return _G[fontName]
+        end)
+        if okFont and fontObject and try(name, "SetFontObject", fontObject) then
+            break
+        end
+    end
     name:SetPoint("TOP", frame, "TOP", 0, 0)
     name:SetText(standIn.name)
     local back = frame:CreateTexture(nil, "BACKGROUND")
@@ -377,9 +399,6 @@ local function buildWindow()
     frame:SetFrameStrata("MEDIUM")
     frame:EnableMouse(true)
     addBackground(frame)
-    local title = frame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-    title:SetPoint("TOP", frame, "TOP", 0, -PAD - 2)
-    title:SetText("Test target")
     plate = buildPlate(frame)
     model = createModel(frame)
     if model then
@@ -387,7 +406,7 @@ local function buildWindow()
         model:SetScript("OnMouseDown", startDrag)
         model:SetScript("OnMouseUp", stopDrag)
         model:SetScript("OnHide", stopDrag)
-        model:SetPoint("TOPLEFT", frame, "TOPLEFT", PAD, -(TITLE_H + PLATE_H + 8))
+        model:SetPoint("TOPLEFT", frame, "TOPLEFT", PAD, -MODEL_TOP_Y)
         model:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -PAD, PAD)
     end
     -- the pop anchor: an invisible 1x1 frame the burst hangs its pop from (placed by TestTarget)
@@ -426,7 +445,7 @@ function Preview:Sync(show)
 end
 
 -- The stand-in for a Test Kill: the pop anchor frame (the burst's "plate") and the stream origin (the model centre
--- raised by ORIGIN_RISE) in UIParent coordinates. popOffsetY is the vertical offset (px, negative = down) the burst
+-- raised by originRise()) in UIParent coordinates. popOffsetY is the vertical offset (px, negative = down) the burst
 -- will add from the anchor's BOTTOM to
 -- place its pop (the camera-zoom body offset, or the plate default); the anchor is moved by exactly that much the other
 -- way, so the pop lands at ANCHOR_Y whatever the zoom-anchor setting is. nil unless the window is
@@ -448,5 +467,5 @@ function Preview:TestTarget(popOffsetY)
     end
     popAnchor:ClearAllPoints()
     popAnchor:SetPoint("BOTTOM", window, "TOP", 0, -ANCHOR_Y - (isNumber(popOffsetY) and popOffsetY or 0))
-    return popAnchor, centreX * ratio, (centreY + ORIGIN_RISE) * ratio
+    return popAnchor, centreX * ratio, (centreY + originRise()) * ratio
 end

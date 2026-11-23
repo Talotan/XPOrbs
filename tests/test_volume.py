@@ -332,7 +332,7 @@ def test_the_row_dims_with_the_chime_off_but_stays_usable(env):
 def test_the_rows_below_moved_down_by_the_slider_row_and_the_content_grew(env):
     m = opts(env)
     show(m)
-    assert m.opt.rows["soundVolume"].points[1][5] == -1212
+    assert m.opt.rows["soundVolume"].points[1][5] == -270
     assert m.opt.rows["debug"].points[1][5] == -1284
     assert m.opt.CONTENT_H == m.opt.child.height == 1328
 

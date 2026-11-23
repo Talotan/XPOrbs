@@ -154,21 +154,19 @@ function OrbMath.PathKind(kind)
     return FLIGHT_PATHS[kind] and kind or "smooth"
 end
 
--- How a path reshapes the burst around it: returns controlScale, staggerScale, durationLow, durationSpan, ringScale.
+-- How a path reshapes the burst around it: returns controlScale, staggerScale, durationLow, durationSpan.
 --   controlScale: factor on the per-orb sideways spread of the base curve's control point (Smooth 1, Chaos 0.6,
 --                 Helix 0.10: the helix's strands share one spine).
---   staggerScale: factor on the launch stagger (Helix 2.5, launched in pairs so the two strands fill together; 2 x
---                 1.25 so that the 25 % longer flights leave the pairs the same gap in progress).
---   durationLow, durationSpan: flight time multiplier range (Helix 1.2125..1.2875, 1.25 x the old 0.97..1.03: a helix
---                 flies 20 % slower and its strands keep their spacing); nil = the caller's own range.
---   ringScale: factor on Popstream (Direct)'s ring radius (Helix 0.5, so the strands start close together).
+--   staggerScale: factor on the launch stagger (Helix 2.0, launched in pairs so the two strands fill together).
+--   durationLow, durationSpan: flight time multiplier range (Helix 0.97..1.03: a tight range, so the strands keep their
+--                 spacing); nil = the caller's own range.
 function OrbMath.PathShape(kind)
     if kind == "helix" then
-        return 0.10, 2.5, 1.2125, 0.075, 0.5
+        return 0.10, 2.0, 0.97, 0.06
     elseif kind == "chaos" then
-        return 0.6, 1, nil, nil, 1
+        return 0.6, 1, nil, nil
     end
-    return 1, 1, nil, nil, 1
+    return 1, 1, nil, nil
 end
 
 local function smoothstep(edgeLow, edgeHigh, v)

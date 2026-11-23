@@ -1172,10 +1172,10 @@ local function build()
 
     -- most-used first
     local y = buildGeneral(8)
+    y = buildSound(y)
     y = buildLook(y)
     y = buildStyle(y)
     y = buildArrival(y)
-    y = buildSound(y)
     y = buildAdvanced(y)
     CONTENT_H = y + 16
     Options.CONTENT_H = CONTENT_H

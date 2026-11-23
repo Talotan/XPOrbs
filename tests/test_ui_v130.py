@@ -12,6 +12,7 @@ from test_v102 import load_db
 
 SECTION_ORDER = [
     ("General", ["enabled", "showAtMax", "questBursts", "exploreBursts", "minimap"]),
+    ("Sound", ["sound", "soundVoice", "soundVolume"]),
     (
         "Look",
         [
@@ -46,7 +47,6 @@ SECTION_ORDER = [
             "glowIntensity",
         ],
     ),
-    ("Sound", ["sound", "soundVoice", "soundVolume"]),
     ("Advanced", ["debug"]),
 ]
 

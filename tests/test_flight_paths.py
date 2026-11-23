@@ -150,10 +150,10 @@ def test_helix_handedness_flips_the_turns(om):
 
 
 def test_path_shape(om):
-    assert tuple(om.PathShape("smooth")) == (1, 1, None, None, 1)
-    assert tuple(om.PathShape("bogus")) == (1, 1, None, None, 1)
-    assert tuple(om.PathShape("chaos")) == (0.6, 1, None, None, 1)
-    assert tuple(om.PathShape("helix")) == (0.10, 2.5, 1.2125, 0.075, 0.5)
+    assert tuple(om.PathShape("smooth")) == (1, 1, None, None)
+    assert tuple(om.PathShape("bogus")) == (1, 1, None, None)
+    assert tuple(om.PathShape("chaos")) == (0.6, 1, None, None)
+    assert tuple(om.PathShape("helix")) == (0.10, 2.0, 0.97, 0.06)
 
 
 def test_helix_depth_size_and_alpha_ranges(om):
@@ -283,8 +283,8 @@ def test_ghosts_trace_the_same_path_a_step_earlier(env, path):
     g.db.flightTime = 1.0
     g.db.flightPath = path
     burst(g, n=1, x=300, y=200, kind="kill", style="stream")
-    # fixed random: dur = 1 s (a helix 1.25 s), so a tick of 0.015 s (0.015 * 1.25) is one GHOST_STEP of progress
-    step = 0.015 * (1.25 if path == "helix" else 1)
+    # fixed random: dur = 1 s (a helix too, 0.97 + 0.06 / 2), so a tick of 0.015 s is one GHOST_STEP of progress
+    step = 0.015
     bodies, ghost1s, ghost2s = [], [], []
     for _ in range(50):
         g.tick(step)
@@ -712,18 +712,73 @@ def test_orbs_rise_into_a_top_bar_instead_of_sliding_in_along_the_edge(env, bar)
     assert len(angles) == 10 and max(angles) < 30, angles
 
 
-def test_helix_pop_ring_is_widened_horizontally(env):
+@pytest.mark.parametrize("path", KINDS)
+def test_direct_pop_ring_is_the_same_size_for_every_path(env, path):
     env.lua.execute(LCG_SOURCE)
     g = make(env, fixed_random=False)
-    for setting, widen in (("off", 1.4), ("wide", 1.6)):
+    for setting, widen in (("off", 1.0), ("wide", 1.6)):  # detected origin: round; unknown: popWiden for all paths
         g.db.unknownOrigin = setting
-        burst(g, n=20, x=900, y=500, ex=900, ey=500, est="default", kind="kill", style="streampop", path="helix")
+        burst(g, n=20, x=900, y=500, ex=900, ey=500, est="default", kind="kill", style="streampop", path=path)
         for o in live_recs_of(g):
             ring = math.hypot((o.ringX - o.px) / widen, o.ringY - o.py)
-            assert 25 * 0.5 - 1e-6 <= ring <= 46 * 0.5 + 1e-6
+            assert 25 - 1e-6 <= ring <= 46 + 1e-6
         g.tick(0.05, 80)
 
 
-def test_helix_flies_twenty_percent_slower(om):
+def test_helix_flies_at_normal_speed(om):
     low, span = tuple(om.PathShape("helix"))[2:4]
-    assert (low, span) == pytest.approx((0.97 * 1.25, 0.06 * 1.25))
+    assert (low, span) == pytest.approx((0.97, 0.06))
+
+
+def stream_stats(g, style, extra_delay):
+    """Control-point offsets, delays (minus the stream delay) and fade-ins of one helix burst's stream orbs."""
+    opts = dict(n=30, x=900, y=500, ex=900, ey=500, est="found", kind="kill", style=style, path="helix")
+    if style == "popstream":
+        opts["plate"] = restricted_plate(g, cx=700, cy=400)
+    burst(g, **opts)
+    recs = live_recs_of(g)
+    assert len(recs) == 30
+    offsets = [(o.control1X - o.x0, o.control1Y - o.y0) for o in recs]
+    mean_x = sum(v[0] for v in offsets) / len(offsets)
+    mean_y = sum(v[1] for v in offsets) / len(offsets)
+    mean_len = sum(math.hypot(*v) for v in offsets) / len(offsets)
+    delays = [o.delay - extra_delay for o in recs]
+    return SimpleNamespace(mean=(mean_x, mean_y), mean_len=mean_len, delays=delays, fade={o.fadeIn for o in recs},
+                           recs=recs)
+
+
+def test_helix_stream_after_a_nameplate_pop_matches_direct_stream(env):
+    env.lua.execute(LCG_SOURCE)
+    g = make(env, fixed_random=False)
+    direct = stream_stats(g, "stream", 0.0)
+    g.tick(0.05, 400)
+    popped = stream_stats(g, "popstream", 0.30)
+    # control-point spread / lift: the defaults (x 0.10 for a helix), not the tight 0.45 / 0.10 of the pop's stream
+    assert popped.mean_len == pytest.approx(direct.mean_len, rel=0.35)
+    assert popped.mean[1] == pytest.approx(direct.mean[1], abs=2.0)
+    assert popped.mean_len > 12  # the tight spread / lift would give about 6
+    # launch stagger: 0.15 x 2, not 0.08 x 2 (the stream delay is on top)
+    assert max(popped.delays) > 0.22 and max(direct.delays) > 0.22
+    assert max(popped.delays) < 0.15 * 2 + 0.03 and max(direct.delays) < 0.15 * 2 + 0.03
+    assert popped.fade == direct.fade == {0.1}
+    # the start line: the same half-width and jitter as the Direct Stream helix
+    for stats in (direct, popped):
+        length = math.hypot(*tuple(g.ns.Target.GetDestination(g.ns.Target))[:2]) or 1
+        dx, dy = tuple(g.ns.Target.GetDestination(g.ns.Target))[:2]
+        length = math.hypot(dx - 900, dy - 500)
+        ax, ay = (dx - 900) / length, (dy - 500) / length
+        for o in stats.recs:
+            across = -(o.x0 - 900) * ay + (o.y0 - 500) * ax
+            along = (o.x0 - 900) * ax + (o.y0 - 500) * ay
+            assert abs(across) <= 8 + 1e-6 and abs(along) <= 2 + 1e-6
+
+
+@pytest.mark.parametrize("path", ["smooth", "chaos"])
+def test_smooth_and_chaos_keep_the_tight_stream_after_a_pop(env, path):
+    env.lua.execute(LCG_SOURCE)
+    g = make(env, fixed_random=False)
+    burst(g, n=30, x=900, y=500, ex=900, ey=500, est="found", kind="kill", style="popstream", path=path,
+          plate=restricted_plate(g, cx=700, cy=400))
+    recs = live_recs_of(g)
+    assert {o.fadeIn for o in recs} == {0.15}
+    assert max(o.delay - 0.30 for o in recs) < 0.08 + 1e-6
