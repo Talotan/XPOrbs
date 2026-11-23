@@ -23,6 +23,10 @@ local PLATE_TOP_Y = 12 -- px from the window's top to the plate's top (the mob's
 local PLATE_W, PLATE_H = 128, 44
 local HEALTH_H = 8
 local MODEL_GAP = 4 -- px between the plate and the model area
+local NAME_SHRINK = 2 -- px off the name's font size
+-- px the name sits below the plate's top: closes the gap to the health bar (which stays where it is) by about 4 px,
+-- plus the line height the smaller font gives back
+local NAME_DROP = 6
 
 -- Stand-ins: Hogger (NPC 448, display id 108956) for the Alliance, Gamon (NPC 6466, display id 5205) for the Horde.
 -- Both display ids are the "displayId" in the model viewer data on each NPC's Wowhead page (wowhead.com/npc=448 and
@@ -30,10 +34,10 @@ local MODEL_GAP = 4 -- px between the plate and the model area
 -- distance scale, vertical position z) is per stand-in, tuned by eye in game; Gamon's values are a first guess (he is
 -- a bigger model than Hogger). facing is the default turn (0.6 rad less 0.087, about 5 degrees clockwise seen from
 -- above). raise is how far the model sits above the middle of the model area, as a fraction of the area's height; z
--- and raise belong together (a z unit is about 0.55 / 0.15 = 3.7 raise-fractions at Hogger's camera), and the stream
--- origin rises with raise so it stays on the same spot of the body.
+-- and raise belong together (a z unit is about 170 UI px at Hogger's camera, measured in game: z 0.45 sat about 94 px
+-- higher than z -0.1), and the stream origin rises with raise so it stays on the same spot of the body.
 local STAND_INS = {
-    Alliance = { npcId = 448, displayId = 108956, name = "Hogger", facing = 0.513, camDistance = 1.15, z = 0.45,
+    Alliance = { npcId = 448, displayId = 108956, name = "Hogger", facing = 0.513, camDistance = 1.15, z = 0.07,
         raise = 0.15 },
     Horde = { npcId = 6466, displayId = 5205, name = "Gamon", facing = 0.513, camDistance = 0.80, z = 0.15,
         raise = 0 },
@@ -240,10 +244,15 @@ local function buildPlate(parent)
             return _G[fontName]
         end)
         if okFont and fontObject and try(name, "SetFontObject", fontObject) then
+            -- Huge is a touch too big: the same face, NAME_SHRINK px smaller (unreadable font data keeps the object's)
+            local okGet, file, size, flags = pcall(fontObject.GetFont, fontObject)
+            if okGet and type(file) == "string" and isNumber(size) and size > NAME_SHRINK then
+                try(name, "SetFont", file, size - NAME_SHRINK, flags)
+            end
             break
         end
     end
-    name:SetPoint("TOP", frame, "TOP", 0, 0)
+    name:SetPoint("TOP", frame, "TOP", 0, -NAME_DROP)
     name:SetText(standIn.name)
     local back = frame:CreateTexture(nil, "BACKGROUND")
     back:SetPoint("BOTTOM", frame, "BOTTOM", 0, 0)

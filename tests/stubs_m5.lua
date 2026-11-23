@@ -79,7 +79,7 @@ end
 
 -- no-op recorders for the cosmetic calls the panel makes
 for _, name in ipairs({
-    "SetJustifyH", "SetWordWrap", "SetHitRectInsets", "SetSpacing", "SetColorTexture", "SetFontObject", "SetOrientation", "SetThumbTexture",
+    "SetJustifyH", "SetWordWrap", "SetHitRectInsets", "SetSpacing", "SetColorTexture", "SetFontObject", "SetFont", "SetOrientation", "SetThumbTexture",
     "SetObeyStepOnDrag",
 }) do
     fm[name] = function(self, ...)

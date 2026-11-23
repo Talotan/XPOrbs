@@ -1290,7 +1290,8 @@ function Orbs:Burst(params)
     -- one zoom read per burst (unreadable -> 1): unknownZoomFactor scales the unknown-origin ellipse (always),
     -- spreadFactor the spawn spread of the pop rings and the stream's start disc (only with Zoom-scaled spread on and
     -- a located kill; 1 = the fixed spread)
-    local unknownZoomFactor = UNKNOWN.factor()
+    -- (params.zoomFactor, a number, replaces the camera read: the test stand-in sits in a fixed window)
+    local unknownZoomFactor = type(params.zoomFactor) == "number" and params.zoomFactor or UNKNOWN.factor()
     local spreadFactor = config.zoomSpread and params.kind ~= "other" and unknownZoomFactor or 1
     if params.plate ~= nil and style == "popstream" then
         local ux, uy = OrbMath.ExitVector(x, y, px, py, dx, dy)
@@ -1670,6 +1671,7 @@ local function fireTest(pct, rested, force, forceMode, path)
         ey = ey,
         est = est,
         estW = estW,
+        zoomFactor = standInPlate and 1 or nil, -- the stand-in's window is fixed: the camera must not size its pop
     })
     if standInPlate then
         pcall(ns.Preview.PlayDeath, ns.Preview) -- the stand-in dies as the orbs leave it

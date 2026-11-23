@@ -636,3 +636,67 @@ def test_a_client_without_ismousebuttondown_still_drags(env):
     m.stub.cursor.x = 1010
     m.stub.tick(0.016)
     assert model.scripts.OnUpdate is not None
+
+
+# ---------------------------------------------------------------- pop size ignores the camera
+
+
+LIVE_RECS = """function(fn)
+    local function up(f, name)
+        local i = 1
+        while true do
+            local n, v = debug.getupvalue(f, i)
+            if not n then return nil end
+            if n == name then return v end
+            i = i + 1
+        end
+    end
+    local drive = up(fn, "drive")
+    local live, n = up(drive, "live"), up(drive, "nLive")
+    local out = {}
+    for i = 1, n do out[i] = live[i] end
+    return out
+end"""
+
+
+def ring_radii(m, zoom, with_window):
+    """Max pop ring radius and spread of the orbs of one seeded Popstream test burst at a stubbed camera zoom."""
+    m.db.style, m.db.popMode, m.db.zoomSpread = "streampop", "nameplate", True
+    if with_window:
+        show(m)
+    m.stub.zoom = zoom
+    m.lua.eval("math.randomseed")(7)
+    m.slash("test 15")
+    recs = list(m.lua.eval(LIVE_RECS)(m.ns.Orbs.driver.scripts.OnUpdate).values())
+    assert recs
+    radii = [((o.ringX - o.px) ** 2 + (o.ringY - o.py) ** 2) ** 0.5 for o in recs]
+    spread = max(o.ringX for o in recs) - min(o.ringX for o in recs)
+    return max(radii), spread
+
+
+def test_the_test_target_pop_is_the_same_size_at_any_camera_zoom(env):
+    m = make(env)
+    near = ring_radii(m, 5, True)
+    assert m.ns.captured["zoomFactor"] == 1  # the stand-in tells Burst not to read the camera
+    m.stub.tick(5)
+    far = ring_radii(m, 40, True)
+    assert near == pytest.approx(far)
+
+
+def test_a_test_without_the_window_still_scales_with_the_camera(env):
+    m = make(env)
+    near = ring_radii(m, 5, False)
+    assert m.ns.captured["zoomFactor"] is None
+    m.stub.tick(5)
+    far = ring_radii(m, 40, False)
+    assert near[0] > far[0]
+
+
+def test_the_name_font_is_two_pixels_smaller_than_the_big_font_object(env):
+    m = make(env)
+    m.G.GameFontNormalHuge = m.lua.eval(
+        "{ GetFont = function() return 'Fonts/FRIZQT__.TTF', 32, 'OUTLINE' end }"
+    )
+    show(m)
+    name = [f for f in m.stub.frames.values() if f.kind == "FontString" and f.text == "Hogger"][0]
+    assert lua_list(name.calls["SetFont"]) == ["Fonts/FRIZQT__.TTF", 30, "OUTLINE"]
