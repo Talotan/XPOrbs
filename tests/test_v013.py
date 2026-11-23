@@ -257,7 +257,7 @@ def test_scroll_frame_exists_with_the_specified_anchors_and_content_height(m):
     assert pts[0][0] == "TOPLEFT" and (pts[0][3], pts[0][4]) == (0, -40)
     assert pts[1][0] == "BOTTOMRIGHT" and (pts[1][3], pts[1][4]) == (-28, 44)
     assert o.child.width == 584 and o.child.height == pytest.approx(
-        1384, abs=2
+        1448, abs=2
     )  # v0.14: 894 + 176; +28 chime checkbox, +28 Sound row, +28 minimap checkbox, +32 Chime volume slider, +46 Stream pop radio; schema 6:
     # 3 styles + 2 Popstream sub-radios + the Wide checkbox and its description (+72)
 
@@ -305,8 +305,8 @@ def test_scroll_frame_without_any_template_still_scrolls(env):
         ("style_crossfade", 996),
         ("style_stream", 1042),
         ("zoomSpread", 1098),
-        ("targetFrame", 1202),
-        ("debug", 1340),
+        ("targetFrame", 1266),
+        ("debug", 1404),
     ],
 )
 def test_row_positions_follow_the_spec(m, key, y):

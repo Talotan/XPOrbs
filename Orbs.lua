@@ -10,7 +10,8 @@ local ADDON, ns = ...
 -- chime and flash. A corpse pop or crossfade shares one pooled "group" (a small frame anchored to the nameplate plus
 -- its textures) between its orbs. Orb record fields: x0/y0 stream start, control1X/Y first control point, px/py
 -- P-hat (the estimated mob position), ux/uy unit vector from P-hat towards the bar, ringX/Y ring point (pop and
--- crossfade copy A), hold seconds spent in that ring before the flight, dur flight time, delay start delay.
+-- crossfade copy A), hold seconds spent in that ring before the flight, dur flight time, delay start delay,
+-- pathKind / pathAmp / pathFreq1-3 / pathPhase1-3 the flight path (db.flightPath at spawn) and its random parameters.
 
 local Orbs = {}
 ns.Orbs = Orbs
@@ -553,14 +554,35 @@ local function drawSpHold(orb, age)
     orb.spark:SetRotation(orb.startRotation + TWO_PI * (orb.elapsed - orb.delay))
 end
 
--- One flying orb at `progress` (0..1) of its flight towards the destination (dx, dy): position on the cubic curve,
--- shrink near the end, fade-in, spark rotation and the two trail ghosts (the same curve a little earlier in time).
+-- The orb's screen position at `progress` (0..1) of its flight, plus the size and alpha multipliers of the path's fake
+-- depth. Smooth is the cubic curve itself (multipliers 1); Chaos and Helix (orb.pathKind, fixed at spawn) move the
+-- point sideways of the straight start-to-destination line and, for Chaos, shift the progress (OrbMath.PathOffset).
+local function flightPoint(orb, progress, dx, dy, control2X, control2Y)
+    local x0, y0 = orb.x0, orb.y0
+    local kind = orb.pathKind
+    if kind ~= "chaos" and kind ~= "helix" then
+        local pathX, pathY = OrbMath.Cubic(OrbMath.PopEase(progress, orb.easeWeight), x0, y0, orb.control1X,
+            orb.control1Y, control2X, control2Y, dx, dy)
+        return pathX, pathY, 1, 1
+    end
+    local sideways, warp, sizeMul, alphaMul = OrbMath.PathOffset(kind, progress, orb.pathAmp, orb.pathFreq1,
+        orb.pathFreq2, orb.pathFreq3, orb.pathPhase1, orb.pathPhase2, orb.pathPhase3)
+    local pathX, pathY = OrbMath.Cubic(OrbMath.PopEase(progress + warp, orb.easeWeight), x0, y0, orb.control1X,
+        orb.control1Y, control2X, control2Y, dx, dy)
+    local lineX, lineY = dx - x0, dy - y0
+    local lineLength = sqrt(lineX * lineX + lineY * lineY)
+    if lineLength > 1e-6 then
+        pathX = pathX - lineY / lineLength * sideways
+        pathY = pathY + lineX / lineLength * sideways
+    end
+    return pathX, pathY, sizeMul, alphaMul
+end
+
+-- One flying orb at `progress` (0..1) of its flight towards the destination (dx, dy): position on its flight path,
+-- shrink near the end, fade-in, spark rotation and the two trail ghosts (the same path a little earlier in time).
 local function drawOrb(orb, progress, dx, dy)
-    local x0, y0, control1X, control1Y = orb.x0, orb.y0, orb.control1X, orb.control1Y
-    local control2X, control2Y = OrbMath.HomeControl(control1X, control1Y, dx, dy, orb.flightDist)
-    local easeWeight = orb.easeWeight
-    local orbX, orbY = OrbMath.Cubic(OrbMath.PopEase(progress, easeWeight), x0, y0, control1X, control1Y,
-        control2X, control2Y, dx, dy)
+    local control2X, control2Y = OrbMath.HomeControl(orb.control1X, orb.control1Y, dx, dy, orb.flightDist)
+    local orbX, orbY, sizeMul, alphaMul = flightPoint(orb, progress, dx, dy, control2X, control2Y)
     local size = orb.size
     if progress > SHRINK_FROM then
         size = size * (1 - 0.4 * (progress - SHRINK_FROM) / (1 - SHRINK_FROM))
@@ -568,9 +590,9 @@ local function drawOrb(orb, progress, dx, dy)
     local fadeIn = orb.fadeIn
     local alpha = progress < fadeIn and progress / fadeIn or 1
     local group = orb.group
-    place(orb.under, orbX, orbY, size * GLOW * UNDER_SIZE, alpha * UNDER_ALPHA)
-    place(orb.body, orbX, orbY, size * GLOW, alpha)
-    place(orb.spark, orbX, orbY, size * SPARKLE, alpha * SPARKLE_ALPHA)
+    place(orb.under, orbX, orbY, size * sizeMul * GLOW * UNDER_SIZE, alpha * alphaMul * UNDER_ALPHA)
+    place(orb.body, orbX, orbY, size * sizeMul * GLOW, alpha * alphaMul)
+    place(orb.spark, orbX, orbY, size * sizeMul * SPARKLE, alpha * alphaMul * SPARKLE_ALPHA)
     orb.spark:SetRotation(orb.startRotation + TWO_PI * (orb.elapsed - orb.delay))
     if orb.ghost1 then
         local ghostProgress = progress - GHOST_STEP
@@ -578,23 +600,25 @@ local function drawOrb(orb, progress, dx, dy)
             -- crossfade B fading in: the ghosts sit behind it along -u, so it arrives "from" the implied path
             local profile = orb.profile
             place(orb.ghost1, orbX - orb.ux * profile.ghost1Gap, orbY - orb.uy * profile.ghost1Gap,
-                size * GLOW * GHOST1_SIZE, alpha * GHOST1_ALPHA)
+                size * sizeMul * GLOW * GHOST1_SIZE, alpha * alphaMul * GHOST1_ALPHA)
             place(orb.ghost2, orbX - orb.ux * profile.ghost2Gap, orbY - orb.uy * profile.ghost2Gap,
-                size * GLOW * GHOST2_SIZE, alpha * GHOST2_ALPHA)
+                size * sizeMul * GLOW * GHOST2_SIZE, alpha * alphaMul * GHOST2_ALPHA)
             return
         end
         if ghostProgress > 0 then
-            local ghostX, ghostY = OrbMath.Cubic(OrbMath.PopEase(ghostProgress, easeWeight), x0, y0, control1X,
-                control1Y, control2X, control2Y, dx, dy)
-            place(orb.ghost1, ghostX, ghostY, size * GLOW * GHOST1_SIZE, alpha * GHOST1_ALPHA)
+            local ghostX, ghostY, ghostSizeMul, ghostAlphaMul = flightPoint(orb, ghostProgress, dx, dy, control2X,
+                control2Y)
+            place(orb.ghost1, ghostX, ghostY, size * ghostSizeMul * GLOW * GHOST1_SIZE,
+                alpha * ghostAlphaMul * GHOST1_ALPHA)
         else
             hideTex(orb.ghost1)
         end
         ghostProgress = progress - 2 * GHOST_STEP
         if ghostProgress > 0 then
-            local ghostX, ghostY = OrbMath.Cubic(OrbMath.PopEase(ghostProgress, easeWeight), x0, y0, control1X,
-                control1Y, control2X, control2Y, dx, dy)
-            place(orb.ghost2, ghostX, ghostY, size * GLOW * GHOST2_SIZE, alpha * GHOST2_ALPHA)
+            local ghostX, ghostY, ghostSizeMul, ghostAlphaMul = flightPoint(orb, ghostProgress, dx, dy, control2X,
+                control2Y)
+            place(orb.ghost2, ghostX, ghostY, size * ghostSizeMul * GLOW * GHOST2_SIZE,
+                alpha * ghostAlphaMul * GHOST2_ALPHA)
         else
             hideTex(orb.ghost2)
         end
@@ -1237,6 +1261,9 @@ function Orbs:Burst(params)
                 local ringAngle, radius = random() * TWO_PI, START_RADIUS * spreadFactor * sqrt(random())
                 orb.x0, orb.y0 = x + cos(ringAngle) * radius, y + sin(ringAngle) * radius
             end
+            -- the flight path is fixed now, so changing the setting mid-flight never bends an orb already in the air
+            orb.pathKind = OrbMath.PathKind(params.path or config.flightPath)
+            local controlScale, staggerScale = OrbMath.PathShape(orb.pathKind)
             -- (Popstream (Direct) picked its shared ring centre in plan; unknownLevel is 0 for crossfade)
             placeUnknown(orb, isStreamPop and 0 or unknownLevel, x, y, unknownZoomFactor)
             if isStreamPop then
@@ -1249,7 +1276,7 @@ function Orbs:Burst(params)
                 else
                     vx, vy = 0, 1
                 end
-                local reach = (45 + random() * 55) * POP_STREAM_SPREAD * 2.2
+                local reach = (45 + random() * 55) * POP_STREAM_SPREAD * 2.2 * controlScale
                 orb.control1X = orb.x0 + (cos(ringAngle) * blend + vx * (1 - blend)) * reach
                 orb.control1Y = orb.y0 + (sin(ringAngle) * blend + vy * (1 - blend)) * reach
             elseif orb.group then
@@ -1257,14 +1284,24 @@ function Orbs:Burst(params)
                 local ddx, ddy = dx - orb.x0, dy - orb.y0
                 local barDist = sqrt(ddx * ddx + ddy * ddy)
                 local sideways = (random() * 2 - 1) * profile.ctrlJitter * barDist
+                sideways = sideways * controlScale
                 orb.control1X = orb.x0 + orb.ux * profile.ctrlAhead * barDist - orb.uy * sideways
                 orb.control1Y = orb.y0 + orb.uy * profile.ctrlAhead * barDist + orb.ux * sideways
             else
-                orb.control1X, orb.control1Y = OrbMath.PopControl(i, n, orb.x0, orb.y0, random, spread, lift)
+                -- (a helix shrinks the control point's spread so its strands share one spine)
+                local pathSpread = controlScale ~= 1 and (spread or 1) * controlScale or spread
+                orb.control1X, orb.control1Y = OrbMath.PopControl(i, n, orb.x0, orb.y0, random, pathSpread, lift)
             end
             local ddx, ddy = dx - orb.x0, dy - orb.y0
             orb.flightDist = sqrt(ddx * ddx + ddy * ddy)
-            orb.delay = random() * stagger + (rested and not isStreamPop and RESTED_DELAY or 0) + extraDelay
+            orb.pathAmp, orb.pathFreq1, orb.pathFreq2, orb.pathFreq3, orb.pathPhase1, orb.pathPhase2,
+                orb.pathPhase3 = OrbMath.PathParams(orb.pathKind, i, orb.flightDist, random)
+            local launchOrder = random()
+            if staggerScale ~= 1 then
+                launchOrder = (i - 1 + launchOrder * 0.5) / n -- a helix launches in order, so orbs follow each other
+            end
+            orb.delay = launchOrder * stagger * staggerScale + (rested and not isStreamPop and RESTED_DELAY or 0)
+                + extraDelay
             local jitterLow, jitterSpan = 0.85, 0.3
             if (orb.group or isStreamPop) and profile.jitterLow then
                 jitterLow, jitterSpan = profile.jitterLow, profile.jitterSpan
@@ -1413,7 +1450,7 @@ local function testOrigin(style, ex, ey)
 end
 
 -- Fires one test burst of pct % of a level. Returns the numbers the /xporbs test report prints.
-local function fireTest(pct, rested, force, forceMode)
+local function fireTest(pct, rested, force, forceMode, path)
     local config = settings()
     local okXpMax, xpMax = pcall(UnitXPMax, "player")
     if not okXpMax or not isNumber(xpMax) or xpMax <= 0 then
@@ -1444,6 +1481,7 @@ local function fireTest(pct, rested, force, forceMode)
         kind = "test",
         style = force,
         popMode = forceMode,
+        path = path,
         ex = ex,
         ey = ey,
         est = est,
@@ -1494,9 +1532,10 @@ end
 -- what /xporbs test prints as style= for each Burst result
 local TEST_USED = { ["pop+stream"] = "popstream/nameplate", streampop = "popstream/direct" }
 
--- /xporbs test [pct] [rested] [popstream|crossfade|stream] [nameplate|direct]  (any style alias works: streampop =
--- Popstream (Direct), wide / mob = Popstream (Nameplate); nameplate / direct alone mean Popstream with that pop; the
--- old "frame" / "plate" words are ignored)
+-- /xporbs test [pct] [rested] [popstream|crossfade|stream] [nameplate|direct] [smooth|chaos|helix]
+-- (any style alias works: streampop = Popstream (Direct), wide / mob = Popstream (Nameplate); nameplate / direct alone
+-- mean Popstream with that pop; smooth / chaos / helix override the flight path for that burst; the old "frame" /
+-- "plate" words are ignored)
 -- /xporbs test stress [n]
 function ns.commands.test(arg)
     local first, count = string.match(arg or "", "^%s*(%S+)%s*(%S*)")
@@ -1505,12 +1544,14 @@ function ns.commands.test(arg)
         return
     end
     local config = settings()
-    local pct, rested, force, forceMode = 5, false, nil, nil
+    local pct, rested, force, forceMode, path = 5, false, nil, nil, nil
     for tok in string.gmatch(arg or "", "%S+") do
         if tok == "rested" then
             rested = true
         elseif ns.STYLE_ALIAS[tok] then
             force = tok
+        elseif ns.PATH_LABEL[tok] then
+            path = tok
         elseif tok == "nameplate" or tok == "direct" then
             force, forceMode = force or "popstream", tok
         elseif tok ~= "frame" and tok ~= "plate" then
@@ -1521,14 +1562,15 @@ function ns.commands.test(arg)
         end
     end
     Orbs.lastUnknown = nil
-    local n, scale, nPurple, est, estW, mode, label = fireTest(pct, rested, force, forceMode)
+    local n, scale, nPurple, est, estW, mode, label = fireTest(pct, rested, force, forceMode, path)
     local used = TEST_USED[mode] or mode
     if mode == "crossfade" then
         label = "estimated"
     end
     ns.Print(string.format("test: %g%% of a level -> %d orbs (%d purple), scale %.2f, est=%s w=%.2f pop=%s stream=%s"
         .. " style=%s", pct, n, nPurple, scale, est or "none", estW or 0, mode == "pop+stream" and "yes" or "no",
-        label, used) .. (Orbs.lastUnknown and " unknown=" .. Orbs.lastUnknown or ""))
+        label, used) .. (Orbs.lastUnknown and " unknown=" .. Orbs.lastUnknown or "")
+        .. (path and " path=" .. path or ""))
 end
 
 -- /xporbs perf [reset]: addon memory, driver frame time, pool usage.
@@ -1635,6 +1677,20 @@ function ns.commands.style(arg)
         refreshPanel()
     end
     ns.Print("kill style: " .. ns.StyleLabel(settings()))
+end
+
+-- /xporbs path smooth|chaos|helix: how orbs fly (db.flightPath). No argument shows the current one.
+function ns.commands.path(arg)
+    local word = string.match(arg or "", "^%s*(%S*)")
+    if word ~= "" then
+        if not ns.PATH_LABEL[word] then
+            ns.Print("path: use smooth, chaos or helix")
+            return
+        end
+        settings().flightPath = word
+        refreshPanel()
+    end
+    ns.Print("flight path: " .. (ns.PATH_LABEL[settings().flightPath] or "Smooth"))
 end
 
 local function spreadState()

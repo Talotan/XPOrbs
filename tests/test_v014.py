@@ -393,14 +393,14 @@ def test_picker_hint_fontstring(m):
     )
     assert [h.textColor[i] for i in (1, 2, 3)] == pytest.approx([0.7, 0.7, 0.7])
     assert h.width == 520 and h.calls["SetWordWrap"][1] is True
-    assert (h.points[1][4], h.points[1][5]) == (32, -1272)
+    assert (h.points[1][4], h.points[1][5]) == (32, -1336)
     assert h.text in panel_texts(m)
 
 
 def test_content_height_grew_and_rows_below_moved(m):
-    assert m.opt.CONTENT_H == 1384 and m.opt.child.height == 1384
-    assert m.opt.rows["debug"].points[1][5] == -1340
-    assert 1340 + 28 + 16 == m.opt.CONTENT_H
+    assert m.opt.CONTENT_H == 1448 and m.opt.child.height == 1448
+    assert m.opt.rows["debug"].points[1][5] == -1404
+    assert 1404 + 28 + 16 == m.opt.CONTENT_H
     # the blocks above stack without overlap
     assert 678 + 16 <= 700 and 1106 + 30 <= 1140 and 1140 + 28 <= 1182
 

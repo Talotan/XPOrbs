@@ -33,6 +33,7 @@ ns.defaults = {
     style = "popstream", -- kill style (schema 6): "popstream", "crossfade" or "stream" (Direct Stream)
     -- Popstream's sub-choice: "nameplate" (pop on the nameplate) or "direct" (pop at the estimate)
     popMode = "nameplate",
+    flightPath = "smooth", -- how orbs fly: "smooth" (the plain curve), "chaos" (erratic) or "helix" (spiralling)
     glow = true, -- arrival flash on/off
     -- "bar" (horizontal flash on the fill edge), "vertical" (the same flash upright, filling bottom to top) or "round"
     -- (circular glow at the frame centre)
@@ -105,6 +106,8 @@ local STYLE_ALIAS = {
 ns.STYLE_ALIAS = STYLE_ALIAS
 ns.STYLE_LABEL = { popstream = "Popstream", crossfade = "Crossfade", stream = "Direct Stream" }
 ns.POPMODE_LABEL = { nameplate = "Nameplate", direct = "Direct" }
+ns.PATH_ORDER = { "smooth", "chaos", "helix" }
+ns.PATH_LABEL = { smooth = "Smooth", chaos = "Chaos", helix = "Helix" } -- the valid db.flightPath values
 
 -- The renderer's own style for a style name (any alias) and a popMode: "popstream" (pop on the nameplate),
 -- "streampop" (pop at the estimate, screen space), "crossfade" or "stream". Unknown names give the default.
@@ -262,6 +265,9 @@ local function sanitize(db)
     if db.popMode ~= "nameplate" and db.popMode ~= "direct" then
         db.popMode = defaults.popMode
     end
+    if not ns.PATH_LABEL[db.flightPath] then
+        db.flightPath = defaults.flightPath
+    end
     if db.unknownOrigin ~= "off" and db.unknownOrigin ~= "wide" then -- also maps the dropped "late"/"inplace"
         db.unknownOrigin = defaults.unknownOrigin
     end
@@ -387,7 +393,7 @@ function commands.help()
     say("/xporbs debug maxlevel on|off - pretend to be at max level (this session only)")
     say("/xporbs sound on|off|coin|glass - chime when orbs arrive (coin or glass picks the sound)")
     say("/xporbs status - show addon state")
-    say("/xporbs test [pct] [rested] [style] - fire a test burst on your target")
+    say("/xporbs test [pct] [rested] [style] [smooth|chaos|helix] - fire a test burst on your target")
     say("/xporbs test stress [n] - fire n test bursts over about 2 seconds (default 20, max 100)")
     say("/xporbs perf [reset] - addon memory, driver frame time and pool usage")
     say("/xporbs style popstream [nameplate|direct] | crossfade | stream - kill style:")
@@ -397,6 +403,7 @@ function commands.help()
     say("  Crossfade: a pop on the nameplate, the orbs reappear just above the bar (nameplate; estimate sets the "
         .. "direction)")
     say("  stream = Direct Stream: a plain stream from the estimated mob position (no pop, no nameplate)")
+    say("/xporbs path smooth|chaos|helix - how orbs fly: a clean arc, an erratic wobble or a spiral (no arg: show)")
     say("/xporbs wide on|off - zoom-scaled spread: pops and stream starts spread wider when zoomed in, tighter "
         .. "zoomed out (on by default)")
     say("/xporbs unknown wide|off - where orbs start when the mob's position is unknown")

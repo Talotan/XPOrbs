@@ -976,7 +976,38 @@ local function build()
         end
     end
 
-    y = header("XP bar", y + 28 + 50)
+    -- Flight path (db.flightPath, /xporbs path): applies to every style, so it never dims
+    y = y + 76
+    local pathRow = newRow(y, 24)
+    Options.rows.flightPath = pathRow
+    label(pathRow, "Flight path", LABEL_X)
+    local pathBtns = {}
+    local pathX = { 0, 140, 230 } -- px right of CTRL_X for each radio (the first label is the long one)
+    local function pathName(kind) -- "Smooth (default)", "Chaos", "Helix"
+        return ns.PATH_LABEL[kind] .. (kind == ns.defaults.flightPath and " (default)" or "")
+    end
+    for i, kind in ipairs(ns.PATH_ORDER) do
+        local radio = newRadio(pathRow, CTRL_X + pathX[i], pathName(kind))
+        radio:SetScript("OnClick", function()
+            radioClick("flightPath", kind)
+        end)
+        pathBtns[i] = radio
+        Options.controls["flightPath_" .. kind] = radio
+    end
+    refreshers[#refreshers + 1] = function()
+        for i, kind in ipairs(ns.PATH_ORDER) do
+            pathBtns[i]:SetChecked(settings().flightPath == kind)
+        end
+    end
+    addReset(pathRow, "flightPath", { "flightPath" }, function()
+        return pathName(ns.defaults.flightPath)
+    end)
+    local pathDescText = text(child, "GameFontHighlight",
+        "How orbs fly to the bar: Smooth is a clean arc, Chaos wobbles, Helix spirals.", LABEL_X, -(y + 28), 490)
+    pathDescText:SetTextColor(GREY, GREY, GREY)
+    Options.descs.flightPath = pathDescText
+
+    y = header("XP bar", y + 66)
     local destRow = newRow(y, 36)
     Options.rows.targetFrame = destRow
     label(destRow, "XP bar frame", LABEL_X)

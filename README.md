@@ -58,11 +58,12 @@ close it); right-click either one to turn the orbs on or off.
 | `/xporbs help` | List the commands. |
 | `/xporbs options` | Open the options panel. |
 | `/xporbs status` | Print the version, the settings that matter, and the state of each part of the addon. |
-| `/xporbs test [pct] [rested] [popstream\|crossfade\|stream] [nameplate\|direct]` | Fire a test burst. `pct` is the percent of a level it represents (default 5, up to 1000). `rested` colours part of it as rested. A style name overrides the saved style for this burst, and `nameplate` or `direct` picks Popstream's pop. |
+| `/xporbs test [pct] [rested] [popstream\|crossfade\|stream] [nameplate\|direct] [smooth\|chaos\|helix]` | Fire a test burst. `pct` is the percent of a level it represents (default 5, up to 1000). `rested` colours part of it as rested. A style name overrides the saved style for this burst, `nameplate` or `direct` picks Popstream's pop, and `smooth`, `chaos` or `helix` overrides the flight path. |
 | `/xporbs test stress [n]` | Fire `n` test bursts (default 20, up to 100) spread over about 2 seconds, to see how a big pull looks and runs. |
 | `/xporbs perf [reset]` | Print the addon's memory use, the average and worst time of an orb frame, and how much of the orb pool is in use. `reset` zeroes the frame timings. |
 | `/xporbs style popstream [nameplate\|direct]` | Set the kill style to Popstream, optionally with its pop on the nameplate or direct. With no argument, print the current style. |
 | `/xporbs style crossfade\|stream` | Set the kill style to Crossfade or Direct Stream (`stream`). The older names still work: `streampop` is Popstream (Direct), and `wide` is Popstream (Nameplate) with zoom-scaled spread on. |
+| `/xporbs path smooth\|chaos\|helix` | Set how orbs fly: `smooth` (the default), `chaos` or `helix`. With no argument, print the current path. |
 | `/xporbs wide on\|off` | Turn the zoom-scaled spread on or off (on by default). |
 | `/xporbs unknown wide\|off` | Where orbs start when the mob's position is unknown: `wide` (the default) spreads them over an area that scales with camera zoom, `off` starts them at one point. |
 | `/xporbs pop on\|off` | Shortcut: `on` sets Popstream, `off` sets Direct Stream. |
@@ -171,6 +172,17 @@ whether the pop needs the mob's nameplate.
   way short of the bar and fly the last stretch; most of the trip is implied rather than drawn. The pop needs the
   nameplate; the estimated position sets the direction the orbs leave in. Without a nameplate it is a plain stream.
 - **Direct Stream** (`stream`): no pop, just the stream from the estimated position. Never uses the nameplate.
+
+**Flight path** (Options, or `/xporbs path`): how the orbs fly to the bar, for every style. The pops and the arrival
+glow don't change.
+
+- **Smooth** (default): a clean curved arc.
+- **Chaos**: each orb wobbles side to side and speeds up and slows down a little as it goes, so the stream looks
+  erratic. Every orb still takes off and lands exactly where a Smooth one would.
+- **Helix**: the orbs spiral around the arc in a double helix, swelling and brightening as they swing to the front and
+  shrinking as they pass behind. The spiral opens quickly and closes as the orbs land.
+
+The trail follows the same path.
 
 **Zoom-scaled spread** (on by default): the pops and the stream's start spread wider when you zoom the camera in and
 tighter when you zoom out, because the mob looks bigger or smaller on screen. At the default zoom nothing changes. It

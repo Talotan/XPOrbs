@@ -126,6 +126,86 @@ function OrbMath.Cubic(t, x0, y0, x1, y1, x2, y2, x3, y3)
     return w0 * x0 + w1 * x1 + w2 * x2 + w3 * x3, w0 * y0 + w1 * y1 + w2 * y2 + w3 * y3
 end
 
+-- Flight paths (db.flightPath): "smooth" is the plain curve above; "chaos" and "helix" displace the orb from it. Each
+-- path is an offset applied at progress t (0..1): `perp` px sideways (perpendicular to the straight line from the
+-- start to the destination), `warp` added to t before the curve is evaluated, and a size / alpha multiplier (the
+-- helix's fake depth). Every offset is 0 at t = 0 and t = 1, so a flight starts and lands exactly where Smooth does.
+local FLIGHT_PATHS = { smooth = true, chaos = true, helix = true }
+local CHAOS_WARP = 0.06 -- largest progress warp of the chaos path (shrunk for a high frequency, see PathOffset)
+local CHAOS_SECOND = 0.7 -- weight of the chaos wobble's second sine
+local HELIX_SIZE_SWING = 0.30 -- the helix's depth swing: size +-30 %, alpha down to 60 % (both are 1 at the ends)
+local HELIX_ALPHA_SWING = 0.20
+local TWO_PI = math.pi * 2
+
+-- The path name to use: kind when it is one of "smooth", "chaos", "helix", else "smooth".
+function OrbMath.PathKind(kind)
+    return FLIGHT_PATHS[kind] and kind or "smooth"
+end
+
+-- How a path reshapes the burst around it: returns controlScale, staggerScale. Helix orbs share one spine (the
+-- per-orb sideways jitter of the base curve's control point is scaled by controlScale, 0.25) and launch over twice
+-- the usual stagger, so the strands line up and the orbs follow each other along them. Others are 1, 1.
+function OrbMath.PathShape(kind)
+    if kind == "helix" then
+        return 0.25, 2
+    end
+    return 1, 1
+end
+
+local function smoothstep(edgeLow, edgeHigh, v)
+    local t = clamp((v - edgeLow) / (edgeHigh - edgeLow), 0, 1)
+    return t * t * (3 - 2 * t)
+end
+
+-- Per-orb random parameters of a path, drawn once at spawn. index is the orb's number in its burst, distance the
+-- start-to-destination length in px, rand() a random source in [0, 1).
+-- Returns amp, freq1, freq2, freq3, phase1, phase2, phase3 (all 0 for Smooth, which draws nothing from rand).
+--   chaos: amp = clamp(0.16 * distance, 24, 90) * (0.7..1.3) px, with a random sign (so orbs dart either way first);
+--          freq1 1.6..3.0 and freq2 3.5..6.0 (the two wobble sines), freq3 1.0..2.0 (the progress warp); a random
+--          phase each.
+--   helix: amp = the radius clamp(0.10 * distance, 18, 48) px; freq1 = the turns clamp(distance / 200, 2, 3.5);
+--          phase1 = (index mod 3) * 2 pi / 3 (a triple helix) +- 0.15 rad; the rest are 0.
+function OrbMath.PathParams(kind, index, distance, rand)
+    if kind == "chaos" then
+        local amp = clamp(0.16 * distance, 24, 90) * (0.7 + 0.6 * rand()) * (rand() < 0.5 and -1 or 1)
+        local freq1, freq2, freq3 = 1.6 + 1.4 * rand(), 3.5 + 2.5 * rand(), 1 + rand()
+        return amp, freq1, freq2, freq3, TWO_PI * rand(), TWO_PI * rand(), TWO_PI * rand()
+    elseif kind == "helix" then
+        local turns = clamp(distance / 200, 2, 3.5)
+        local phase = (index % 3) * TWO_PI / 3 + (rand() * 2 - 1) * 0.15
+        return clamp(0.10 * distance, 18, 48), turns, 0, 0, phase, 0, 0
+    end
+    return 0, 0, 0, 0, 0, 0, 0
+end
+
+-- The offset of a path at progress t (clamped to 0..1) for the parameters PathParams drew: returns perp, warp,
+-- sizeMul, alphaMul. Smooth (or any unknown kind) is 0, 0, 1, 1.
+--   chaos: perp = amp * env * (sin(2 pi freq1 t + phase1) + 0.7 sin(2 pi freq2 t + phase2)) / 1.7 and
+--          warp = w * env * sin(2 pi freq3 t + phase3), env = sin(pi t). w is 0.06, shrunk where needed so that
+--          t + warp keeps a positive slope (the orb never moves backwards along the curve); size and alpha stay 1.
+--   helix: perp = amp * env * sin(2 pi freq1 t + phase1), env = smoothstep up over the first 15 % and down over the
+--          last 15 %; the fake depth d = env * cos(2 pi freq1 t + phase1) scales size by 1 + 0.30 d and alpha by
+--          1 - 0.20 (env - d), which is 0.80 + 0.20 cos mid-flight (the orb is largest and brightest "in front")
+--          and 1 at both ends; no warp.
+function OrbMath.PathOffset(kind, t, amp, freq1, freq2, freq3, phase1, phase2, phase3)
+    if kind == "chaos" then
+        t = clamp(t, 0, 1)
+        local env = math.sin(math.pi * t)
+        local wobble = (math.sin(TWO_PI * freq1 * t + phase1) + CHAOS_SECOND * math.sin(TWO_PI * freq2 * t + phase2))
+            / (1 + CHAOS_SECOND)
+        -- slope of env * sin(...) is at most pi + 2 pi freq3, so this keeps 1 + warp' above 0.1
+        local warpAmp = min(CHAOS_WARP, 0.9 / (math.pi + TWO_PI * math.abs(freq3)))
+        return amp * env * wobble, warpAmp * env * math.sin(TWO_PI * freq3 * t + phase3), 1, 1
+    elseif kind == "helix" then
+        t = clamp(t, 0, 1)
+        local env = smoothstep(0, 0.15, t) * smoothstep(1, 0.85, t)
+        local angle = TWO_PI * freq1 * t + phase1
+        local depth = math.cos(angle) * env
+        return amp * env * math.sin(angle), 0, 1 + HELIX_SIZE_SWING * depth, 1 - HELIX_ALPHA_SWING * (env - depth)
+    end
+    return 0, 0, 1, 1
+end
+
 -- Screen-space point (frame effective scale) -> UIParent space.
 function OrbMath.ToUIParent(x, y, frameScale, parentScale)
     local ratio = frameScale / parentScale
