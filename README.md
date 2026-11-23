@@ -177,10 +177,11 @@ whether the pop needs the mob's nameplate.
 glow don't change.
 
 - **Smooth** (default): a clean curved arc.
-- **Chaos**: each orb wobbles side to side and speeds up and slows down a little as it goes, so the stream looks
-  erratic. Every orb still takes off and lands exactly where a Smooth one would.
-- **Helix**: the orbs spiral around the arc in a double helix, swelling and brightening as they swing to the front and
-  shrinking as they pass behind. The spiral opens quickly and closes as the orbs land.
+- **Chaos**: the orbs dart about like fireflies, swerving side to side and surging and easing along the way. Every
+  orb still takes off and lands exactly where a Smooth one would.
+- **Helix**: the orbs spiral around one shared arc in a double helix (turning left or right at random), swelling and
+  brightening as they swing to the front and shrinking as they pass behind. The spiral opens quickly and closes as the
+  orbs land.
 
 The trail follows the same path.
 

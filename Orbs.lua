@@ -159,7 +159,7 @@ end
 -- orb's own unknown-origin ellipse point), ringAngle, ringX/ringY (ring point), holds (launch hold seconds), dist
 -- and idx (launch order) are per-burst scratch arrays (see plan).
 local SP_PROFILE = { born = 0.03, bloom = 0.16, bsize = 1.5, fadeIn = 0.05, rmin = 18, rmax = 30, launch0 = 0.16,
-    launchSpan = 0.20, jitterLow = 0.94, jitterSpan = 0.12, driftUp = 15, driftOut = 8, ctrlBlend = 0.6,
+    launchSpan = 0.20, ranks = {}, jitterLow = 0.94, jitterSpan = 0.12, driftUp = 15, driftOut = 8, ctrlBlend = 0.6,
     centreX = {}, centreY = {}, ringAngle = {}, ringX = {}, ringY = {}, holds = {}, dist = {}, idx = {} }
 XF_PROFILE.sp = SP_PROFILE -- reached through XF_PROFILE from Burst, which cannot take another upvalue
 
@@ -175,8 +175,9 @@ end
 
 -- Per-burst plan of n orbs around (x, y): the ring centre (unknownLevel > 0: one random point of the zoom-scaled
 -- unknown-origin ellipse, scale zoomFactor, shared by every orb), ring points (radius x spreadFactor, the zoom-scaled
--- spread) and launch holds ordered by distance from the ring point to (dx, dy).
-function SP_PROFILE.plan(n, x, y, dx, dy, unknownLevel, zoomFactor, spreadFactor)
+-- spread, times ringScale: a helix packs its ring tighter) and launch holds ordered by distance from the ring point to
+-- (dx, dy); ranks[i] is orb i's place in that launch order.
+function SP_PROFILE.plan(n, x, y, dx, dy, unknownLevel, zoomFactor, spreadFactor, ringScale)
     local profile = SP_PROFILE
     local dist, idx = profile.dist, profile.idx
     for i = #idx, n + 1, -1 do -- table.sort sorts #idx slots: drop what a larger earlier burst left behind
@@ -190,7 +191,7 @@ function SP_PROFILE.plan(n, x, y, dx, dy, unknownLevel, zoomFactor, spreadFactor
     end
     for i = 1, n do
         local ringAngle = OrbMath.RingAngle(i, n, random)
-        local ringRadius = (profile.rmin + random() * (profile.rmax - profile.rmin)) * spreadFactor
+        local ringRadius = (profile.rmin + random() * (profile.rmax - profile.rmin)) * spreadFactor * ringScale
         local ringX, ringY = centreX + cos(ringAngle) * ringRadius, centreY + sin(ringAngle) * ringRadius
         profile.centreX[i], profile.centreY[i], profile.ringAngle[i] = centreX, centreY, ringAngle
         profile.ringX[i], profile.ringY[i] = ringX, ringY
@@ -200,6 +201,7 @@ function SP_PROFILE.plan(n, x, y, dx, dy, unknownLevel, zoomFactor, spreadFactor
     local span = max(n - 1, 1)
     for rank = 0, n - 1 do
         profile.holds[idx[rank + 1]] = profile.launch0 + profile.launchSpan * rank / span
+        profile.ranks[idx[rank + 1]] = rank + 1
     end
 end
 
@@ -1202,10 +1204,17 @@ function Orbs:Burst(params)
     end
     local fadeIn = popped and FADE_IN_POP or FADE_IN
     local flightScale = crossfadeGroup and profile.flight or 1 -- crossfade copy B flies faster than the normal stream
+    -- the flight path is the same for the whole burst (changing the setting mid-flight never bends an orb in the air)
+    local burstPath = OrbMath.PathKind(params.path or config.flightPath)
+    local ringScale = select(5, OrbMath.PathShape(burstPath))
+    local spiralSign = 1 -- a helix turns one way or the other, chosen once per burst
+    if burstPath == "helix" and random() < 0.5 then
+        spiralSign = -1
+    end
     if crossfadeGroup then
         XF_PROFILE.plan(px, py, dx, dy)
     elseif isStreamPop then
-        profile.plan(n, x, y, dx, dy, unknownLevel, unknownZoomFactor, spreadFactor)
+        profile.plan(n, x, y, dx, dy, unknownLevel, unknownZoomFactor, spreadFactor, ringScale)
     end
     local crossfadeCount = 0 -- orbs that got a plate-space copy A (each takes 3 texture slots on crossfadeGroup)
     local building, buildingLive = nil, false -- the orb being built, and whether it is in `live` yet
@@ -1222,6 +1231,7 @@ function Orbs:Burst(params)
             local red, green, blue = colour[1], colour[2], colour[3]
             local orb = newRec()
             building, buildingLive = orb, false
+            local controlScale, staggerScale, pathJitterLow, pathJitterSpan = OrbMath.PathShape(burstPath)
             orb.group, orb.hold, orb.easeWeight, orb.profile = nil, 0, nil, nil
             orb.driftVx, orb.driftVy = 0, 0
             if crossfadeGroup then
@@ -1261,9 +1271,6 @@ function Orbs:Burst(params)
                 local ringAngle, radius = random() * TWO_PI, START_RADIUS * spreadFactor * sqrt(random())
                 orb.x0, orb.y0 = x + cos(ringAngle) * radius, y + sin(ringAngle) * radius
             end
-            -- the flight path is fixed now, so changing the setting mid-flight never bends an orb already in the air
-            orb.pathKind = OrbMath.PathKind(params.path or config.flightPath)
-            local controlScale, staggerScale = OrbMath.PathShape(orb.pathKind)
             -- (Popstream (Direct) picked its shared ring centre in plan; unknownLevel is 0 for crossfade)
             placeUnknown(orb, isStreamPop and 0 or unknownLevel, x, y, unknownZoomFactor)
             if isStreamPop then
@@ -1294,17 +1301,23 @@ function Orbs:Burst(params)
             end
             local ddx, ddy = dx - orb.x0, dy - orb.y0
             orb.flightDist = sqrt(ddx * ddx + ddy * ddy)
+            orb.pathKind = burstPath
             orb.pathAmp, orb.pathFreq1, orb.pathFreq2, orb.pathFreq3, orb.pathPhase1, orb.pathPhase2,
-                orb.pathPhase3 = OrbMath.PathParams(orb.pathKind, i, orb.flightDist, random)
+                orb.pathPhase3 = OrbMath.PathParams(burstPath, isStreamPop and profile.ranks[i] or i, orb.flightDist,
+                    random, spiralSign)
             local launchOrder = random()
             if staggerScale ~= 1 then
-                launchOrder = (i - 1 + launchOrder * 0.5) / n -- a helix launches in order, so orbs follow each other
+                -- a helix launches in pairs, in order, so the orbs follow each other along the two strands
+                launchOrder = (floor((i - 1) / 2) + launchOrder * 0.2) / floor((n + 1) / 2)
             end
             orb.delay = launchOrder * stagger * staggerScale + (rested and not isStreamPop and RESTED_DELAY or 0)
                 + extraDelay
             local jitterLow, jitterSpan = 0.85, 0.3
             if (orb.group or isStreamPop) and profile.jitterLow then
                 jitterLow, jitterSpan = profile.jitterLow, profile.jitterSpan
+            end
+            if pathJitterLow then
+                jitterLow, jitterSpan = pathJitterLow, pathJitterSpan -- a helix's strands keep their spacing
             end
             orb.dur = max(MIN_DUR,
                 config.flightTime * (orb.group and flightScale or 1) * (jitterLow + random() * jitterSpan))

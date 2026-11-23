@@ -1003,7 +1003,8 @@ local function build()
         return pathName(ns.defaults.flightPath)
     end)
     local pathDescText = text(child, "GameFontHighlight",
-        "How orbs fly to the bar: Smooth is a clean arc, Chaos wobbles, Helix spirals.", LABEL_X, -(y + 28), 490)
+        "How orbs fly to the bar: Smooth is a clean arc, Chaos darts like fireflies, Helix spirals.", LABEL_X,
+        -(y + 28), 490)
     pathDescText:SetTextColor(GREY, GREY, GREY)
     Options.descs.flightPath = pathDescText
 

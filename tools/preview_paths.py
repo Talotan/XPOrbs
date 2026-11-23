@@ -7,7 +7,8 @@ a bar point at (60 %, 4 %):
   row 1: the long flight, cropped to its bounding box, 14 orbs with the burst's start spread, each a faint line, a few
          dots and the snapshot at t = 0.55 with its two trail ghosts;
   row 2: a short 200 px flight in the same direction;
-  row 3: three single orbs as thick lines (no start spread), so the shape of the path itself is visible.
+  row 3: the long flight as the stream after a Popstream (Nameplate) pop (tighter control points, stagger 0.08);
+  row 4: three single orbs as thick lines (no start spread), so the shape of the path itself is visible.
 GIF (default dist/paths-preview.gif): the three paths side by side, animated over the real flight time at 30 fps with
 12 orbs each, trails, a dark background.
 A dot's size and alpha follow the helix depth. The maths is the real OrbMath and mirrors Burst (the control-point
@@ -17,10 +18,11 @@ spread and launch stagger of OrbMath.PathShape); the fade-in and the shrink near
 import math
 import random
 import sys
+from functools import cache
 from itertools import pairwise
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageChops, ImageDraw, ImageFont
 
 try:
     import lupa.lua51 as lupa_rt
@@ -54,9 +56,19 @@ def load_orbmath():
     return ns["OrbMath"]
 
 
-def make_orbs(om, kind, start, end, count, rng, spread=True):
-    """The orbs of one burst, spawned like Burst does: start disc, control point, path parameters, delay, duration."""
-    control_scale, stagger_scale = om.PathShape(kind)
+def make_orbs(om, kind, start, end, count, rng, spread=True, popstream=False):
+    """The orbs of one burst, spawned like Burst does: start disc, control point, path parameters, delay, duration.
+    popstream mirrors the stream after a nameplate pop (control spread 0.45, lift 0.10, stagger 0.08, +0.30 s)."""
+    control_scale, stagger_scale, duration_low, duration_span, _ring = om.PathShape(
+        kind
+    )
+    base_spread, lift, stagger, extra = (
+        (0.45, 0.10, 0.08, 0.30) if popstream else (None, None, STAGGER, 0.0)
+    )
+    pop_spread = (
+        (base_spread or 1) * control_scale if control_scale != 1 else base_spread
+    )
+    handedness = -1 if kind == "helix" and rng.random() < 0.5 else 1
     orbs = []
     for index in range(1, count + 1):
         angle, radius = (
@@ -67,14 +79,15 @@ def make_orbs(om, kind, start, end, count, rng, spread=True):
             start[0] + math.cos(angle) * radius,
             start[1] + math.sin(angle) * radius,
         )
-        c1x, c1y, _ = om.PopControl(
-            index, count, x0, y0, rng.random, control_scale, None
-        )
+        c1x, c1y, _ = om.PopControl(index, count, x0, y0, rng.random, pop_spread, lift)
         distance = math.dist((x0, y0), end)
-        params = tuple(om.PathParams(kind, index, distance, rng.random))
+        params = tuple(om.PathParams(kind, index, distance, rng.random, handedness))
         order = rng.random()
         if stagger_scale != 1:
-            order = (index - 1 + order * 0.5) / count
+            order = (math.floor((index - 1) / 2) + order * 0.2) / math.floor(
+                (count + 1) / 2
+            )
+        low, span = (duration_low, duration_span) if duration_low else (0.85, 0.3)
         orbs.append(
             {
                 "kind": kind,
@@ -82,8 +95,8 @@ def make_orbs(om, kind, start, end, count, rng, spread=True):
                 "end": end,
                 "control": (c1x, c1y),
                 "params": params,
-                "delay": order * STAGGER * stagger_scale,
-                "duration": FLIGHT_TIME * (0.85 + 0.3 * rng.random()),
+                "delay": order * stagger * stagger_scale + extra,
+                "duration": FLIGHT_TIME * (low + span * rng.random()),
             }
         )
     return orbs
@@ -103,6 +116,20 @@ def flight_point(om, orb, t):
         x -= line_y / length * perp
         y += line_x / length * perp
     return x, y, size_mul, alpha_mul
+
+
+@cache
+def glow_sprite(radius, alpha_steps, colour):
+    """A soft round orb (bright core, falling to nothing at the rim) as an RGB image to add; alpha_steps is 0..20."""
+    diameter = max(2, 2 * radius)
+    falloff = (
+        Image.radial_gradient("L")
+        .resize((diameter, diameter))
+        .point(lambda v: max(0, 255 - v) ** 2 // 255)
+    )
+    strength = alpha_steps / 20
+    bands = [falloff.point(lambda v, c=c: int(v * c / 255 * strength)) for c in colour]
+    return Image.merge("RGB", bands)
 
 
 class Panel:
@@ -125,12 +152,32 @@ class Panel:
         )
 
     def dot(self, point, size_k=1.0, alpha_k=1.0, colour=ORB_COLOUR):
+        """An orb as a radial-gradient sprite added to the image, so crossings white out like the game's glow."""
         x, y = self.px(point[0], point[1])
-        radius = ORB_RADIUS * self.scale * size_k * point[2]
-        alpha = int(255 * max(0.0, min(1.0, alpha_k * point[3])))
-        self.draw.ellipse(
-            [x - radius, y - radius, x + radius, y + radius], fill=colour + (alpha,)
+        radius = ORB_RADIUS * self.scale * size_k * point[2] * 1.6
+        alpha = max(0.0, min(1.0, alpha_k * point[3]))
+        if radius < 0.5 or alpha <= 0.01:
+            return
+        sprite = glow_sprite(round(radius), round(alpha * 20), colour)
+        left, top = round(x) - sprite.width // 2, round(y) - sprite.height // 2
+        box = (left, top, left + sprite.width, top + sprite.height)
+        clipped = (
+            max(box[0], 0),
+            max(box[1], 0),
+            min(box[2], self.size[0]),
+            min(box[3], self.size[1]),
         )
+        if clipped[0] >= clipped[2] or clipped[1] >= clipped[3]:
+            return
+        sprite = sprite.crop(
+            (
+                clipped[0] - box[0],
+                clipped[1] - box[1],
+                clipped[2] - box[0],
+                clipped[3] - box[1],
+            )
+        )
+        self.image.paste(ImageChops.add(self.image.crop(clipped), sprite), clipped[:2])
 
     def label(self, text):
         self.draw.text(
@@ -145,12 +192,14 @@ def fit(start, end, margin=MARGIN):
     return low, (round(high[0] - low[0]), round(high[1] - low[1]))
 
 
-def snapshot_panel(om, kind, start, end, label, seed, count=14):
+def snapshot_panel(om, kind, start, end, label, seed, count=14, popstream=False):
     origin, size = fit(start, end)
     panel = Panel(size, origin)
     panel.marker(start, (120, 220, 140))
     panel.marker(end, (240, 200, 90))
-    for orb in make_orbs(om, kind, start, end, count, random.Random(seed)):
+    for orb in make_orbs(
+        om, kind, start, end, count, random.Random(seed), popstream=popstream
+    ):
         points = [flight_point(om, orb, i / 120) for i in range(121)]
         for a, b in pairwise(points):
             panel.draw.line(
@@ -207,6 +256,15 @@ def png(om, output):
                 snapshot_panel(
                     om, kind, start, short_end, f"{name}: short flight (200 px)", 12
                 ),
+                snapshot_panel(
+                    om,
+                    kind,
+                    start,
+                    end,
+                    f"{name}: after a Popstream (Nameplate) pop",
+                    14,
+                    popstream=True,
+                ),
                 strand_panel(
                     om,
                     kind,
@@ -218,9 +276,9 @@ def png(om, output):
             ]
         )
     cell_w = max(img.width for col in columns for img in col)
-    row_h = [max(col[row].height for col in columns) for row in range(3)]
+    row_h = [max(col[row].height for col in columns) for row in range(4)]
     sheet = Image.new(
-        "RGB", (len(columns) * (cell_w + 10) + 10, sum(row_h) + 10 * 4), (40, 42, 54)
+        "RGB", (len(columns) * (cell_w + 10) + 10, sum(row_h) + 10 * 5), (40, 42, 54)
     )
     for column, images in enumerate(columns):
         for row, image in enumerate(images):
@@ -275,7 +333,7 @@ def gif(om, output, count=12):
         output,
         save_all=True,
         append_images=frames[1:],
-        duration=round(1000 / FPS),
+        duration=[(30, 30, 40)[n % 3] for n in range(len(frames))],
         loop=0,
         optimize=True,
     )

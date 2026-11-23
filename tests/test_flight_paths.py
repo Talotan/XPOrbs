@@ -94,20 +94,20 @@ def test_chaos_progress_warp_is_monotonic_even_for_extreme_parameters(om):
         for i in range(201):
             t = i / 200
             warp = offset(om, "chaos", t, p)[1]
-            assert abs(warp) <= 0.06 + 1e-12
+            assert abs(warp) <= 0.08 + 1e-12
             assert t + warp > last - 1e-12
             last = t + warp
 
 
 def test_chaos_parameter_ranges_and_amplitude_clamps(om):
     for distance in (10, 160, 400, 700, 5000):
-        base = min(max(0.16 * distance, 24), 90)
+        base = min(max(0.12 * distance, 20), 60)
         amps, signs = set(), set()
         for seed in range(200):
             amp, f1, f2, f3, p1, p2, p3 = params(om, "chaos", 1, distance, seed)
-            assert 1.6 <= f1 <= 3.0 and 3.5 <= f2 <= 6.0 and 1.0 <= f3 <= 2.0
+            assert 1.1 <= f1 <= 2.0 and 2.6 <= f2 <= 4.0 and 0.9 <= f3 <= 1.5
             assert all(0 <= ph < 2 * math.pi for ph in (p1, p2, p3))
-            assert 0.7 * base - 1e-9 <= abs(amp) <= 1.3 * base + 1e-9
+            assert 0.75 * base - 1e-9 <= abs(amp) <= 1.25 * base + 1e-9
             signs.add(amp > 0)
             amps.add(round(amp, 6))
         assert len(amps) > 50 and signs == {
@@ -115,8 +115,8 @@ def test_chaos_parameter_ranges_and_amplitude_clamps(om):
             False,
         }  # random per orb, either way first
     assert (
-        abs(params(om, "chaos", 1, 10, 4)[0]) <= 1.3 * 24
-        and abs(params(om, "chaos", 1, 5000, 4)[0]) <= 1.3 * 90
+        abs(params(om, "chaos", 1, 10, 4)[0]) <= 1.25 * 20
+        and abs(params(om, "chaos", 1, 5000, 4)[0]) <= 1.25 * 60
     )
     # the sideways wobble stays inside the amplitude
     p = params(om, "chaos", 1, 500, 3)
@@ -129,30 +129,32 @@ def test_chaos_parameter_ranges_and_amplitude_clamps(om):
 def test_helix_parameters(om):
     for distance in (50, 300, 700, 2000):
         amp, turns, f2, f3, _phase, p2, p3 = params(om, "helix", 2, distance)
-        assert amp == pytest.approx(min(max(0.10 * distance, 18), 48))
-        assert turns == pytest.approx(min(max(distance / 200, 2), 3.5))
+        assert amp == pytest.approx(min(max(0.12 * distance, 26), 50))
+        assert turns == pytest.approx(min(max(distance / 190, 1.5), 3.0))
         assert (f2, f3, p2, p3) == (0, 0, 0, 0)
     assert (
-        params(om, "helix", 1, 10)[1] == 2 and params(om, "helix", 1, 99999)[1] == 3.5
+        params(om, "helix", 1, 10)[1] == 1.5 and params(om, "helix", 1, 99999)[1] == 3.0
     )
     assert (
-        params(om, "helix", 1, 10)[0] == 18 and params(om, "helix", 1, 99999)[0] == 48
+        params(om, "helix", 1, 10)[0] == 26 and params(om, "helix", 1, 99999)[0] == 50
     )
-    for seed in range(50):  # a triple helix: strands a third of a turn apart
+    for seed in range(50):  # a double helix: strands half a turn apart
         for index in (1, 2, 3, 4, 5, 6):
             phase = params(om, "helix", index, 600, seed)[4]
-            assert abs(phase - (index % 3) * 2 * math.pi / 3) <= 0.15 + 1e-9
+            assert abs(phase - (index % 2) * math.pi) <= 0.10 + 1e-9
+
+
+def test_helix_handedness_flips_the_turns(om):
+    left = om.PathParams("helix", 1, 600, random.Random(1).random, 1)
+    right = om.PathParams("helix", 1, 600, random.Random(1).random, -1)
+    assert right[1] == -left[1] and right[0] == left[0] and right[4] == left[4]
 
 
 def test_path_shape(om):
-    assert tuple(om.PathShape("smooth")) == (1, 1) and tuple(om.PathShape("chaos")) == (
-        1,
-        1,
-    )
-    assert tuple(om.PathShape("bogus")) == (1, 1) and tuple(om.PathShape("helix")) == (
-        0.25,
-        2,
-    )
+    assert tuple(om.PathShape("smooth")) == (1, 1, None, None, 1)
+    assert tuple(om.PathShape("bogus")) == (1, 1, None, None, 1)
+    assert tuple(om.PathShape("chaos")) == (0.6, 1, None, None, 1)
+    assert tuple(om.PathShape("helix")) == (0.10, 2, 0.97, 0.06, 0.5)
 
 
 def test_helix_depth_size_and_alpha_ranges(om):
@@ -162,10 +164,10 @@ def test_helix_depth_size_and_alpha_ranges(om):
         for i in range(201):
             perp, warp, size, alpha = offset(om, "helix", i / 200, p)
             assert warp == 0
-            assert 0.7 - 1e-9 <= size <= 1.3 + 1e-9 and 0.6 - 1e-9 <= alpha <= 1 + 1e-9
+            assert 0.6 - 1e-9 <= size <= 1.4 + 1e-9 and 0.5 - 1e-9 <= alpha <= 1 + 1e-9
             assert abs(perp) <= p[0] + 1e-9
             sizes.append(size)
-    assert min(sizes) < 0.85 and max(sizes) > 1.15  # it does swing
+    assert min(sizes) < 0.75 and max(sizes) > 1.25  # it does swing
 
 
 def test_helix_envelope_opens_quickly_and_closes_on_landing(om):
@@ -302,7 +304,7 @@ def test_helix_orbs_swing_in_size_and_chaos_orbs_do_not(env):
     _, helix = trace(env, "helix", ticks=14, dt=0.05)
     widths = {row[1][2] for row in helix[1:12] if len(row) >= 2}
     assert max(widths) - min(widths) > 2
-    assert all(28 * 0.7 - 1e-6 <= w <= 28 * 1.3 + 1e-6 for w in widths)
+    assert all(28 * 0.6 - 1e-6 <= w <= 28 * 1.4 + 1e-6 for w in widths)
     _, chaos = trace(env, "chaos", ticks=14, dt=0.05)
     assert {row[1][2] for row in chaos[1:6]} == {28}
 
