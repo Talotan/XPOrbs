@@ -1195,17 +1195,17 @@ local function build()
     Options.resetAll = resetAll
     registerPopup()
 
-    -- The Test burst button lives under the "Test target" window (Preview.lua). Only when that window can't be built
+    -- The Test Kill button lives under the "Test target" window (Preview.lua). Only when that window can't be built
     -- does the panel get its own footer button, made on first need, so testing still works.
     local function ensureFooterTest(needed)
         if needed and not Options.footerTest then
             local test = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
             test:SetSize(110, 22)
             test:SetPoint("BOTTOMLEFT", panel, "BOTTOMLEFT", 16, 11)
-            test:SetText("Test burst")
+            test:SetText("Test Kill")
             test:SetScript("OnClick", function()
                 -- the same orbs a kill would make: rested ones too when Rested tint is on
-                pcall(ns.commands.test, settings().restedTint and "5 rested" or "5")
+                pcall(ns.TestKill, settings().restedTint and "5 rested" or "5")
             end)
             Options.footerTest = test
         end

@@ -17,7 +17,7 @@ function(mode)
         if kind == "PlayerModel" then
             f.log, f.anims = {}, {}
             for _, name in ipairs({ "SetCreature", "SetDisplayInfo", "SetAnimation", "SetPortraitZoom",
-                    "SetCamDistanceScale", "SetFacing", "SetPosition", "FreezeAnimation" }) do
+                    "SetCamDistanceScale", "SetFacing", "SetPosition" }) do
                 f[name] = function(self, ...)
                     self.log[#self.log + 1] = name
                     if mode == "raising" then
@@ -25,14 +25,20 @@ function(mode)
                     end
                     if name == "SetAnimation" then
                         self.anims[#self.anims + 1] = (...)
-                    elseif name == "FreezeAnimation" then
-                        self.anims[#self.anims + 1] = "freeze"
                     elseif name == "SetCreature" then
                         self.creature = (...)
+                    elseif name == "SetDisplayInfo" then
+                        self.displayId = (...)
+                    elseif name == "SetFacing" then
+                        self.facing = (...)
                     end
                 end
             end
             f.cx, f.cy = 1500, 600
+            if mode == "readback" then
+                -- a model that loads: GetModelFileID reports a file once SetDisplayInfo ran
+                f.GetModelFileID = function(self) return self.displayId and 123456 or nil end
+            end
         end
         return f
     end
@@ -57,12 +63,16 @@ def make(env, mode=None):
     env.lua.eval(CAPTURE)(m.ns)
     m.lua = env.lua
     m.same = env.lua.eval("rawequal")
+    # the left mouse button as IsMouseButtonDown reports it
+    m.mouse = env.lua.eval(
+        "function() local t = { held = false }; IsMouseButtonDown = function() return t.held end; return t end"
+    )()
     return m
 
 
 def anims(model):
-    """The SetAnimation ids the model received (FreezeAnimation calls are recorded as "freeze" and left out)."""
-    return [a for a in lua_list(model.anims) if a != "freeze"]
+    """The SetAnimation ids the model received."""
+    return lua_list(model.anims)
 
 
 def hide(m):
@@ -101,7 +111,8 @@ def test_test_burst_comes_from_the_stand_in(env):
     p = m.ns.captured
     assert m.same(p["plate"], m.ns.Preview.popAnchor)
     assert p["est"] == "mouseover" and p["estW"] == 1
-    assert (p["ex"], p["ey"]) == (1500, 600)
+    assert p["ex"] == 1500 and p["ey"] == pytest.approx(600 + m.ns.Preview.originRise)
+    assert p["ey"] > 600
 
 
 @pytest.mark.parametrize("style", ["popstream", "crossfade", "stream", "streampop"])
@@ -150,8 +161,7 @@ def test_death_and_revive_timer_clears_itself(env):
     m.stub.tick(1.5)
     assert anims(model)[-1] == 6  # held on Dead
     m.stub.tick(2.0)
-    assert anims(model)[-1] == 0  # back to Stand
-    assert lua_list(model.anims)[-1] == "freeze"  # ...and held calm again after the revive
+    assert anims(model)[-1] == 26  # back to the Ready1H idle
     assert win.scripts.OnUpdate is None
 
 
@@ -161,15 +171,45 @@ def test_hiding_mid_death_stops_the_timer(env):
     m.slash("test 5")
     hide(m)
     assert m.ns.Preview.window.scripts.OnUpdate is None
-    assert anims(m.ns.Preview.model)[-1] == 0
+    assert anims(m.ns.Preview.model)[-1] == 26
 
 
-def test_model_load_tries_the_creature_then_the_display_id(env):
+def test_model_load_tries_the_display_id_then_the_creature(env):
     m = make(env)
     show(m)
-    assert lua_list(m.ns.Preview.model.log)[0] == "SetCreature"
-    m.stub.runTimers()  # the model never reported loading
-    assert "SetDisplayInfo" in lua_list(m.ns.Preview.model.log)
+    log = lua_list(m.ns.Preview.model.log)
+    assert log[0] == "SetDisplayInfo" and "SetCreature" not in log
+    m.stub.runTimers()  # nothing reported a load: the other method runs
+    assert "SetCreature" in lua_list(m.ns.Preview.model.log)
+    assert m.ns.Preview.model.displayId == 108956
+
+
+def test_no_creature_fallback_when_the_model_file_id_reads_back(env):
+    m = make(env, "readback")
+    show(m)
+    m.stub.runTimers()
+    assert "SetCreature" not in lua_list(m.ns.Preview.model.log)
+
+
+def test_no_creature_fallback_when_the_load_event_fired(env):
+    m = make(env)
+    show(m)
+    model = m.ns.Preview.model
+    model.scripts.OnModelLoaded(model)
+    m.stub.runTimers()
+    assert "SetCreature" not in lua_list(model.log)
+
+
+def test_idle_is_reapplied_on_load_and_show(env):
+    m = make(env)
+    show(m)
+    model = m.ns.Preview.model
+    model.scripts.OnModelLoaded(model)
+    assert anims(model)[-1] == 26
+    hide(m)
+    n = len(anims(model))
+    show(m)
+    assert len(anims(model)) > n and anims(model)[-1] == 26
 
 
 def test_model_calls_are_pcall_guarded(env):
@@ -224,14 +264,16 @@ def pop_y_from_window_top(m, style, zoom_anchor):
 
 @pytest.mark.parametrize("zoom_anchor", [True, False])
 @pytest.mark.parametrize("style", ["popstream", "crossfade"])
-def test_the_pop_forms_between_the_plate_and_the_stream_origin_nearer_the_origin(env, style, zoom_anchor):
+def test_the_stream_origin_lies_between_the_model_centre_and_the_pop_anchor(env, style, zoom_anchor):
     m = make(env)
     show(m)
     y = pop_y_from_window_top(m, style, zoom_anchor)
     pv = m.ns.Preview
     bar_y = -(22 + 4 + 30 - 4)  # the health bar's centre
-    origin_y = -(22 + 30 + 8 + 260 - 8) / 2  # the model centre = the stream origin
-    assert origin_y < y < bar_y
+    centre_y = -(22 + 30 + 8 + 260 - 8) / 2  # the model centre
+    origin_y = centre_y + (m.ns.captured["ey"] - 600)  # the stream origin (the model's GetCenter y is 600)
+    assert centre_y < origin_y < y < bar_y
+    assert origin_y - centre_y == pytest.approx((y - centre_y) / 2)  # ORIGIN_FRACTION 0.5
     assert abs(y - origin_y) < abs(y - bar_y)
     assert y == pytest.approx(pv.anchorY)  # the same point whatever the zoom-anchor setting
 
@@ -247,6 +289,7 @@ def test_the_stand_in_follows_the_players_faction(env, faction, npc, name):
     m = make(env)
     m.G.UnitFactionGroup = (lambda unit: faction) if faction else None
     show(m)
+    m.stub.runTimers()
     assert m.ns.Preview.model.creature == npc
     texts = [f.text for f in m.stub.frames.values() if f.kind == "FontString" and f.text == name]
     assert texts
@@ -256,28 +299,43 @@ def test_a_raising_faction_call_falls_back_to_hogger(env):
     m = make(env)
     m.G.UnitFactionGroup = m.lua.eval("function() error('boom') end")
     show(m)
+    m.stub.runTimers()
     assert m.ns.Preview.model.creature == 448
 
 
-def test_gamon_has_no_display_id_fallback(env):
+@pytest.mark.parametrize(("faction", "display_id", "npc"), [("Horde", 5205, 6466), ("Alliance", 108956, 448)])
+def test_both_stand_ins_load_by_display_id_with_the_creature_as_fallback(env, faction, display_id, npc):
     m = make(env)
-    m.G.UnitFactionGroup = lambda unit: "Horde"
+    m.G.UnitFactionGroup = lambda unit: faction
     show(m)
+    model = m.ns.Preview.model
+    assert model.displayId == display_id and model.creature is None
     m.stub.runTimers()
-    assert "SetDisplayInfo" not in lua_list(m.ns.Preview.model.log)
+    assert model.creature == npc
 
 
-def test_the_idle_pose_is_stand_variation_zero_frozen(env):
+def test_a_failing_display_id_call_goes_straight_to_the_creature(env):
+    m = make(env)
+    m.lua.execute(
+        "local f = CreateFrame; CreateFrame = function(kind, ...) local x = f(kind, ...); "
+        "if kind == 'PlayerModel' then x.SetDisplayInfo = function() error('no') end end; return x end"
+    )
+    show(m)
+    assert m.ns.Preview.model.creature == 448
+
+
+def test_the_idle_pose_is_ready_1h_with_no_freeze(env):
     m = make(env)
     show(m)
     model = m.ns.Preview.model
-    assert anims(model)[-1] == 0 and lua_list(model.anims)[-1] == "freeze"
+    assert anims(model)[-1] == 26
+    assert "FreezeAnimation" not in lua_list(model.log)
 
 
-# ---------------------------------------------------------------- the Test burst button
+# ---------------------------------------------------------------- the Test Kill button
 
 
-def test_the_test_burst_button_sits_under_the_window(env):
+def test_the_test_kill_button_sits_under_the_window(env):
     m = make(env)
     show(m)
     pv = m.ns.Preview
@@ -285,7 +343,7 @@ def test_the_test_burst_button_sits_under_the_window(env):
     assert (frame.width, frame.height) == (120, 34) and (button.width, button.height) == (100, 22)
     pt = lua_list(frame.points)[0]
     assert (pt[1], pt[3], pt[4], pt[5]) == ("TOP", "BOTTOM", 0, -2) and m.same(pt[2], pv.window)
-    assert frame.width < pv.window.width and str(button.text) == "Test burst"
+    assert frame.width < pv.window.width and str(button.text) == "Test Kill"
     assert m.same(button.createdParent, frame)
 
 
@@ -311,6 +369,17 @@ def test_the_footer_button_returns_when_the_window_cannot_be_built(env):
     assert m.opt.footerTest is not None and m.opt.footerTest.shown
     m.stub.click(m.opt.footerTest)
     assert m.ns.captured["plate"] is None
+    assert str(m.opt.footerTest.text) == "Test Kill" and not m.say()
+
+
+def test_the_window_button_prints_nothing_but_the_slash_command_does(env):
+    m = make(env)
+    show(m)
+    before = len(m.say())
+    m.stub.click(m.ns.Preview.testButton)
+    assert m.ns.captured is not None and len(m.say()) == before
+    m.slash("test 5")
+    assert "test: 5%" in m.say()[-1]
 
 
 # ---------------------------------------------------------------- slash with no argument
@@ -423,3 +492,118 @@ def test_sample_plays_all_six_notes_at_frame_rate(env):
     for _ in range(120):
         m.stub.tick(0.01)
     assert chime_sounds(m) == 6 and m.orbs.sampleFrame.scripts.OnUpdate is None
+
+
+# ---------------------------------------------------------------- drag to rotate
+
+
+def drag_start(m, x=1000):
+    show(m)
+    model = m.ns.Preview.model
+    m.stub.cursor.x = x
+    m.mouse.held = True
+    model.scripts.OnMouseDown(model, "LeftButton")
+    return model
+
+
+def test_dragging_rotates_the_model_around_its_vertical_axis(env):
+    m = make(env)
+    model = drag_start(m)
+    start = model.facing
+    assert model.scripts.OnUpdate is not None
+    m.stub.cursor.x = 1100
+    m.stub.tick(0.016)
+    assert model.facing == pytest.approx(start + 100 * 0.012)
+    m.stub.cursor.x = 900
+    m.stub.tick(0.016)
+    assert model.facing == pytest.approx(start - 100 * 0.012)
+
+
+def test_the_drag_divides_by_the_effective_scale(env):
+    m = make(env)
+    show(m)
+    model = m.ns.Preview.model
+    model.scale = 2
+    m.stub.cursor.x = 1000
+    m.mouse.held = True
+    model.scripts.OnMouseDown(model, "LeftButton")
+    start = model.facing
+    m.stub.cursor.x = 1100
+    m.stub.tick(0.016)
+    assert model.facing == pytest.approx(start + 50 * 0.012)
+
+
+def test_mouse_up_removes_the_drag_update_and_keeps_the_facing(env):
+    m = make(env)
+    model = drag_start(m)
+    m.stub.cursor.x = 1050
+    m.stub.tick(0.016)
+    turned = model.facing
+    model.scripts.OnMouseUp(model, "LeftButton")
+    assert model.scripts.OnUpdate is None
+    m.stub.cursor.x = 1500
+    m.stub.tick(0.016)
+    assert model.facing == turned
+    model.scripts.OnModelLoaded(model)  # a load re-applies the kept facing
+    assert model.facing == pytest.approx(turned)
+    hide(m)
+    show(m)
+    assert model.facing == pytest.approx(turned)
+
+
+def test_a_new_drag_continues_from_the_kept_facing(env):
+    m = make(env)
+    model = drag_start(m)
+    m.stub.cursor.x = 1100
+    m.stub.tick(0.016)
+    turned = model.facing
+    model.scripts.OnMouseUp(model, "LeftButton")
+    m.stub.cursor.x = 400
+    model.scripts.OnMouseDown(model, "LeftButton")
+    m.stub.cursor.x = 450
+    m.stub.tick(0.016)
+    assert model.facing == pytest.approx(turned + 50 * 0.012)
+
+
+def test_hiding_removes_the_drag_update(env):
+    m = make(env)
+    model = drag_start(m)
+    hide(m)
+    assert model.scripts.OnUpdate is None
+
+
+def test_a_release_outside_the_frame_removes_the_drag_update(env):
+    m = make(env)
+    model = drag_start(m)
+    m.mouse.held = False  # no OnMouseUp arrives
+    m.stub.tick(0.016)
+    assert model.scripts.OnUpdate is None
+
+
+def test_the_other_mouse_buttons_do_not_start_a_drag(env):
+    m = make(env)
+    show(m)
+    model = m.ns.Preview.model
+    model.scripts.OnMouseDown(model, "RightButton")
+    assert model.scripts.OnUpdate is None
+
+
+def test_death_keeps_the_dragged_facing(env):
+    m = make(env)
+    model = drag_start(m)
+    m.stub.cursor.x = 1200
+    m.stub.tick(0.016)
+    model.scripts.OnMouseUp(model, "LeftButton")
+    turned = model.facing
+    m.slash("test 5")
+    m.stub.tick(4)
+    assert model.facing == pytest.approx(turned)
+
+
+def test_a_client_without_ismousebuttondown_still_drags(env):
+    m = make(env)
+    model = drag_start(m)
+    m.G.IsMouseButtonDown = None
+    m.stub.cursor.x = 1010
+    m.stub.tick(0.016)
+    assert model.scripts.OnUpdate is not None

@@ -1649,7 +1649,7 @@ local function fireTest(pct, rested, force, forceMode, path)
         local okStandIn, plateFrame, bodyX, bodyY = pcall(ns.Preview.TestTarget, ns.Preview, popOffsetY)
         if okStandIn and plateFrame then
             standInPlate = plateFrame
-            ex, ey, est, estW = bodyX, bodyY, "mouseover", 1
+            ex, ey, est, estW = bodyX, bodyY, "mouseover", 1 -- bodyY is already raised towards the pop anchor
         end
     end
     local x, y, label = testOrigin(ns.RenderStyle(force or config.style, forceMode or config.popMode), ex, ey)
@@ -1722,7 +1722,9 @@ local TEST_USED = { ["pop+stream"] = "popstream/nameplate", streampop = "popstre
 -- mean Popstream with that pop; smooth / chaos / helix override the flight path for that burst; the old "frame" /
 -- "plate" words are ignored)
 -- /xporbs test stress [n]
-function ns.commands.test(arg)
+-- quiet = true fires the burst without the chat report (the Test Kill buttons use it through ns.TestKill; the slash
+-- handler passes a second argument of its own, so the flag is not a parameter of ns.commands.test).
+local function runTest(arg, quiet)
     local first, count = string.match(arg or "", "^%s*(%S+)%s*(%S*)")
     if first == "stress" then
         startStress(count)
@@ -1748,6 +1750,9 @@ function ns.commands.test(arg)
     end
     Orbs.lastUnknown = nil
     local n, scale, nPurple, est, estW, mode, label = fireTest(pct, rested, force, forceMode, path)
+    if quiet then
+        return
+    end
     local used = TEST_USED[mode] or mode
     if mode == "crossfade" then
         label = "estimated"
@@ -1756,6 +1761,15 @@ function ns.commands.test(arg)
         .. " style=%s", pct, n, nPurple, scale, est or "none", estW or 0, mode == "pop+stream" and "yes" or "no",
         label, used) .. (Orbs.lastUnknown and " unknown=" .. Orbs.lastUnknown or "")
         .. (path and " path=" .. path or ""))
+end
+
+function ns.commands.test(arg)
+    runTest(arg, false)
+end
+
+-- The Test Kill buttons (Preview.lua, Options.lua): the same burst as /xporbs test, with no chat output.
+function ns.TestKill(arg)
+    runTest(arg, true)
 end
 
 -- /xporbs perf [reset]: addon memory, driver frame time, pool usage.

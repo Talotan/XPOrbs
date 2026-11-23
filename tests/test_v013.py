@@ -119,6 +119,16 @@ def purple_of_last_test(m):
     return int(re.search(r"\((\d+) purple\)", m.say()[-1]).group(1))
 
 
+def burst_purple(m, click):
+    """nPurple of the Burst call that `click()` makes (the Test Kill buttons print nothing to chat)."""
+    m.lua.eval(
+        "function(ns) local o = ns.Orbs.Burst; ns.Orbs.Burst = function(self, p) ns.lastPurple = p.nPurple;"
+        " return o(self, p) end end"
+    )(m.ns)
+    click()
+    return int(m.ns.lastPurple)
+
+
 def reset_shown(m, key):
     return bool(m.opt.resets[key].shown)
 
@@ -356,7 +366,7 @@ def test_labels_are_in_the_label_column_controls_in_the_control_column(m):
 def test_the_title_is_fixed_and_the_footer_buttons_are_on_the_panel(m):
     b = buttons(m)
     assert set(b) >= {"Reset all to default", "Pick XP bar frame"}
-    assert "Test burst" not in b  # it moved under the Test target window (Preview.lua) until the panel is shown
+    assert "Test Kill" not in b  # it moved under the Test target window (Preview.lua) until the panel is shown
     assert raw(m)(b["Reset all to default"].createdParent, m.opt.panel)
     assert (b["Reset all to default"].width, b["Reset all to default"].height) == (
         160,
@@ -809,15 +819,13 @@ def test_reset_all_without_the_popup_api_prints_a_hint_and_changes_nothing(env):
 def test_panel_test_burst_includes_rested_orbs_when_rested_tint_is_on(m):
     assert m.db.restedTint is True
     show(m)
-    m.stub.click(buttons(m)["Test burst"])
-    assert purple_of_last_test(m) > 0
+    assert burst_purple(m, lambda: m.stub.click(buttons(m)["Test Kill"])) > 0
 
 
 def test_panel_test_burst_has_no_rested_orbs_when_rested_tint_is_off(m):
     m.db.restedTint = False
     show(m)
-    m.stub.click(buttons(m)["Test burst"])
-    assert purple_of_last_test(m) == 0
+    assert burst_purple(m, lambda: m.stub.click(buttons(m)["Test Kill"])) == 0
 
 
 def test_slash_test_stays_explicit(m):
