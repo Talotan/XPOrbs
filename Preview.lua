@@ -37,8 +37,8 @@ local NAME_DROP = 6
 -- and raise belong together (a z unit is about 170 UI px at Hogger's camera, measured in game: z 0.45 sat about 94 px
 -- higher than z -0.1), and the stream origin rises with raise so it stays on the same spot of the body.
 local STAND_INS = {
-    Alliance = { npcId = 448, displayId = 108956, name = "Hogger", facing = 0.513, camDistance = 1.15, z = 0.07,
-        raise = 0.15 },
+    Alliance = { npcId = 448, displayId = 108956, name = "Hogger", facing = 0.513, camDistance = 1.15, z = 0.01,
+        raise = 0.10 },
     Horde = { npcId = 6466, displayId = 5205, name = "Gamon", facing = 0.513, camDistance = 0.80, z = 0.15,
         raise = 0 },
 }

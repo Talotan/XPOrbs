@@ -281,7 +281,7 @@ def test_the_stream_origin_rises_with_the_model_and_the_pop_anchor_stays_put(env
     assert anchor_y == pytest.approx(-114.4)  # unchanged by the raise
     # Hogger (the Alliance stand-in): the origin is the old spot (half way from the centre to the anchor) plus 15 %
     old_origin_y = centre_y + (anchor_y - centre_y) / 2
-    assert origin_y - old_origin_y == pytest.approx(0.15 * area_h)
+    assert origin_y - old_origin_y == pytest.approx(0.10 * area_h)
     assert pv.originRise() == pytest.approx(origin_y - centre_y)
     assert bar_y > centre_y and origin_y > centre_y and bar_y > origin_y  # all still inside the window, bar on top
 
