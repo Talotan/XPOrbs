@@ -4,7 +4,7 @@ XP Orbs does one thing: when you gain experience, orbs fly to your XP bar. The a
 efficient and most beautiful XP orbs possible. They should feel like part of the default UI and work alongside as many
 other addons as possible. Features that have nothing to do with XP orbs stay out, so the addon stays light.
 
-This is a rough plan, not a promise. The order and contents will change as feedback comes in.
+This is a rough plan subject to change. The order and contents will change as feedback comes in.
 
 ## Next
 
@@ -15,7 +15,7 @@ This is a rough plan, not a promise. The order and contents will change as feedb
 - **Easier-to-read code.** Clearer names and more comments throughout, for anyone who wants to read or change it.
 - **Better starting points.** Quest XP starts at the quest window, exploration XP starts at the chat message, and so
   on, instead of every non-kill gain starting at the middle of the screen.
-- **Flight paths.** Choose how the orbs fly: Smooth (today's path), Chaos (more erratic) or Helix (spiralling).
+- **Orb Flight paths.** Choose how the orbs fly: Smooth (today's path), Chaos (more erratic) or Helix (spiralling).
 
 ## Later
 

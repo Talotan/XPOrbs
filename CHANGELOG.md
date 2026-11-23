@@ -1,5 +1,27 @@
 # Changelog
 
+## 1.3.0 (2026-11-24)
+
+- **Works with more UIs.** XP bars from EllesmereUI, FlareUI, DaylightUI and Smooth Experience Bar are found
+  automatically, and orbs land on the bar's fill point. The default bar is found even when it's showing a
+  reputation. The frame picker now picks the bar itself rather than the panel around it.
+- **Can't find your XP bar?** A small window offers to pick it, with the glow shape, offsets and a test. Open it any
+  time with `/xporbs setup`. There is a new **Vertical** glow shape, used automatically on vertical bars.
+- **Flight styles:** **Smooth** (as before), **Chaos** (orbs dart like fireflies) and **Helix** (orbs spiral in
+  pairs). Pick one from the Flight style dropdown or with `/xporbs path`.
+- **Orbs stay on screen.** With an XP bar near the top of the screen, the orbs sweep up into it from the side instead
+  of arcing off the top.
+- **Chime volume** from 25% to 250%, plus a play button next to the Voice dropdown to hear a sample.
+- **Quest and exploration XP** start where they happen: the button you clicked or the quest window, and the zone
+  name on screen. Each has its own on/off switch.
+- **Test target:** while the options are open, Hogger (Gamon for the Horde) stands next to them. Press **Test Kill**
+  to see your settings in action. Drag him to rotate him.
+- Popstream (Direct) pops bigger and goes straight into the stream, and its start no longer jumps around when the
+  mob's position is unknown.
+- The options page is reorganised: General, Sound, Look, Style, Arrival, Advanced.
+- `/xporbs` on its own opens the options. Shift + right-click the minimap button to hide it.
+- Fixed the setup and calibration windows sticking to the mouse after being dragged.
+
 ## 1.2.0 (2026-11-19)
 
 - Kill styles are now three, each saying whether it uses the nameplate (your saved style carries over):
