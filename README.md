@@ -214,8 +214,14 @@ the addon assumes the pool covered the gain, up to what was left in it.
 
 ### Non-kill XP
 
-Quests, exploration and other XP that no kill claims produce a burst that starts a little above the centre of the
-screen. "Quest bursts" turns this off.
+XP that no kill claims gets a start point that says where it came from. "Quest bursts" turns all of it off.
+
+- **Quests:** the orbs start where you clicked Complete Quest. If the pointer was not over a window then, they start at
+  the quest window (the default one, or DaylightUI's NPC window), or a little left of the centre of the screen when
+  that is not known.
+- **Exploration:** discovering a new area starts the orbs at the area name shown on screen, or at the top centre of
+  the screen when no name is showing.
+- **Anything else** starts a little above the centre of the screen.
 
 ## Limitations
 
@@ -223,7 +229,6 @@ screen. "Quest bursts" turns this off.
   The pop on the plate itself is always correct.
 - EllesmereUI, FlareUI, DaylightUI, Smooth Experience Bar and EnhanceQoL are detected automatically. For any other
   custom XP bar, use `/xporbs pick`.
-- Quest and exploration XP start at a fixed point instead of the quest window or the objective tracker.
 - In instances, the client may hide GUIDs and names from addons. The addon then pairs events by order instead of by
   name, and a kill may have no plate, so it gets only the stream from the estimated point.
 

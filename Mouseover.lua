@@ -32,6 +32,8 @@ local function cursor()
     return nil, nil
 end
 
+Mouseover.CursorPosition = cursor -- shared with Sources.lua (where a quest turn-in was clicked)
+
 local function screen()
     local okWidth, width = pcall(UIParent.GetWidth, UIParent)
     local okHeight, height = pcall(UIParent.GetHeight, UIParent)

@@ -9,6 +9,9 @@ local ADDON, ns = ...
 -- marker (AddSecretChat); a marker pairs the oldest queued death within secretTTL of it with the oldest unclaimed
 -- XP delta, FIFO, as a kill.
 -- Without a marker an unclaimed delta is still "other" (a quest turn-in near a grey-mob death must not become a kill).
+-- An "other" burst can carry a source ("quest" | "explore") and an origin point. The caller registers a source hint
+-- (AddSourceHint) from the event that comes with the XP (QUEST_TURNED_IN, the exploration chat line); an unclaimed
+-- delta that matches a hint by amount and time takes its source and origin. Kills never look at hints.
 
 local KillMatcher = {}
 ns.KillMatcher = KillMatcher
@@ -23,6 +26,10 @@ function KillMatcher.New(cfg)
         deltaWait = cfg.deltaWait or 0.4,
         owedTTL = cfg.owedTTL or 1.0, -- how long an emitted kill waits for its (late) XP delta
         secretTTL = cfg.secretTTL or 1.0, -- how long a secret-chat marker waits for its death and delta
+        hintTTL = cfg.hintTTL or 2.0, -- how long a source hint waits for its delta
+        hintWindow = cfg.hintWindow or 1.0, -- a hint with an amount matches a delta this close in time (either order)
+        nearestWindow = cfg.nearestWindow or 0.5, -- a hint with no amount takes a delta this close in time
+        sourceWait = cfg.sourceWait or 0.3, -- extra wait for a delta while a source hint is expected (ExpectSource)
         now = cfg.now,
     }
     self.deaths = {}
@@ -30,6 +37,8 @@ function KillMatcher.New(cfg)
     self.deltas = {}
     self.owed = {}
     self.secret = {}
+    self.hints = {}
+    self.expectUntil = nil
     self.stats = { tier1 = 0, tier2 = 0, tier4 = 0, dropped = 0, other = 0, secret = 0 }
     return self
 end
@@ -61,9 +70,30 @@ function KillMatcher:AddSecretChat()
     self.secret[#self.secret + 1] = { t = self.cfg.now() }
 end
 
+-- hint = { source = "quest"|"explore", amount|nil, x|nil, y|nil, label|nil, locate|nil }. amount nil means "the nearest
+-- unclaimed delta". The origin is x, y (UIParent units) or, when given, locate() -> x, y, label which is called only
+-- when a delta takes the hint (so it can read the screen as late as possible).
+function KillMatcher:AddSourceHint(hint)
+    self.hints[#self.hints + 1] = {
+        source = hint.source,
+        amount = hint.amount,
+        x = hint.x,
+        y = hint.y,
+        label = hint.label,
+        locate = hint.locate,
+        t = self.cfg.now(),
+    }
+end
+
+-- A source hint is likely on its way (a quest dialog is open): for the next `seconds`, an unclaimed delta waits
+-- sourceWait longer before it is emitted as plain "other", so a hint that arrives just after it can still claim it.
+function KillMatcher:ExpectSource(seconds)
+    self.expectUntil = self.cfg.now() + seconds
+end
+
 -- Anything queued? Lets the caller stop its OnUpdate when idle.
 function KillMatcher:Pending()
-    return #self.deaths + #self.kills + #self.deltas + #self.owed + #self.secret
+    return #self.deaths + #self.kills + #self.deltas + #self.owed + #self.secret + #self.hints
 end
 
 function KillMatcher:Stats()
@@ -108,6 +138,41 @@ function KillMatcher:_claim()
     end
 end
 
+-- The hint for an unclaimed delta: the closest-in-time hint with the same amount within hintWindow, else the closest
+-- amount-less hint within nearestWindow. Returns its index or nil.
+local function findHint(hints, delta, cfg)
+    local bestIndex, bestGap
+    for i, hint in ipairs(hints) do
+        local gap = math.abs(hint.t - delta.t)
+        if hint.amount == delta.amount and gap <= cfg.hintWindow and (not bestGap or gap < bestGap) then
+            bestIndex, bestGap = i, gap
+        end
+    end
+    if bestIndex then
+        return bestIndex
+    end
+    for i, hint in ipairs(hints) do
+        local gap = math.abs(hint.t - delta.t)
+        if hint.amount == nil and gap <= cfg.nearestWindow and (not bestGap or gap < bestGap) then
+            bestIndex, bestGap = i, gap
+        end
+    end
+    return bestIndex
+end
+
+-- Fills in the origin a hint carries. Never throws: a failing locate() just leaves the origin unset.
+local function applyHint(burst, hint)
+    burst.source = hint.source
+    local x, y, label = hint.x, hint.y, hint.label
+    if hint.locate then
+        local ok, locatedX, locatedY, locatedLabel = pcall(hint.locate)
+        if ok then
+            x, y, label = locatedX, locatedY, locatedLabel
+        end
+    end
+    burst.x, burst.y, burst.label = x, y, label
+end
+
 -- With a readable mob name: the oldest death of the same name, else the oldest death whose name is unknown. A death
 -- with a different readable name is never taken (it belongs to another kill). Without a mob name: the oldest death.
 local function findDeath(deaths, mob)
@@ -130,7 +195,8 @@ local function findDeath(deaths, mob)
     return nil
 end
 
--- Returns a list of bursts { plate|nil, guid|nil, entry|nil, amount, rested, tier, kind = "kill"|"other", secret|nil }.
+-- Returns a list of bursts { plate|nil, guid|nil, entry|nil, amount, rested, tier, kind = "kill"|"other", secret|nil };
+-- an "other" burst may also carry source, x, y, label from a matching source hint.
 -- Order: claim deltas, emit readable kills, expire stale secret markers, pair markers with (oldest death, oldest
 -- unclaimed delta), then expire deaths and deltas. Pairing precedes expiry so a pair is never split by the clock.
 function KillMatcher:Poll()
@@ -222,14 +288,31 @@ function KillMatcher:Poll()
         end
     end
 
-    -- Deltas nobody claimed are non-kill XP (quest, exploration...).
+    -- Deltas nobody claimed are non-kill XP (quest, exploration...). One that matches a source hint takes its source
+    -- and origin. While a hint is expected a delta without one waits sourceWait longer.
     i = 1
     while i <= #self.deltas do
         local delta = self.deltas[i]
-        if now - delta.t >= cfg.deltaWait then
+        local age = now - delta.t
+        local hintIndex = age >= cfg.deltaWait and findHint(self.hints, delta, cfg) or nil
+        local expecting = self.expectUntil ~= nil and delta.t <= self.expectUntil
+        if hintIndex or (age >= cfg.deltaWait + (expecting and cfg.sourceWait or 0)) then
             table.remove(self.deltas, i)
             self.stats.other = self.stats.other + 1
-            out[#out + 1] = { amount = delta.amount, rested = nil, tier = 4, kind = "other" }
+            local burst = { amount = delta.amount, rested = nil, tier = 4, kind = "other" }
+            if hintIndex then
+                applyHint(burst, table.remove(self.hints, hintIndex))
+            end
+            out[#out + 1] = burst
+        else
+            i = i + 1
+        end
+    end
+
+    i = 1
+    while i <= #self.hints do
+        if now - self.hints[i].t >= cfg.hintTTL then
+            table.remove(self.hints, i)
         else
             i = i + 1
         end

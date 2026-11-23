@@ -119,6 +119,11 @@ do
     assert(loadstring(src, "@xpgain_enUS.lua"))()
 end
 
+-- Exploration XP system message. NOT from the Ketho dump above: the enUS text is as quoted by JourneyTracker and
+-- QuestieTrace (installed addons); Spoken_Places notes the sentence may end with a period. Not confirmed against
+-- Blizzard's own GlobalStrings, so the reader under test tolerates a trailing period.
+ERR_ZONE_EXPLORED_XP = "Discovered %s: %d experience gained"
+
 -- Dispatch an event to every frame that registered it and has an OnEvent script.
 function ns.fire(event, ...)
     for _, f in ipairs(stub.frames) do

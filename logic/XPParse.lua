@@ -10,12 +10,13 @@ ns.XPParse = XPParse
 local stringMatch, stringSub, stringGsub = string.match, string.sub, string.gsub
 
 -- Format string -> anchored pattern plus capture order.
--- %s -> (.-), %d -> (%d+), %1$s / %2$d positional forms, %% literal. order[i] = format-argument index of capture i.
-function XPParse.PatternFrom(fmt)
+-- %s -> (.-), %d -> (%d+), %1$s / %2$d positional forms, %% literal. order[i] = format-argument index of capture i;
+-- conversions[i] = "s" or "d", the kind of capture i (internal: PatternFrom hides it).
+local function buildPattern(fmt)
     if type(fmt) ~= "string" then
         return nil
     end
-    local out, order = { "^" }, {}
+    local out, order, conversions = { "^" }, {}, {}
     local nextArg = 1
     local i, length = 1, #fmt
     while i <= length do
@@ -34,6 +35,7 @@ function XPParse.PatternFrom(fmt)
                     nextArg = nextArg + 1
                 end
                 order[#order + 1] = argIndex
+                conversions[#conversions + 1] = conv
                 out[#out + 1] = (conv == "s") and "(.-)" or "(%d+)"
                 i = after
             else
@@ -46,7 +48,46 @@ function XPParse.PatternFrom(fmt)
         end
     end
     out[#out + 1] = "$"
-    return table.concat(out), order
+    return table.concat(out), order, conversions
+end
+
+function XPParse.PatternFrom(fmt)
+    local pattern, order = buildPattern(fmt)
+    if pattern == nil then
+        return nil
+    end
+    return pattern, order
+end
+
+-- Reader for a one-number system message such as ERR_ZONE_EXPLORED_XP ("Discovered %s: %d experience gained"):
+-- returns a function msg -> amount (the %d capture) or nil. Tolerates a trailing period on the message. nil when fmt
+-- is not a format string or has no number in it.
+function XPParse.AmountReader(fmt)
+    local pattern, _, conversions = buildPattern(fmt)
+    if not pattern then
+        return nil
+    end
+    local numberCapture
+    for captureIndex, conv in ipairs(conversions) do
+        if conv == "d" then
+            numberCapture = captureIndex
+            break
+        end
+    end
+    if not numberCapture then
+        return nil
+    end
+    pattern = stringSub(pattern, 1, -2) .. "%.?$"
+    return function(msg)
+        if type(msg) ~= "string" then
+            return nil
+        end
+        local ok, c1, c2, c3, c4, c5, c6 = pcall(stringMatch, msg, pattern)
+        if not ok or c1 == nil then
+            return nil
+        end
+        return tonumber(({ c1, c2, c3, c4, c5, c6 })[numberCapture])
+    end
 end
 
 -- Global names, tagged. kind: "kill" (mob name is arg 1) or "other". role: what the 3rd argument means.

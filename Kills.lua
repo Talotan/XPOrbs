@@ -133,7 +133,8 @@ local function screenCentre(frac)
     return nil, nil
 end
 
--- Stream origin. Non-kill XP (quests etc.) always streams from the screen centre (NON_KILL_Y). Kills: every style
+-- Stream origin. Non-kill XP streams from the point its source hint gave (burst.x, burst.y, labelled burst.label:
+-- Sources.lua: quest dialog or click, zone name), else from the screen centre (NON_KILL_Y). Kills: every style
 -- starts at the estimate P-hat when there is one (so the label says so); without one, Popstream (Nameplate) falls back
 -- to the portrait and the others to the target frame (kept from its last good measurement). Fallback: the screen
 -- centre. (estX, estY) = the kill's estimate; style = the render style (ns.RenderStyle). Returns x, y, label.
@@ -154,6 +155,9 @@ local function chooseOrigin(burst, estX, estY, style)
         end
         local centreX, centreY = screenCentre()
         return centreX, centreY, "centre"
+    end
+    if type(burst.x) == "number" and type(burst.y) == "number" then
+        return burst.x, burst.y, burst.label or "source"
     end
     local centreX, centreY = screenCentre(NON_KILL_Y)
     return centreX, centreY, "centre"
@@ -221,9 +225,10 @@ local function emitBurst(burst)
             plate = ns.Target:TargetPlate()
         end
     end
-    ns:Log("BURST tier=%d kind=%s amount=%s rested=%s origin=%s plate=%s est=%s w=%.2f restedSrc=%s", burst.tier,
+    ns:Log("BURST tier=%d kind=%s amount=%s rested=%s origin=%s plate=%s est=%s w=%.2f restedSrc=%s%s", burst.tier,
         burst.maxlevel and "maxlevel" or tostring(burst.kind), tostring(burst.amount or 0), tostring(burst.rested),
-        origin, plate and "yes" or "no", estMethod or "none", estWeight or 0, restedSrc)
+        origin, plate and "yes" or "no", estMethod or "none", estWeight or 0, restedSrc,
+        burst.kind == "other" and (" source=" .. tostring(burst.source or "other")) or "")
     if not db.enabled or x == nil then
         return
     end
@@ -301,6 +306,11 @@ end
 -- Sizes of the unclaimed-XP-update and early-burst queues (for tests; both are pruned by age).
 function Kills:XPQueueSizes()
     return #xpEntries, #awaiting
+end
+
+-- For Sources.lua: start the poller after it queued a hint or an expectation.
+function Kills:EnsurePoll()
+    ensurePoll()
 end
 
 function Kills:PollActive()

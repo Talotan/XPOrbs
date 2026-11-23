@@ -172,7 +172,7 @@ def burst_logs(g):
 
 
 def src_of(line):
-    return re.search(r"restedSrc=(\w+)$", line).group(1)
+    return re.search(r"restedSrc=(\w+)", line).group(1)
 
 
 def test_plain_chat_while_rested_estimates_and_goes_purple(env):

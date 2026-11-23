@@ -30,6 +30,7 @@ Mouseover.lua
 Orbs.lua
 Calib.lua
 Kills.lua
+Sources.lua
 Options.lua
 Setup.lua
 Minimap.lua
