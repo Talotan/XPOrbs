@@ -33,19 +33,17 @@ local function isVisible(f)
     return f:IsShown()
 end
 
--- Fill-edge point (or, with centre, the middle) of a frame in UIParent space plus its size, or nil if it is hidden or
--- its geometry is unusable.
 -- How full a StatusBar is as the bar itself draws it: frac, vertical, reverse. nil when f isn't a StatusBar or any
 -- reading is missing or secret (the caller then falls back to the XP numbers). Never throws.
 local function statusFill(f)
     if not (f.GetMinMaxValues and f.GetValue and f.GetOrientation and f.GetReverseFill) then
         return nil
     end
-    local okm, lo, hi = pcall(f.GetMinMaxValues, f)
-    local okv, v = pcall(f.GetValue, f)
-    local oko, orient = pcall(f.GetOrientation, f)
-    local okr, rev = pcall(f.GetReverseFill, f)
-    if not (okm and okv and oko and okr and num(lo) and num(hi) and num(v) and hi > lo) then
+    local okMinMax, lo, hi = pcall(f.GetMinMaxValues, f)
+    local okValue, v = pcall(f.GetValue, f)
+    local okOrient, orient = pcall(f.GetOrientation, f)
+    local okReverse, rev = pcall(f.GetReverseFill, f)
+    if not (okMinMax and okValue and okOrient and okReverse and num(lo) and num(hi) and num(v) and hi > lo) then
         return nil
     end
     if type(orient) ~= "string" or not readable(orient) or type(rev) ~= "boolean" or not readable(rev) then
@@ -56,12 +54,12 @@ end
 
 -- Fill-edge point of a plain (non-StatusBar) frame the player marked as vertical (glow shape "vertical"): the XP
 -- fraction measured from the bottom up. Guarded like OrbMath.FillEdge, so an unreadable XP pair aims at the bottom.
-local function verticalFillEdge(l, b, w, h, xp, xpMax)
+local function verticalFillEdge(left, bottom, w, h, xp, xpMax)
     local frac = 0
     if num(xp) and num(xpMax) and xpMax > 0 then
         frac = xp / xpMax
     end
-    return OrbMath.StatusFill(l, b, w, h, frac, true, false)
+    return OrbMath.StatusFill(left, bottom, w, h, frac, true, false)
 end
 
 -- Returns x, y, w, h (UIParent units) and whether the point came from a vertical bar: a vertical StatusBar, or any
@@ -70,29 +68,29 @@ local function frameEdge(f, xp, xpMax, centre)
     if not isVisible(f) then
         return nil
     end
-    local l, b, w, h = f:GetLeft(), f:GetBottom(), f:GetWidth(), f:GetHeight()
-    if not (num(l) and num(b) and num(w) and num(h)) or w <= 0 then
+    local left, bottom, w, h = f:GetLeft(), f:GetBottom(), f:GetWidth(), f:GetHeight()
+    if not (num(left) and num(bottom) and num(w) and num(h)) or w <= 0 then
         return nil
     end
-    local fs, ps = f:GetEffectiveScale(), UIParent:GetEffectiveScale()
-    if not (num(fs) and num(ps)) or ps == 0 then
+    local frameScale, parentScale = f:GetEffectiveScale(), UIParent:GetEffectiveScale()
+    if not (num(frameScale) and num(parentScale)) or parentScale == 0 then
         return nil
     end
-    l, b = OrbMath.ToUIParent(l, b, fs, ps)
-    w, h = OrbMath.ToUIParent(w, h, fs, ps)
+    left, bottom = OrbMath.ToUIParent(left, bottom, frameScale, parentScale)
+    w, h = OrbMath.ToUIParent(w, h, frameScale, parentScale)
     if centre then
-        return l + w / 2, b + h / 2, w, h
+        return left + w / 2, bottom + h / 2, w, h
     end
     local frac, vertical, reverse = statusFill(f)
     if frac then
-        local sx, sy = OrbMath.StatusFill(l, b, w, h, frac, vertical, reverse)
+        local sx, sy = OrbMath.StatusFill(left, bottom, w, h, frac, vertical, reverse)
         return sx, sy, w, h, vertical
     end
     if ns.db and ns.db.glowShape == "vertical" then
-        local sx, sy = verticalFillEdge(l, b, w, h, xp, xpMax)
+        local sx, sy = verticalFillEdge(left, bottom, w, h, xp, xpMax)
         return sx, sy, w, h, true
     end
-    local x, y = OrbMath.FillEdge(l, b, w, h, xp, xpMax)
+    local x, y = OrbMath.FillEdge(left, bottom, w, h, xp, xpMax)
     return x, y, w, h
 end
 
@@ -333,8 +331,8 @@ local PORTRAIT_NAME = "PlayerPortrait" -- Target.lastName when the player portra
 local function playerPortraitCandidates()
     local ok, port = pcall(function()
         local pf = _G.PlayerFrame
-        local c = type(pf) == "table" and pf.PlayerFrameContainer or nil
-        return type(c) == "table" and c.PlayerPortrait or nil
+        local container = type(pf) == "table" and pf.PlayerFrameContainer or nil
+        return type(container) == "table" and container.PlayerPortrait or nil
     end)
     return ok and port or nil, _G.PlayerPortrait, _G.PlayerFrame
 end
@@ -342,8 +340,8 @@ end
 -- At max level the XP bar is idle, so with no frame picked by the user the orbs fly to the player portrait instead.
 -- A user's pick (db.targetFrame) always wins. Never throws.
 function Target:PortraitMode()
-    local d = ns.db
-    if d and type(d.targetFrame) == "string" and d.targetFrame ~= "" then
+    local saved = ns.db
+    if saved and type(saved.targetFrame) == "string" and saved.targetFrame ~= "" then
         return false
     end
     return ns.AtMaxLevel() == true
@@ -374,16 +372,16 @@ function Target:GetDestination(centre, portrait)
             centre = true
         end
     end
-    local x, y, fw, fh, fv
+    local x, y, frameW, frameH, frameVertical
     local name, usedSource, viaPick
     if portrait then
-        local c1, c2, c3 = playerPortraitCandidates()
-        x, y, fw, fh, fv = tryObject(c1, xp, xpMax, true)
+        local portrait1, portrait2, portrait3 = playerPortraitCandidates()
+        x, y, frameW, frameH, frameVertical = tryObject(portrait1, xp, xpMax, true)
         if not x then
-            x, y, fw, fh, fv = tryObject(c2, xp, xpMax, true)
+            x, y, frameW, frameH, frameVertical = tryObject(portrait2, xp, xpMax, true)
         end
         if not x then
-            x, y, fw, fh, fv = tryObject(c3, xp, xpMax, true)
+            x, y, frameW, frameH, frameVertical = tryObject(portrait3, xp, xpMax, true)
         end
         name = PORTRAIT_NAME
         if not x then
@@ -396,32 +394,32 @@ function Target:GetDestination(centre, portrait)
         local parsed = type(picked) == "string" and parsePick(picked) or PLAIN_PICK
         if parsed.kind == "source" then
             local sourceName
-            x, y, fw, fh, fv, sourceName = trySource(parsed.source, xp, xpMax, centre)
+            x, y, frameW, frameH, frameVertical, sourceName = trySource(parsed.source, xp, xpMax, centre)
             if x then
                 name, usedSource = sourceName, parsed.source
             end
         elseif parsed.kind == "path" then
             name = picked
-            x, y, fw, fh, fv = tryObject(resolvePath(parsed), xp, xpMax, centre)
+            x, y, frameW, frameH, frameVertical = tryObject(resolvePath(parsed), xp, xpMax, centre)
         else
             local aliasSource = type(picked) == "string" and SOURCE_BY_ID[PICK_ALIASES[picked]] or nil
             if aliasSource then
                 local sourceName
-                x, y, fw, fh, fv, sourceName = trySource(aliasSource, xp, xpMax, centre)
+                x, y, frameW, frameH, frameVertical, sourceName = trySource(aliasSource, xp, xpMax, centre)
                 if x then
                     name, usedSource, viaPick = sourceName, aliasSource, true
                 end
             end
             if not x then
                 name = picked
-                x, y, fw, fh, fv = tryFrame(name, xp, xpMax, centre)
+                x, y, frameW, frameH, frameVertical = tryFrame(name, xp, xpMax, centre)
             end
         end
     end
     if not x then
         for i = 1, #BAR_SOURCES do
             local sourceName
-            x, y, fw, fh, fv, sourceName = trySource(BAR_SOURCES[i], xp, xpMax, centre)
+            x, y, frameW, frameH, frameVertical, sourceName = trySource(BAR_SOURCES[i], xp, xpMax, centre)
             if x then
                 name, usedSource = sourceName, BAR_SOURCES[i]
                 break
@@ -431,14 +429,15 @@ function Target:GetDestination(centre, portrait)
     if not x then
         for i = 1, #BAR_FRAMES do
             name = BAR_FRAMES[i]
-            x, y, fw, fh, fv = tryFrame(name, xp, xpMax, centre)
+            x, y, frameW, frameH, frameVertical = tryFrame(name, xp, xpMax, centre)
             if x then
                 break
             end
         end
     end
     if x then
-        self.lastName, self.lastOk, self.lastW, self.lastH, self.lastVertical = name, true, fw, fh, fv == true
+        self.lastName, self.lastOk = name, true
+        self.lastW, self.lastH, self.lastVertical = frameW, frameH, frameVertical == true
         self.lastSource, self.lastSourceLabel = usedSource and usedSource.id, usedSource and usedSource.label
         self.lastSourceViaPick = viaPick == true
         x, y = OrbMath.ApplyOffset(x, y, ns.db and ns.db.glowOffsetX, ns.db and ns.db.glowOffsetY)
@@ -453,8 +452,8 @@ function Target:GetDestination(centre, portrait)
 end
 
 local function portraitOf(f)
-    local c = f.TargetFrameContainer
-    return type(c) == "table" and c.Portrait or nil
+    local container = f.TargetFrameContainer
+    return type(container) == "table" and container.Portrait or nil
 end
 
 -- Centre of a frame in UIParent space, or nil when unreadable. Visibility is NOT required: a hidden frame keeps its
@@ -464,11 +463,11 @@ local function frameCentre(f)
         return nil
     end
     local cx, cy = f:GetCenter()
-    local fs, ps = f:GetEffectiveScale(), UIParent:GetEffectiveScale()
-    if not (num(cx) and num(cy) and num(fs) and num(ps)) or ps == 0 then
+    local frameScale, parentScale = f:GetEffectiveScale(), UIParent:GetEffectiveScale()
+    if not (num(cx) and num(cy) and num(frameScale) and num(parentScale)) or parentScale == 0 then
         return nil
     end
-    return OrbMath.ToUIParent(cx, cy, fs, ps)
+    return OrbMath.ToUIParent(cx, cy, frameScale, parentScale)
 end
 
 Target.lastFrameX, Target.lastFrameY = nil, nil -- last good target-frame centre (UIParent space)
@@ -512,9 +511,9 @@ function Target:TargetPlate()
     if not (C_NamePlate and C_NamePlate.GetNamePlateForUnit) then
         return nil
     end
-    local ok, p = pcall(C_NamePlate.GetNamePlateForUnit, "target")
-    if ok and p and readable(p) and type(p) == "table" then
-        return p
+    local ok, plate = pcall(C_NamePlate.GetNamePlateForUnit, "target")
+    if ok and plate and readable(plate) and type(plate) == "table" then
+        return plate
     end
     return nil
 end
@@ -526,15 +525,16 @@ local PICK_DEPTH = 40
 local PICK_HL_STEP = 0.06 -- highlight refresh interval (about 16 Hz)
 local picking, pickElapsed, hlElapsed = false, 0, 0
 local pickFrame
-local hl, hlLabel, hlFor, hlBad -- highlight frame, its name label, the frame it covers, a frame that won't anchor
+-- the highlight frame, its name label, the frame it currently covers, and a frame that refused to anchor
+local highlight, highlightLabel, highlightFor, highlightBad
 
 local function isOurs(f)
-    local O, Opt = ns.Orbs, ns.Options
+    local Orbs, Opts = ns.Orbs, ns.Options
     return f == pickFrame
-        or f == hl
+        or f == highlight
         or f == ns.eventFrame
-        or (O ~= nil and (f == O.overlay or f == O.driver))
-        or (Opt ~= nil and f == Opt.panel)
+        or (Orbs ~= nil and (f == Orbs.overlay or f == Orbs.driver))
+        or (Opts ~= nil and f == Opts.panel)
 end
 
 -- The live nameplate frames as a set (frame -> true), or nil. Built once per call so the picker's frame scan does an
@@ -580,8 +580,8 @@ local function unsafeChain(f, plates)
         if (name and string.sub(name, 1, 9) == "NamePlate") or isPlateFrame(f, plates) or isOurs(f) then
             return true
         end
-        local okp, parent = pcall(f.GetParent, f)
-        if not okp then
+        local okParent, parent = pcall(f.GetParent, f)
+        if not okParent then
             return false
         end
         f = parent
@@ -629,8 +629,8 @@ function Target.PickName(f)
         if named and not foundName then
             foundName, foundFrame = name, f
         end
-        local okp, parent = pcall(f.GetParent, f)
-        if not okp then
+        local okParent, parent = pcall(f.GetParent, f)
+        if not okParent then
             break
         end
         f = parent
@@ -660,27 +660,27 @@ local function areaOf(f)
 end
 
 -- One candidate: returns its area when it qualifies (all filters passed, cursor over it), else nil.
-local function scanArea(f, plates, cap)
+local function scanArea(f, plates, maxArea)
     if type(f) ~= "table" or not readable(f) or f == UIParent or f == _G.WorldFrame then
         return nil
     end
-    local okf, forbidden = pcall(f.IsForbidden, f)
-    if okf and forbidden then
+    local okForbidden, forbidden = pcall(f.IsForbidden, f)
+    if okForbidden and forbidden then
         return nil
     end
     if not nameOf(f) or unsafeChain(f, plates) then
         return nil -- unnamed, or a plate / ours / under one: skipped before any geometry call
     end
-    local okv, vis = pcall(isVisible, f)
-    if not (okv and vis == true) then
+    local okVisible, vis = pcall(isVisible, f)
+    if not (okVisible and vis == true) then
         return nil
     end
     local area = areaOf(f)
-    if not area or area > cap then
+    if not area or area > maxArea then
         return nil
     end
-    local okm, over = pcall(f.IsMouseOver, f)
-    if okm and over == true then
+    local okMouseOver, over = pcall(f.IsMouseOver, f)
+    if okMouseOver and over == true then
         return area
     end
     return nil
@@ -692,12 +692,12 @@ local function scanFrames()
         return nil
     end
     Target.scanCount = Target.scanCount + 1
-    local okw, pw = pcall(UIParent.GetWidth, UIParent)
-    local okh, ph = pcall(UIParent.GetHeight, UIParent)
-    if not (okw and okh and num(pw) and num(ph)) then
+    local okWidth, screenW = pcall(UIParent.GetWidth, UIParent)
+    local okHeight, screenH = pcall(UIParent.GetHeight, UIParent)
+    if not (okWidth and okHeight and num(screenW) and num(screenH)) then
         return nil
     end
-    local cap = pw * ph * MAX_AREA_FRACTION
+    local maxArea = screenW * screenH * MAX_AREA_FRACTION
     local plates = plateList()
     local best, bestArea
     local ok, f = pcall(EnumerateFrames)
@@ -705,8 +705,8 @@ local function scanFrames()
         if not ok or f == nil then
             break
         end
-        local oka, area = pcall(scanArea, f, plates, cap)
-        if oka and area and (not bestArea or area <= bestArea) then
+        local okArea, area = pcall(scanArea, f, plates, maxArea)
+        if okArea and area and (not bestArea or area <= bestArea) then
             best, bestArea = f, area
         end
         ok, f = pcall(EnumerateFrames, f)
@@ -858,8 +858,8 @@ local function buildPathUnchecked(frame)
             end
             return nil
         end
-        local okp, parent = pcall(current.GetParent, current)
-        if not (okp and type(parent) == "table" and readable(parent)) then
+        local okParent, parent = pcall(current.GetParent, current)
+        if not (okParent and type(parent) == "table" and readable(parent)) then
             return nil
         end
         local key = keyInParent(current, parent)
@@ -960,8 +960,8 @@ end
 -- One highlight frame of ours: a translucent fill, a thin border and a name label, SetAllPoints'd onto the frame that
 -- would be picked. It never takes the mouse (EnableMouse(false)), so it can't become the mouse focus itself.
 local function ensureHighlight()
-    if hl then
-        return hl
+    if highlight then
+        return highlight
     end
     local f = CreateFrame("Frame", nil, UIParent)
     f:SetFrameStrata("TOOLTIP")
@@ -970,24 +970,24 @@ local function ensureHighlight()
     fill:SetAllPoints(f)
     fill:SetColorTexture(0.35, 0.65, 1, 0.18)
     for i = 1, 4 do
-        local e = f:CreateTexture(nil, "OVERLAY")
-        e:SetColorTexture(0.35, 0.65, 1, 0.95)
+        local edge = f:CreateTexture(nil, "OVERLAY")
+        edge:SetColorTexture(0.35, 0.65, 1, 0.95)
         if i == 1 then
-            e:SetPoint("TOPLEFT", f, "TOPLEFT", 0, 0)
-            e:SetPoint("TOPRIGHT", f, "TOPRIGHT", 0, 0)
-            e:SetHeight(2)
+            edge:SetPoint("TOPLEFT", f, "TOPLEFT", 0, 0)
+            edge:SetPoint("TOPRIGHT", f, "TOPRIGHT", 0, 0)
+            edge:SetHeight(2)
         elseif i == 2 then
-            e:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 0, 0)
-            e:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", 0, 0)
-            e:SetHeight(2)
+            edge:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 0, 0)
+            edge:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", 0, 0)
+            edge:SetHeight(2)
         elseif i == 3 then
-            e:SetPoint("TOPLEFT", f, "TOPLEFT", 0, 0)
-            e:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 0, 0)
-            e:SetWidth(2)
+            edge:SetPoint("TOPLEFT", f, "TOPLEFT", 0, 0)
+            edge:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 0, 0)
+            edge:SetWidth(2)
         else
-            e:SetPoint("TOPRIGHT", f, "TOPRIGHT", 0, 0)
-            e:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", 0, 0)
-            e:SetWidth(2)
+            edge:SetPoint("TOPRIGHT", f, "TOPRIGHT", 0, 0)
+            edge:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", 0, 0)
+            edge:SetWidth(2)
         end
     end
     local back = f:CreateTexture(nil, "ARTWORK")
@@ -998,15 +998,15 @@ local function ensureHighlight()
     back:SetPoint("TOPLEFT", label, "TOPLEFT", -3, 3)
     back:SetPoint("BOTTOMRIGHT", label, "BOTTOMRIGHT", 3, -3)
     f:Hide()
-    hl, hlLabel = f, label
+    highlight, highlightLabel = f, label
     Target.highlight = f
     return f
 end
 
 local function hideHighlight()
-    hlFor = nil
-    if hl then
-        pcall(hl.Hide, hl)
+    highlightFor = nil
+    if highlight then
+        pcall(highlight.Hide, highlight)
     end
 end
 
@@ -1025,36 +1025,36 @@ local function updateHighlight()
     end
     if not frame then
         hideHighlight()
-        hlBad = nil
+        highlightBad = nil
         return
     end
-    if frame == hlFor or frame == hlBad then
+    if frame == highlightFor or frame == highlightBad then
         return -- unchanged (or known not to anchor): nothing to do
     end
     if isPlateFrame(frame, plateList()) then
         hideHighlight() -- never anchor to a plate
-        hlBad = frame
+        highlightBad = frame
         return
     end
     ensureHighlight()
     local ok = pcall(function()
-        hl:ClearAllPoints()
-        hl:SetAllPoints(frame)
+        highlight:ClearAllPoints()
+        highlight:SetAllPoints(frame)
     end)
     if not ok then
-        hlBad = frame
+        highlightBad = frame
         hideHighlight()
         return
     end
-    hlBad, hlFor = nil, frame
-    pcall(hlLabel.SetText, hlLabel, label)
-    hl:Show()
+    highlightBad, highlightFor = nil, frame
+    pcall(highlightLabel.SetText, highlightLabel, label)
+    highlight:Show()
 end
 
 local function disarm(msg)
     picking = false
     hideHighlight()
-    hlBad = nil
+    highlightBad = nil
     scanPick, scanLabel, scanFrame = nil, nil, nil
     if pickFrame then
         pcall(pickFrame.UnregisterEvent, pickFrame, "GLOBAL_MOUSE_DOWN")

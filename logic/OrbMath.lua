@@ -26,17 +26,18 @@ function OrbMath.Count(gain, xpMax, density, cap)
     if gain <= 0 or xpMax <= 0 or cap < 1 then
         return 0, 1
     end
-    local pct = gain / xpMax * 100
-    local raw = (3 + 5 * sqrt(pct)) * density / 100
-    local n = clamp(floor(raw + 0.5), 1, cap)
+    local percentOfLevel = gain / xpMax * 100
+    local raw = (3 + 5 * sqrt(percentOfLevel)) * density / 100
+    local count = clamp(floor(raw + 0.5), 1, cap)
     local scale = 1
     if raw > cap then
         scale = min(1.5, sqrt(raw / cap))
     end
-    return n, scale
+    return count, scale
 end
 
--- Split n orbs into blue and purple by the rested share of the gain. Returns nBlue, nPurple.
+-- Split n orbs into blue and purple by the rested share of the gain (rested = the bonus XP, amount = the whole gain).
+-- Returns nBlue, nPurple.
 function OrbMath.RestedSplit(n, amount, rested)
     if type(rested) ~= "number" or type(amount) ~= "number" or amount <= 0 then
         return n, 0
@@ -69,14 +70,15 @@ function OrbMath.RestedFallback(amount, chatRested, exhDrop, exhNow)
 end
 
 -- Pop control point for orb i of n: stratified angle, radius 45..100, pushed out 2.2x and biased upward (y is up).
--- Optional spread scales the radius (default 1) and lift is the upward bias (default 0.35); the stream that follows a
--- corpse pop uses a tight spread and little lift. Returns c1x, c1y, R.
+-- (x0, y0) is the burst origin, rand() a random source in [0, 1). Optional spread scales the radius (default 1) and
+-- lift is the upward bias (default 0.35); the stream that follows a corpse pop uses a tight spread and little lift.
+-- Returns c1x, c1y (the first Bezier control point) and the radius.
 function OrbMath.PopControl(i, n, x0, y0, rand, spread, lift)
     spread = spread or 1
     lift = lift or 0.35
-    local ang = ((i - 1) + rand() * 0.8) / n * 2 * math.pi
-    local r = (45 + rand() * 55) * spread
-    return x0 + math.cos(ang) * r * 2.2, y0 + (0.8 * math.sin(ang) + lift) * r * 2.2, r
+    local angle = ((i - 1) + rand() * 0.8) / n * 2 * math.pi
+    local radius = (45 + rand() * 55) * spread
+    return x0 + math.cos(angle) * radius * 2.2, y0 + (0.8 * math.sin(angle) + lift) * radius * 2.2, radius
 end
 
 -- Unit direction the pop orbs exit along: from the estimated pop point (px, py) towards the stream origin (sx, sy).
@@ -85,25 +87,26 @@ end
 function OrbMath.ExitVector(sx, sy, px, py, tx, ty, minDist)
     minDist = minDist or 20
     local vx, vy = sx - px, sy - py
-    local d = sqrt(vx * vx + vy * vy)
-    if d >= minDist and d > 0 then
-        return vx / d, vy / d
+    local distance = sqrt(vx * vx + vy * vy)
+    if distance >= minDist and distance > 0 then
+        return vx / distance, vy / distance
     end
     vx, vy = tx - px, ty - py
-    d = sqrt(vx * vx + vy * vy)
-    if d > 1e-6 then
-        return vx / d, vy / d
+    distance = sqrt(vx * vx + vy * vy)
+    if distance > 1e-6 then
+        return vx / distance, vy / distance
     end
     return 0, 1
 end
 
--- Second control point of the pop-then-home curve: hugs the destination's x, sits 0.30 * dist0 above it.
+-- Second control point of the pop-then-home curve: hugs the destination's x, sits 0.30 * dist0 above it. (c1x, c1y) is
+-- the first control point, (dx, dy) the destination, dist0 the pop-to-destination distance.
 function OrbMath.HomeControl(c1x, c1y, dx, dy, dist0)
     return dx + (c1x - dx) * 0.15, dy + 0.30 * dist0
 end
 
 -- Pop ease: fast start (ease-out half, weight w) blended with a slow-in finish (ease-in half, weight 1 - w).
--- w defaults to 0.5 (launch slope 1.5); crossfade uses a smaller w for a gentler launch. p clamped to [0, 1].
+-- p is progress 0..1 (clamped). w defaults to 0.5 (launch slope 1.5); crossfade uses a smaller w for a gentler launch.
 function OrbMath.PopEase(p, w)
     p = clamp(p, 0, 1)
     w = w or 0.5
@@ -116,17 +119,17 @@ function OrbMath.RingAngle(i, n, rand)
     return ((((i - 1) * 0.618034) % 1) + rand() * 0.8 / n) * 2 * math.pi
 end
 
--- Cubic Bezier point at t.
+-- Cubic Bezier point at t (0..1) through control points (x0, y0) .. (x3, y3); w0..w3 are the Bernstein weights.
 function OrbMath.Cubic(t, x0, y0, x1, y1, x2, y2, x3, y3)
     local u = 1 - t
-    local a, b, c, d = u * u * u, 3 * u * u * t, 3 * u * t * t, t * t * t
-    return a * x0 + b * x1 + c * x2 + d * x3, a * y0 + b * y1 + c * y2 + d * y3
+    local w0, w1, w2, w3 = u * u * u, 3 * u * u * t, 3 * u * t * t, t * t * t
+    return w0 * x0 + w1 * x1 + w2 * x2 + w3 * x3, w0 * y0 + w1 * y1 + w2 * y2 + w3 * y3
 end
 
 -- Screen-space point (frame effective scale) -> UIParent space.
 function OrbMath.ToUIParent(x, y, frameScale, parentScale)
-    local k = frameScale / parentScale
-    return x * k, y * k
+    local ratio = frameScale / parentScale
+    return x * ratio, y * ratio
 end
 
 -- Point on the XP bar's fill edge: x at the xp fraction, y at the vertical middle.
@@ -185,12 +188,12 @@ function OrbMath.Snap(v, lo, hi, step)
 end
 
 -- Text typed into a value box -> number, or nil. Tolerates spaces and a trailing %, "px" or "s" unit.
-function OrbMath.ParseNumber(s)
-    if type(s) ~= "string" then
+function OrbMath.ParseNumber(text)
+    if type(text) ~= "string" then
         return nil
     end
-    s = s:gsub("%s+", ""):gsub("px$", ""):gsub("[%%s]+$", "")
-    return tonumber(s)
+    text = text:gsub("%s+", ""):gsub("px$", ""):gsub("[%%s]+$", "")
+    return tonumber(text)
 end
 
 -- Does value differ from its default? Numbers within 1e-4, colour tables per channel within 0.005, nil only equals
@@ -204,8 +207,9 @@ function OrbMath.Differs(value, default)
     end
     if type(value) == "table" and type(default) == "table" then
         for i = 1, max(#value, #default) do
-            local a, b = value[i], default[i]
-            if type(a) ~= "number" or type(b) ~= "number" or math.abs(a - b) > 0.005 then
+            local valueChannel, defaultChannel = value[i], default[i]
+            local bad = type(valueChannel) ~= "number" or type(defaultChannel) ~= "number"
+            if bad or math.abs(valueChannel - defaultChannel) > 0.005 then
                 return true
             end
         end
@@ -264,17 +268,18 @@ end
 -- when every point shares one x (nothing to fit a slope to). A negative slope (zooming out would push the anchor
 -- further down) is noise, so it falls back to the flat mean with b = 0.
 function OrbMath.FitZoom(points, zMin)
+    -- Running sums for the least-squares fit: n points, sx = sum x, sy = sum off, sxx = sum x^2, sxy = sum x * off.
     if type(points) ~= "table" or not finite(zMin) or zMin <= 0 then
         return nil
     end
     local n, sx, sy, sxx, sxy = 0, 0, 0, 0, 0
     local xs = {}
-    for _, p in ipairs(points) do
-        if type(p) == "table" and finite(p.z) and finite(p.off) and p.z > 0 then
-            local x = 1 / max(p.z, zMin)
+    for _, point in ipairs(points) do
+        if type(point) == "table" and finite(point.z) and finite(point.off) and point.z > 0 then
+            local x = 1 / max(point.z, zMin)
             n = n + 1
             xs[n] = x
-            sx, sy, sxx, sxy = sx + x, sy + p.off, sxx + x * x, sxy + x * p.off
+            sx, sy, sxx, sxy = sx + x, sy + point.off, sxx + x * x, sxy + x * point.off
         end
     end
     if n < 2 then

@@ -46,7 +46,7 @@ def test_bloom_then_leave_along_u_fading_out(env):
     (a,) = a_orbs(g)
     ring = a_pos(g)
     assert a.alpha == pytest.approx(1)
-    assert math.hypot(o.ax - ORIGIN[0], o.ay - ORIGIN[1]) == pytest.approx(math.hypot(*ring), abs=1e-3)
+    assert math.hypot(o.ringX - ORIGIN[0], o.ringY - ORIGIN[1]) == pytest.approx(math.hypot(*ring), abs=1e-3)
     assert 24 - 8 <= math.hypot(*ring) <= 36 + 8  # radius 24..36 plus up to 8 px of upward drift
     g.stub.tick(0.001 + LS + 0.5 * LEAVE)  # half way through the leave: q = 0.5
     (a,) = a_orbs(g)
@@ -56,7 +56,7 @@ def test_bloom_then_leave_along_u_fading_out(env):
     assert a.width == pytest.approx(g.db.size * 2.0 * 0.9, rel=0.02)  # size 1 -> 0.8
     g.stub.tick(0.5 * LEAVE + 0.002)
     assert shown_a(g) == []  # alpha 0 by the end of the leave
-    assert o.ls == pytest.approx(LS)
+    assert o.leaveStart == pytest.approx(LS)
 
 
 def test_copy_b_is_hidden_until_the_leave_plus_gap_is_over(env):
@@ -119,7 +119,7 @@ def test_unknown_origin_does_not_apply_to_crossfade(env, setting):
     fire(g, "crossfade", setting)
     (o,) = live_recs(g)
     assert g.orbs.lastUnknown is None
-    assert 16 <= math.hypot(o.ax - ORIGIN[0], o.ay - ORIGIN[1]) <= 36 + 8  # A is plate-exact (ring + drift)
+    assert 16 <= math.hypot(o.ringX - ORIGIN[0], o.ringY - ORIGIN[1]) <= 36 + 8  # A is plate-exact (ring + drift)
     settle(g)
 
 
@@ -152,7 +152,7 @@ def test_b_first_control_point_lies_ahead_along_u_within_the_jitter_band(env):
     seen = []
     for o in live_recs(g):
         d0 = math.hypot(dx - o.x0, dy - o.y0)
-        vx, vy = o.c1x - o.x0, o.c1y - o.y0
+        vx, vy = o.control1X - o.x0, o.control1Y - o.y0
         along, side = vx * ux + vy * uy, -vx * uy + vy * ux
         assert along == pytest.approx(0.4 * d0, abs=1e-6)  # no lift, no wandering: 0.4 * dist straight ahead
         assert abs(side) <= 0.1 * d0 + 1e-6
@@ -194,7 +194,7 @@ def test_b_is_always_ahead_of_where_a_vanishes_and_a_never_passes_the_bar(env, l
     ld = max(60, min(180, 0.40 * length))
     d_nominal = max(50, min(D, length - ld))
     for o in live_recs(g):
-        assert o.ld == pytest.approx(ld)
+        assert o.leaveDist == pytest.approx(ld)
         # nominal numbers along u from P-hat (ring offset and B's spread aside): A vanishes at ld, B at L - D
         b_centre = (o.y0 - (dy - length)) * (o.uy)
         assert abs(b_centre - (length - d_nominal)) <= 14 + 1e-6
@@ -209,7 +209,7 @@ def test_far_mob_keeps_the_full_leave_and_the_old_d(env):
     dx, dy = dest_of(g)
     fire(g, "crossfade", ex=dx, ey=dy - 1000, x=dx, y=dy - 1000)
     (o,) = live_recs(g)
-    assert o.ld == 180
+    assert o.leaveDist == 180
     assert abs(math.hypot(o.x0 - dx, o.y0 - dy) - D) <= 14 + 1e-6
     settle(g)
 
@@ -234,7 +234,7 @@ def test_other_styles_keep_their_own_profile(env, style):
     g = make(env)
     fire(g, style)
     (o,) = live_recs(g)
-    assert o.prof is None or not o.prof.leave
+    assert o.profile is None or not o.profile.leave
     settle(g)
 
 
@@ -244,19 +244,19 @@ def test_pop_ring_radius_birth_window_and_leave_distance(env):
     fire(g, "crossfade", n=40)
     ux, uy = unit_to_bar(g)
     recs = live_recs(g)
-    rad = [math.hypot(o.ax - ORIGIN[0], o.ay - ORIGIN[1]) for o in recs]
+    rad = [math.hypot(o.ringX - ORIGIN[0], o.ringY - ORIGIN[1]) for o in recs]
     assert min(rad) >= 24 - 8 - 1e-6 and max(rad) <= 36 + 8 + 1e-6 and max(rad) - min(rad) > 8  # 24..36, drift <= 8
     assert all(0 <= o.delay <= 0.04 + 1e-9 for o in recs)  # born within 0.04 s
-    assert all(o.hold == pytest.approx(BLOOM + o.ls + LEAVE + GAP) for o in recs)
+    assert all(o.hold == pytest.approx(BLOOM + o.leaveStart + LEAVE + GAP) for o in recs)
     # leave distance 180 px: at q = 0.5 an orb is 180 * 0.25 px along u from its ring point
-    o = max(recs, key=lambda r: r.ls)
-    t = o.delay + BLOOM + o.ls + 0.5 * LEAVE
+    o = max(recs, key=lambda r: r.leaveStart)
+    t = o.delay + BLOOM + o.leaveStart + 0.5 * LEAVE
     g.stub.tick(t)
     shown = [t_ for t_ in a_orbs(g)]
     assert shown  # still leaving at q = 0.5
     px = [pos_ for pos_ in (a_pos_of(x) for x in shown)]
     assert any(
-        abs((p[0] - (o.ax - ORIGIN[0])) * ux + (p[1] - (o.ay - ORIGIN[1])) * uy - 180 * 0.25) < 1.0 for p in px
+        abs((p[0] - (o.ringX - ORIGIN[0])) * ux + (p[1] - (o.ringY - ORIGIN[1])) * uy - 180 * 0.25) < 1.0 for p in px
     )  # 180 * q^2 at q = 0.5
     settle(g)
 

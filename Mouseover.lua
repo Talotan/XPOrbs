@@ -15,8 +15,8 @@ local function readable(v)
     return not issecretvalue or not issecretvalue(v)
 end
 
-local est = ns.MobEstimate.New({ now = GetTime })
-Mouseover.est = est
+local mobEstimate = ns.MobEstimate.New({ now = GetTime })
+Mouseover.est = mobEstimate
 
 local function num(v)
     return type(v) == "number" and readable(v)
@@ -24,26 +24,26 @@ end
 
 -- Cursor position in UIParent units, or nil, nil.
 local function cursor()
-    local okc, cx, cy = pcall(GetCursorPosition)
-    local oks, sc = pcall(UIParent.GetEffectiveScale, UIParent)
-    if okc and oks and num(cx) and num(cy) and num(sc) and sc > 0 then
-        return cx / sc, cy / sc
+    local okCursor, cursorX, cursorY = pcall(GetCursorPosition)
+    local okScale, scale = pcall(UIParent.GetEffectiveScale, UIParent)
+    if okCursor and okScale and num(cursorX) and num(cursorY) and num(scale) and scale > 0 then
+        return cursorX / scale, cursorY / scale
     end
     return nil, nil
 end
 
 local function screen()
-    local okw, w = pcall(UIParent.GetWidth, UIParent)
-    local okh, h = pcall(UIParent.GetHeight, UIParent)
-    if okw and okh and num(w) and num(h) and w > 0 and h > 0 then
-        return w, h
+    local okWidth, width = pcall(UIParent.GetWidth, UIParent)
+    local okHeight, height = pcall(UIParent.GetHeight, UIParent)
+    if okWidth and okHeight and num(width) and num(height) and width > 0 and height > 0 then
+        return width, height
     end
     return nil, nil
 end
 
 local function mouseoverExists()
-    local ok, e = pcall(UnitExists, "mouseover")
-    return ok and readable(e) and e and true or false
+    local ok, exists = pcall(UnitExists, "mouseover")
+    return ok and readable(exists) and exists and true or false
 end
 
 -- One sample attempt. Returns whether a unit is moused over (the sample itself is skipped when the GUID is secret or
@@ -52,31 +52,31 @@ local function takeSample()
     if not mouseoverExists() then
         return false
     end
-    local okG, guid = pcall(UnitGUID, "mouseover")
-    if not (okG and readable(guid) and type(guid) == "string") then
+    local okGuid, guid = pcall(UnitGUID, "mouseover")
+    if not (okGuid and readable(guid) and type(guid) == "string") then
         return true
     end
-    local okA, canAttack = pcall(UnitCanAttack, "player", "mouseover")
-    if not (okA and readable(canAttack) and canAttack == true) then
+    local okCanAttack, canAttack = pcall(UnitCanAttack, "player", "mouseover")
+    if not (okCanAttack and readable(canAttack) and canAttack == true) then
         return true
     end
-    local cx, cy = cursor()
-    if cx then
-        est:AddSample(guid, cx, cy)
+    local cursorX, cursorY = cursor()
+    if cursorX then
+        mobEstimate:AddSample(guid, cursorX, cursorY)
     end
     return true
 end
 
 local frame = CreateFrame("Frame")
 Mouseover.frame = frame
-local acc = 0
+local pollElapsed = 0
 
 local function onPoll(_, elapsed)
-    acc = acc + (elapsed or 0)
-    if acc < POLL_INTERVAL then
+    pollElapsed = pollElapsed + (elapsed or 0)
+    if pollElapsed < POLL_INTERVAL then
         return
     end
-    acc = 0
+    pollElapsed = 0
     local ok, exists = pcall(takeSample)
     if not (ok and exists) then
         frame:SetScript("OnUpdate", nil)
@@ -87,25 +87,26 @@ function Mouseover:PollActive()
     return frame:GetScript("OnUpdate") ~= nil
 end
 
--- (x, y, source, w_m) for the mob with this guid (nil = unknown) right now. Never throws; x is nil only when the
+-- (x, y, source, weight) for the mob with this guid (nil = unknown) right now. Never throws; x is nil only when the
 -- screen size is unavailable.
 function Mouseover:Estimate(guid)
-    local okS, w, h = pcall(screen)
-    if not okS then
+    local okScreen, screenW, screenH = pcall(screen)
+    if not okScreen then
         return nil, nil, "default", 0
     end
-    local okC, cx, cy = pcall(cursor)
-    if not okC then
-        cx, cy = nil, nil
+    local okCursor, cursorX, cursorY = pcall(cursor)
+    if not okCursor then
+        cursorX, cursorY = nil, nil
     end
     -- the zoom anchor puts orbs on the body, so the hovered point needs no lift towards the plate; only when the zoom
     -- is readable (Orbs.lua's zoomAnchorY otherwise leaves the frames at the head)
     local lift = ns.db and ns.db.zoomAnchor and ns.Orbs.ReadZoom() ~= nil and ns.MobEstimate.BODY_OFFSET or nil
-    local ok, x, y, source, wm = pcall(est.Estimate, est, guid, cx, cy, w, h, lift)
+    local ok, x, y, source, weight =
+        pcall(mobEstimate.Estimate, mobEstimate, guid, cursorX, cursorY, screenW, screenH, lift)
     if not ok then
         return nil, nil, "default", 0
     end
-    return x, y, source, wm
+    return x, y, source, weight
 end
 
 Mouseover.registered = pcall(frame.RegisterEvent, frame, "UPDATE_MOUSEOVER_UNIT") and true or false
@@ -120,7 +121,7 @@ frame:SetScript("OnEvent", function(_, event)
     end
     if exists then
         if not frame:GetScript("OnUpdate") then
-            acc = 0
+            pollElapsed = 0
             frame:SetScript("OnUpdate", onPoll)
         end
     elseif frame:GetScript("OnUpdate") then
@@ -129,6 +130,6 @@ frame:SetScript("OnEvent", function(_, event)
 end)
 
 table.insert(ns.statusProviders, function()
-    return string.format("mouseover: samples=%d event=%s poll=%s", est:Count(), Mouseover.registered and "yes" or "no",
-        Mouseover:PollActive() and "active" or "idle")
+    return string.format("mouseover: samples=%d event=%s poll=%s", mobEstimate:Count(),
+        Mouseover.registered and "yes" or "no", Mouseover:PollActive() and "active" or "idle")
 end)

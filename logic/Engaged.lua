@@ -23,9 +23,9 @@ end
 
 -- Drops every mark older than the window.
 function Engaged:Prune()
-    local t, window = self.now(), self.window
-    for guid, at in pairs(self.seen) do
-        if t - at > window then
+    local now, window = self.now(), self.window
+    for guid, markedAt in pairs(self.seen) do
+        if now - markedAt > window then
             self.seen[guid] = nil
             self.n = self.n - 1
         end
@@ -33,10 +33,10 @@ function Engaged:Prune()
 end
 
 local function evictOldest(self)
-    local oldestGuid, oldestAt
-    for guid, at in pairs(self.seen) do
-        if oldestAt == nil or at < oldestAt then
-            oldestGuid, oldestAt = guid, at
+    local oldestGuid, oldestMarkedAt
+    for guid, markedAt in pairs(self.seen) do
+        if oldestMarkedAt == nil or markedAt < oldestMarkedAt then
+            oldestGuid, oldestMarkedAt = guid, markedAt
         end
     end
     if oldestGuid ~= nil then
@@ -65,11 +65,11 @@ function Engaged:IsEngaged(guid)
     if type(guid) ~= "string" then
         return false
     end
-    local at = self.seen[guid]
-    if at == nil then
+    local markedAt = self.seen[guid]
+    if markedAt == nil then
         return false
     end
-    if self.now() - at > self.window then
+    if self.now() - markedAt > self.window then
         self.seen[guid] = nil
         self.n = self.n - 1
         return false

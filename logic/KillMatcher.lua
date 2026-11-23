@@ -34,22 +34,22 @@ function KillMatcher.New(cfg)
     return self
 end
 
--- d = { tier, name|nil, plate|nil, guid|nil, entry|nil }; guid and entry are opaque (passed through to the burst, never
--- logged; entry is the plate tracker's record of the dead unit)
-function KillMatcher:AddDeath(d)
+-- death = { tier, name|nil, plate|nil, guid|nil, entry|nil }; guid and entry are opaque (passed through to the burst,
+-- never logged; entry is the plate tracker's record of the dead unit)
+function KillMatcher:AddDeath(death)
     self.deaths[#self.deaths + 1] = {
-        tier = d.tier or 1,
-        name = d.name,
-        plate = d.plate,
-        guid = d.guid,
-        entry = d.entry,
+        tier = death.tier or 1,
+        name = death.name,
+        plate = death.plate,
+        guid = death.guid,
+        entry = death.entry,
         t = self.cfg.now(),
     }
 end
 
--- k = { amount, mob|nil, rested|nil }; from chat, kind="kill" only.
-function KillMatcher:AddKillXP(k)
-    self.kills[#self.kills + 1] = { amount = k.amount, mob = k.mob, rested = k.rested, t = self.cfg.now() }
+-- kill = { amount, mob|nil, rested|nil }; from chat, kind="kill" only.
+function KillMatcher:AddKillXP(kill)
+    self.kills[#self.kills + 1] = { amount = kill.amount, mob = kill.mob, rested = kill.rested, t = self.cfg.now() }
 end
 
 function KillMatcher:AddDelta(amount)
@@ -67,9 +67,14 @@ function KillMatcher:Pending()
 end
 
 function KillMatcher:Stats()
-    local s = self.stats
+    local stats = self.stats
     return {
-        tier1 = s.tier1, tier2 = s.tier2, tier4 = s.tier4, dropped = s.dropped, other = s.other, secret = s.secret,
+        tier1 = stats.tier1,
+        tier2 = stats.tier2,
+        tier4 = stats.tier4,
+        dropped = stats.dropped,
+        other = stats.other,
+        secret = stats.secret,
     }
 end
 
@@ -77,25 +82,25 @@ end
 function KillMatcher:_claim()
     local i = 1
     while i <= #self.deltas do
-        local d = self.deltas[i]
-        local hit
-        for j, o in ipairs(self.owed) do
-            if o.amount == d.amount then
+        local delta = self.deltas[i]
+        local matched
+        for j, owedKill in ipairs(self.owed) do
+            if owedKill.amount == delta.amount then
                 table.remove(self.owed, j)
-                hit = true
+                matched = true
                 break
             end
         end
-        if not hit then
-            for _, k in ipairs(self.kills) do
-                if not k.claimed and k.amount == d.amount then
-                    k.claimed = true
-                    hit = true
+        if not matched then
+            for _, kill in ipairs(self.kills) do
+                if not kill.claimed and kill.amount == delta.amount then
+                    kill.claimed = true
+                    matched = true
                     break
                 end
             end
         end
-        if hit then
+        if matched then
             table.remove(self.deltas, i)
         else
             i = i + 1
@@ -107,13 +112,13 @@ end
 -- with a different readable name is never taken (it belongs to another kill). Without a mob name: the oldest death.
 local function findDeath(deaths, mob)
     if mob ~= nil then
-        for i, d in ipairs(deaths) do
-            if d.name ~= nil and d.name == mob then
+        for i, death in ipairs(deaths) do
+            if death.name ~= nil and death.name == mob then
                 return i
             end
         end
-        for i, d in ipairs(deaths) do
-            if d.name == nil then
+        for i, death in ipairs(deaths) do
+            if death.name == nil then
                 return i
             end
         end
@@ -134,27 +139,27 @@ function KillMatcher:Poll()
 
     local i = 1
     while i <= #self.kills do
-        local k = self.kills[i]
-        local di = findDeath(self.deaths, k.mob)
+        local kill = self.kills[i]
+        local deathIndex = findDeath(self.deaths, kill.mob)
         local burst
-        if di then
-            local d = table.remove(self.deaths, di)
+        if deathIndex then
+            local death = table.remove(self.deaths, deathIndex)
             burst = {
-                plate = d.plate,
-                guid = d.guid,
-                entry = d.entry,
-                amount = k.amount,
-                rested = k.rested,
-                tier = d.tier,
+                plate = death.plate,
+                guid = death.guid,
+                entry = death.entry,
+                amount = kill.amount,
+                rested = kill.rested,
+                tier = death.tier,
                 kind = "kill",
             }
-        elseif now - k.t >= cfg.chatWait then
-            burst = { amount = k.amount, rested = k.rested, tier = 4, kind = "kill" }
+        elseif now - kill.t >= cfg.chatWait then
+            burst = { amount = kill.amount, rested = kill.rested, tier = 4, kind = "kill" }
         end
         if burst then
             table.remove(self.kills, i)
-            if not k.claimed then
-                self.owed[#self.owed + 1] = { amount = k.amount, t = now }
+            if not kill.claimed then
+                self.owed[#self.owed + 1] = { amount = kill.amount, t = now }
             end
             local key = "tier" .. burst.tier
             self.stats[key] = (self.stats[key] or 0) + 1
@@ -175,34 +180,34 @@ function KillMatcher:Poll()
     -- A marker only pairs with a death within secretTTL of it (either direction): an unrelated secret line next to a
     -- grey or tapped mob's death must not turn that death into a kill. Unpaired deaths expire below, deltas become
     -- "other".
-    local mi = 1
-    while #self.deltas > 0 and mi <= #self.secret do
-        local mt, di = self.secret[mi].t, nil
-        for j, dd in ipairs(self.deaths) do
-            if math.abs(dd.t - mt) <= cfg.secretTTL then
-                di = j
+    local markerIndex = 1
+    while #self.deltas > 0 and markerIndex <= #self.secret do
+        local markerTime, deathIndex = self.secret[markerIndex].t, nil
+        for j, queued in ipairs(self.deaths) do
+            if math.abs(queued.t - markerTime) <= cfg.secretTTL then
+                deathIndex = j
                 break
             end
         end
-        if di then
+        if deathIndex then
             local delta = table.remove(self.deltas, 1)
-            table.remove(self.secret, mi)
-            local d = table.remove(self.deaths, di) -- no name to match on: the oldest death in the window
+            table.remove(self.secret, markerIndex)
+            local death = table.remove(self.deaths, deathIndex) -- no name to match on: the oldest death in the window
             out[#out + 1] = {
-                plate = d.plate,
-                guid = d.guid,
-                entry = d.entry,
+                plate = death.plate,
+                guid = death.guid,
+                entry = death.entry,
                 amount = delta.amount,
                 rested = nil,
-                tier = d.tier,
+                tier = death.tier,
                 kind = "kill",
                 secret = true,
             }
-            local key = "tier" .. d.tier
+            local key = "tier" .. death.tier
             self.stats[key] = (self.stats[key] or 0) + 1
             self.stats.secret = self.stats.secret + 1
         else
-            mi = mi + 1
+            markerIndex = markerIndex + 1
         end
     end
 
@@ -220,11 +225,11 @@ function KillMatcher:Poll()
     -- Deltas nobody claimed are non-kill XP (quest, exploration...).
     i = 1
     while i <= #self.deltas do
-        local d = self.deltas[i]
-        if now - d.t >= cfg.deltaWait then
+        local delta = self.deltas[i]
+        if now - delta.t >= cfg.deltaWait then
             table.remove(self.deltas, i)
             self.stats.other = self.stats.other + 1
-            out[#out + 1] = { amount = d.amount, rested = nil, tier = 4, kind = "other" }
+            out[#out + 1] = { amount = delta.amount, rested = nil, tier = 4, kind = "other" }
         else
             i = i + 1
         end

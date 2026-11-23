@@ -28,15 +28,15 @@ function MobEstimate.Default(w, h, assumedY)
 end
 
 -- Which point the popstream stream starts from: the estimate P-hat whenever there is one (the pop sits at the mob, so
--- the stream starts there too), else the target frame portrait (nil if never measured). (ex, ey) = the estimate,
--- (fx, fy) = portrait centre. Returns x, y, "estimate"|"targetframe", or nil when neither applies (the caller falls
--- back to the screen centre).
-function MobEstimate.PickOrigin(ex, ey, fx, fy)
-    if type(ex) == "number" and type(ey) == "number" then
-        return ex, ey, "estimate"
+-- the stream starts there too), else the target frame portrait (nil if never measured). (estX, estY) = the estimate,
+-- (frameX, frameY) = portrait centre. Returns x, y, "estimate"|"targetframe", or nil when neither applies (the caller
+-- falls back to the screen centre).
+function MobEstimate.PickOrigin(estX, estY, frameX, frameY)
+    if type(estX) == "number" and type(estY) == "number" then
+        return estX, estY, "estimate"
     end
-    if type(fx) == "number" and type(fy) == "number" then
-        return fx, fy, "targetframe"
+    if type(frameX) == "number" and type(frameY) == "number" then
+        return frameX, frameY, "targetframe"
     end
     return nil
 end
@@ -60,8 +60,8 @@ end
 
 function MobEstimate:_prune()
     local now, limit = self.cfg.now(), self.cfg.prune
-    for guid, s in pairs(self.samples) do
-        if now - s.t > limit then
+    for guid, sample in pairs(self.samples) do
+        if now - sample.t > limit then
             self.samples[guid] = nil
             self.n = self.n - 1
         end
@@ -75,16 +75,16 @@ function MobEstimate:AddSample(guid, x, y)
         return false
     end
     self:_prune()
-    local s = self.samples[guid]
-    if s then
-        s.x, s.y, s.t = x, y, self.cfg.now()
+    local sample = self.samples[guid]
+    if sample then
+        sample.x, sample.y, sample.t = x, y, self.cfg.now()
         return true
     end
     if self.n >= self.cfg.cap then
-        local oldest, ot
-        for g, o in pairs(self.samples) do
-            if ot == nil or o.t < ot then
-                oldest, ot = g, o.t
+        local oldest, oldestTime
+        for candidateGuid, candidate in pairs(self.samples) do
+            if oldestTime == nil or candidate.t < oldestTime then
+                oldest, oldestTime = candidateGuid, candidate.t
             end
         end
         if oldest ~= nil then
@@ -109,8 +109,8 @@ function MobEstimate:Weight(age)
 end
 
 -- Estimated screen point of the mob with this guid. (cursorX, cursorY) may be nil; (w, h) is the screen size in the
--- same units. Returns x, y, source, w_m with source "mouseover" (w_m > 0) | "cursor" | "default" (nil, nil without a
--- usable screen size).
+-- same units. Returns x, y, source, sampleWeight with source "mouseover" (sampleWeight > 0) | "cursor" | "default"
+-- (nil, nil without a usable screen size). In the formula below w_m is sampleWeight:
 --   P = w_m * (sample + (0, headOffset)) + (1 - w_m) * (cursorWeight * cursor + (1 - cursorWeight) * default)
 -- headOffset defaults to HEAD_OFFSET (aim at the plate); the zoom anchor passes BODY_OFFSET (aim at the body).
 function MobEstimate:Estimate(guid, cursorX, cursorY, w, h, headOffset)
@@ -118,19 +118,23 @@ function MobEstimate:Estimate(guid, cursorX, cursorY, w, h, headOffset)
         return nil, nil, "default", 0
     end
     self:_prune()
-    local dx, dy = MobEstimate.Default(w, h)
-    local bx, by, source = dx, dy, "default"
-    local cw = self.cfg.cursorWeight
-    if cw > 0 and type(cursorX) == "number" and type(cursorY) == "number" then
-        bx, by, source = cw * cursorX + (1 - cw) * dx, cw * cursorY + (1 - cw) * dy, "cursor"
+    local defaultX, defaultY = MobEstimate.Default(w, h)
+    local baseX, baseY, source = defaultX, defaultY, "default"
+    local cursorWeight = self.cfg.cursorWeight
+    if cursorWeight > 0 and type(cursorX) == "number" and type(cursorY) == "number" then
+        baseX = cursorWeight * cursorX + (1 - cursorWeight) * defaultX
+        baseY = cursorWeight * cursorY + (1 - cursorWeight) * defaultY
+        source = "cursor"
     end
     if type(headOffset) ~= "number" then
         headOffset = MobEstimate.HEAD_OFFSET
     end
-    local s = type(guid) == "string" and self.samples[guid] or nil
-    local wm = s and self:Weight(self.cfg.now() - s.t) or 0
-    if wm > 0 then
-        return wm * s.x + (1 - wm) * bx, wm * (s.y + headOffset) + (1 - wm) * by, "mouseover", wm
+    local sample = type(guid) == "string" and self.samples[guid] or nil
+    local sampleWeight = sample and self:Weight(self.cfg.now() - sample.t) or 0
+    if sampleWeight > 0 then
+        local x = sampleWeight * sample.x + (1 - sampleWeight) * baseX
+        local y = sampleWeight * (sample.y + headOffset) + (1 - sampleWeight) * baseY
+        return x, y, "mouseover", sampleWeight
     end
-    return bx, by, source, 0
+    return baseX, baseY, source, 0
 end

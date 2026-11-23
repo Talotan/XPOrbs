@@ -36,38 +36,38 @@ function Chime:Arrive(burstKey)
     if burstKey == nil then
         return nil
     end
-    local t = self.now()
+    local now = self.now()
     local counts = self.counts
     local played = counts[burstKey] or 0
     if played >= self.perBurst then
         return nil
     end
-    local last = self.lastAt
-    if last ~= nil and t - last < self.gap then
+    local lastTime = self.lastAt
+    if lastTime ~= nil and now - lastTime < self.gap then
         return nil
     end
-    local prev = self.last
-    local n
-    if prev == 0 then
-        n = self.rand(NOTES)
-        if n ~= n or n < 1 or n > NOTES then
-            n = 1
+    local previousNote = self.last
+    local note
+    if previousNote == 0 then
+        note = self.rand(NOTES)
+        if note ~= note or note < 1 or note > NOTES then
+            note = 1
         end
     else
         -- pick among the other five notes: draw 1..5 and skip over the previous one
-        n = self.rand(NOTES - 1)
-        if n ~= n or n < 1 or n > NOTES - 1 then
-            n = 1
+        note = self.rand(NOTES - 1)
+        if note ~= note or note < 1 or note > NOTES - 1 then
+            note = 1
         end
-        if n >= prev then
-            n = n + 1
+        if note >= previousNote then
+            note = note + 1
         end
     end
-    n = n - n % 1 -- whole number even if the source returned a fraction
-    self.lastAt = t
-    self.last = n
+    note = note - note % 1 -- whole number even if the source returned a fraction
+    self.lastAt = now
+    self.last = note
     counts[burstKey] = played + 1
-    return n
+    return note
 end
 
 -- The burst has finished (all its orbs arrived or were freed): forget its counter.

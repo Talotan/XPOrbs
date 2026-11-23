@@ -53,17 +53,17 @@ end
 
 -- Re-reads the cache. Returns true when both values were readable.
 local function refreshXP()
-    local okx, xp = pcall(UnitXP, "player")
-    local okm, mx = pcall(UnitXPMax, "player")
-    local gotX = okx and num(xp) ~= nil
-    local gotM = okm and num(mx) ~= nil
-    if gotX then
+    local okXP, xp = pcall(UnitXP, "player")
+    local okMax, xpMax = pcall(UnitXPMax, "player")
+    local gotXP = okXP and num(xp) ~= nil
+    local gotMax = okMax and num(xpMax) ~= nil
+    if gotXP then
         xpCache.xp = xp
     end
-    if gotM then
-        xpCache.max = mx
+    if gotMax then
+        xpCache.max = xpMax
     end
-    return gotX and gotM
+    return gotXP and gotMax
 end
 
 -- Returns raw, state: raw = the API value for logging (nil when not rested or unreadable); state = the pool for
@@ -108,10 +108,10 @@ end
 -- Takes the XP update recorded for a kill of this amount, FIFO. Returns its drop (nil if none recorded yet).
 local function claimDrop(amount, now)
     pruneExh(now)
-    for i, e in ipairs(xpEntries) do
-        if e.amount == amount then
+    for i, entry in ipairs(xpEntries) do
+        if entry.amount == amount then
             table.remove(xpEntries, i)
-            return e.drop
+            return entry.drop
         end
     end
     awaiting[#awaiting + 1] = { amount = amount, t = now }
@@ -125,10 +125,10 @@ Kills.pollFrame = poller
 local NON_KILL_Y = 0.65 -- non-kill XP (quests etc.) streams from the screen centre, at this fraction of its height
 
 local function screenCentre(frac)
-    local okw, w = pcall(UIParent.GetWidth, UIParent)
-    local okh, h = pcall(UIParent.GetHeight, UIParent)
-    if okw and okh and num(w) and num(h) and w > 0 and h > 0 then
-        return w / 2, h * (frac or 0.65)
+    local okWidth, width = pcall(UIParent.GetWidth, UIParent)
+    local okHeight, height = pcall(UIParent.GetHeight, UIParent)
+    if okWidth and okHeight and num(width) and num(height) and width > 0 and height > 0 then
+        return width / 2, height * (frac or 0.65)
     end
     return nil, nil
 end
@@ -136,35 +136,35 @@ end
 -- Stream origin. Non-kill XP (quests etc.) always streams from the screen centre (NON_KILL_Y). Kills: every style
 -- starts at the estimate P-hat when there is one (so the label says so); without one, Popstream (Nameplate) falls back
 -- to the portrait and the others to the target frame (kept from its last good measurement). Fallback: the screen
--- centre. (ex, ey) = the kill's estimate; style = the render style (ns.RenderStyle). Returns x, y, label.
-local function chooseOrigin(b, ex, ey, style)
-    if b.kind == "kill" then
+-- centre. (estX, estY) = the kill's estimate; style = the render style (ns.RenderStyle). Returns x, y, label.
+local function chooseOrigin(burst, estX, estY, style)
+    if burst.kind == "kill" then
         if style == "popstream" then
-            local x, y, label = ns.Target:StreamOrigin(ex, ey)
+            local x, y, label = ns.Target:StreamOrigin(estX, estY)
             if x then
                 return x, y, label
             end
-        elseif style ~= "popstream" and type(ex) == "number" and type(ey) == "number" then
-            return ex, ey, "estimate"
+        elseif style ~= "popstream" and type(estX) == "number" and type(estY) == "number" then
+            return estX, estY, "estimate"
         else
-            local fx, fy = ns.Target:TargetFrameOrigin()
-            if fx then
-                return fx, fy, "targetframe"
+            local frameX, frameY = ns.Target:TargetFrameOrigin()
+            if frameX then
+                return frameX, frameY, "targetframe"
             end
         end
-        local cx, cy = screenCentre()
-        return cx, cy, "centre"
+        local centreX, centreY = screenCentre()
+        return centreX, centreY, "centre"
     end
-    local cx, cy = screenCentre(NON_KILL_Y)
-    return cx, cy, "centre"
+    local centreX, centreY = screenCentre(NON_KILL_Y)
+    return centreX, centreY, "centre"
 end
 
 -- True when a different live plate entry is anchored to this very plate frame: Blizzard reuses plate frames, so the
 -- dead mob's plate may already belong to another mob and a pop there would land on the wrong one. Identity compare only
 -- (the plate is never measured). `entry` is the dead unit's own record: it never counts as "another".
 local function plateReused(plate, entry)
-    for _, e in pairs(Plates.entries) do
-        if e ~= entry and e.plate == plate then
+    for _, other in pairs(Plates.entries) do
+        if other ~= entry and other.plate == plate then
             return true
         end
     end
@@ -182,51 +182,52 @@ local MAXLEVEL_ORBS = 6 -- orbs in the burst an engaged kill sends to the portra
 -- A burst is { tier, kind, guid, plate, entry, amount, rested } from the matcher, or (max level) a fixed orb count
 -- { tier, kind = "kill", maxlevel = true, n = N, guid, plate, entry } that has no XP behind it: no rested split, the
 -- orb count is n and the log line says kind=maxlevel amount=0.
-local function emitBurst(b)
+local function emitBurst(burst)
     local db = ns.db
-    local ex, ey, est, wm
-    if b.secret then
-        ns:Log("SECRETPAIR tier=%d amount=%s", b.tier, tostring(b.amount))
+    local estX, estY, estMethod, estWeight
+    if burst.secret then
+        ns:Log("SECRETPAIR tier=%d amount=%s", burst.tier, tostring(burst.amount))
     end
-    if b.kind == "kill" then
-        ex, ey, est, wm = ns.Mouseover:Estimate(b.guid) -- once per burst; b.guid is never logged
+    if burst.kind == "kill" then
+        -- once per burst; the guid is never logged
+        estX, estY, estMethod, estWeight = ns.Mouseover:Estimate(burst.guid)
     end
     local now = GetTime()
-    local chatRested, exhDrop = b.rested, nil
+    local chatRested, exhDrop = burst.rested, nil
     local restedAmt, restedSrc
-    if b.n then
+    if burst.n then
         restedAmt, restedSrc = nil, "none"
-    elseif b.kind == "kill" then
-        exhDrop = claimDrop(b.amount, now)
-        local rawNow = readExh()
-        restedAmt, restedSrc = OrbMath.RestedFallback(b.amount, chatRested, exhDrop, rawNow)
+    elseif burst.kind == "kill" then
+        exhDrop = claimDrop(burst.amount, now)
+        local rawExhaustion = readExh()
+        restedAmt, restedSrc = OrbMath.RestedFallback(burst.amount, chatRested, exhDrop, rawExhaustion)
     else
-        if lastOtherChat and lastOtherChat.amount == b.amount and now - lastOtherChat.t <= 1.5 then
+        if lastOtherChat and lastOtherChat.amount == burst.amount and now - lastOtherChat.t <= 1.5 then
             chatRested = lastOtherChat.rested -- quests etc.: only a chat-reported bonus counts, never the pool
             lastOtherChat = nil
         end
-        restedAmt, restedSrc = OrbMath.RestedFallback(b.amount, chatRested, nil, nil)
+        restedAmt, restedSrc = OrbMath.RestedFallback(burst.amount, chatRested, nil, nil)
     end
-    b.rested = restedAmt
+    burst.rested = restedAmt
     local style = ns.RenderStyle(db.style, db.popMode)
-    local x, y, origin = chooseOrigin(b, ex, ey, style)
+    local x, y, origin = chooseOrigin(burst, estX, estY, style)
     local plate
-    if b.kind == "kill" and style ~= "stream" and style ~= "streampop" then -- the styles that use the nameplate
-        if b.plate ~= nil then
-            if not plateReused(b.plate, b.entry) then
-                plate = b.plate
+    if burst.kind == "kill" and style ~= "stream" and style ~= "streampop" then -- the styles that use the nameplate
+        if burst.plate ~= nil then
+            if not plateReused(burst.plate, burst.entry) then
+                plate = burst.plate
             end
         elseif targetIsDead() then
             plate = ns.Target:TargetPlate()
         end
     end
-    ns:Log("BURST tier=%d kind=%s amount=%s rested=%s origin=%s plate=%s est=%s w=%.2f restedSrc=%s", b.tier,
-        b.maxlevel and "maxlevel" or tostring(b.kind), tostring(b.amount or 0), tostring(b.rested), origin,
-        plate and "yes" or "no", est or "none", wm or 0, restedSrc)
+    ns:Log("BURST tier=%d kind=%s amount=%s rested=%s origin=%s plate=%s est=%s w=%.2f restedSrc=%s", burst.tier,
+        burst.maxlevel and "maxlevel" or tostring(burst.kind), tostring(burst.amount or 0), tostring(burst.rested),
+        origin, plate and "yes" or "no", estMethod or "none", estWeight or 0, restedSrc)
     if not db.enabled or x == nil then
         return
     end
-    if b.kind ~= "kill" and not db.questBursts then
+    if burst.kind ~= "kill" and not db.questBursts then
         return
     end
     local orbs = ns.Orbs
@@ -234,17 +235,17 @@ local function emitBurst(b)
         return
     end
     local n, scale
-    if b.n then
-        n, scale = b.n, 1
+    if burst.n then
+        n, scale = burst.n, 1
     else
-        n, scale = OrbMath.Count(b.amount, xpCache.max, db.density, db.cap)
+        n, scale = OrbMath.Count(burst.amount, xpCache.max, db.density, db.cap)
     end
     if n <= 0 then
         return
     end
     local nPurple = 0
-    if not b.n and db.restedTint and b.rested then
-        local _, p = OrbMath.RestedSplit(n, b.amount, b.rested)
+    if not burst.n and db.restedTint and burst.rested then
+        local _, p = OrbMath.RestedSplit(n, burst.amount, burst.rested)
         nPurple = p
     end
     local ok, err = pcall(orbs.Burst, orbs, {
@@ -254,11 +255,11 @@ local function emitBurst(b)
         n = n,
         scale = scale,
         nPurple = nPurple,
-        kind = b.kind,
-        ex = ex,
-        ey = ey,
-        est = est,
-        estW = wm,
+        kind = burst.kind,
+        ex = estX,
+        ey = estY,
+        est = estMethod,
+        estW = estWeight,
     })
     if not ok then
         ns:Log("Orbs:Burst error %s", tostring(err))
@@ -268,15 +269,15 @@ end
 -- Hoisted so the poll creates no closure per frame. Reads the matcher's counters directly: Stats() builds a table.
 local function pollBody()
     local bursts = matcher:Poll()
-    for _, b in ipairs(bursts) do
-        emitBurst(b)
+    for _, burst in ipairs(bursts) do
+        emitBurst(burst)
     end
-    local s = matcher.stats
-    if #bursts > 0 or s.dropped ~= lastDropped then
-        lastDropped = s.dropped
+    local stats = matcher.stats
+    if #bursts > 0 or stats.dropped ~= lastDropped then
+        lastDropped = stats.dropped
         if ns.db and ns.db.debug then
-            ns:Log("STATS tier1=%d tier2=%d tier4=%d dropped=%d other=%d secret=%d pending=%d", s.tier1,
-                s.tier2, s.tier4, s.dropped, s.other, s.secret, matcher:Pending())
+            ns:Log("STATS tier1=%d tier2=%d tier4=%d dropped=%d other=%d secret=%d pending=%d", stats.tier1,
+                stats.tier2, stats.tier4, stats.dropped, stats.other, stats.secret, matcher:Pending())
         end
     end
 end
@@ -308,12 +309,12 @@ end
 
 -- True when the dead unit is the current hostile target (a long fight outlives the 10 s engaged window).
 local function isHostileTarget(guid)
-    local okg, tg = pcall(UnitGUID, "target")
-    if not (okg and readable(tg) and tg == guid) then
+    local okGuid, targetGuid = pcall(UnitGUID, "target")
+    if not (okGuid and readable(targetGuid) and targetGuid == guid) then
         return false
     end
-    local okc, can = pcall(UnitCanAttack, "player", "target")
-    return okc and readable(can) and can == true
+    local okCan, canAttack = pcall(UnitCanAttack, "player", "target")
+    return okCan and readable(canAttack) and canAttack == true
 end
 
 -- At max level the game pays no XP, so a kill can't be paired with chat: an engaged hostile's death sends a small
@@ -365,23 +366,23 @@ end
 
 local function noteChat(res)
     local now = GetTime()
-    local c = { amount = res.amount, t = now, kind = res.kind, rested = res.rested, penalty = res.penalty }
+    local chatRecord = { amount = res.amount, t = now, kind = res.kind, rested = res.rested, penalty = res.penalty }
     if pendingDelta and now - pendingDelta.t <= AMOUNT_WINDOW then
-        checkAmounts(c, pendingDelta)
+        checkAmounts(chatRecord, pendingDelta)
         pendingDelta = nil
     else
-        pendingChat = c
+        pendingChat = chatRecord
     end
 end
 
 local function noteDelta(amount)
     local now = GetTime()
-    local d = { amount = amount, t = now }
+    local deltaRecord = { amount = amount, t = now }
     if pendingChat and now - pendingChat.t <= AMOUNT_WINDOW then
-        checkAmounts(pendingChat, d)
+        checkAmounts(pendingChat, deltaRecord)
         pendingChat = nil
     else
-        pendingDelta = d
+        pendingDelta = deltaRecord
     end
 end
 
@@ -408,12 +409,12 @@ function handlers.PLAYER_TARGET_CHANGED()
     if not (ns.db and ns.db.showAtMax) then
         return
     end
-    local okc, can = pcall(UnitCanAttack, "player", "target")
-    if not (okc and readable(can) and can == true) then
+    local okCan, canAttack = pcall(UnitCanAttack, "player", "target")
+    if not (okCan and readable(canAttack) and canAttack == true) then
         return
     end
-    local okg, guid = pcall(UnitGUID, "target")
-    if okg and readable(guid) then
+    local okGuid, guid = pcall(UnitGUID, "target")
+    if okGuid and readable(guid) then
         engaged:Mark(guid)
     end
 end
@@ -425,12 +426,12 @@ function handlers.UNIT_THREAT_LIST_UPDATE(unit)
     if not (readable(unit) and type(unit) == "string" and string.sub(unit, 1, 9) == "nameplate") then
         return
     end
-    local ok, threat = pcall(UnitThreatSituation, "player", unit)
-    if not (ok and threat ~= nil and readable(threat)) then
+    local okThreat, threat = pcall(UnitThreatSituation, "player", unit)
+    if not (okThreat and threat ~= nil and readable(threat)) then
         return -- not on the threat list, or a secret value: skip
     end
-    local okg, guid = pcall(UnitGUID, unit)
-    if okg and readable(guid) then
+    local okGuid, guid = pcall(UnitGUID, unit)
+    if okGuid and readable(guid) then
         engaged:Mark(guid)
     end
 end
@@ -438,17 +439,17 @@ end
 function handlers.CHAT_MSG_COMBAT_XP_GAIN(msg)
     local isReadable = readable(msg)
     local res = isReadable and parser:Parse(msg, readable) or nil
-    local r = res or {}
+    local parsed = res or {}
     -- tail: what follows the first "experience." (no mob name in it), to see whether a bonus suffix exists
     local tail = ""
     if isReadable and type(msg) == "string" then
-        local _, e = string.find(msg, "experience.", 1, true)
-        if e then
-            tail = string.sub(msg, e + 1, e + 60)
+        local _, endPos = string.find(msg, "experience.", 1, true)
+        if endPos then
+            tail = string.sub(msg, endPos + 1, endPos + 60)
         end
     end
     ns:Log("CHAT msgReadable=%s kind=%s amount=%s rested=%s penalty=%s%s", tostring(isReadable),
-        tostring(r.kind or "none"), tostring(r.amount), tostring(r.rested), tostring(r.penalty),
+        tostring(parsed.kind or "none"), tostring(parsed.amount), tostring(parsed.rested), tostring(parsed.penalty),
         isReadable and string.format(' tail="%s"', tail) or "")
     if not isReadable then
         -- Instances: no amount or name, but one kill's XP delta follows. Mark it so it is not quest XP.
@@ -472,29 +473,29 @@ function handlers.PLAYER_XP_UPDATE(unit)
     if unit ~= nil and unit ~= "player" then
         return
     end
-    local okx, xp = pcall(UnitXP, "player")
-    local okm, mx = pcall(UnitXPMax, "player")
-    if not (okx and okm and num(xp) and num(mx)) then
+    local okXP, xp = pcall(UnitXP, "player")
+    local okMax, xpMax = pcall(UnitXPMax, "player")
+    if not (okXP and okMax and num(xp) and num(xpMax)) then
         xpStale = true -- whatever XP arrives meanwhile is unknown: the next readable update re-primes the cache
         ns:Log("XPUPDATE xpReadable=false")
         return
     end
     if xpCache.xp == nil or xpCache.max == nil then
         ns:Log("XPUPDATE no cache yet; cache primed")
-        xpCache.xp, xpCache.max = xp, mx
+        xpCache.xp, xpCache.max = xp, xpMax
         xpStale = false
         return
     end
     if xpStale then
         -- a delta across unreadable updates would merge several gains into one phantom burst
         ns:Log("XPUPDATE stale; cache primed")
-        xpCache.xp, xpCache.max = xp, mx
+        xpCache.xp, xpCache.max = xp, xpMax
         xpStale = false
         return
     end
-    local wasLeveled = OrbMath.LeveledUp(xpCache.xp, xpCache.max, xp, mx)
-    local delta = OrbMath.XPDelta(xpCache.xp, xpCache.max, xp, mx)
-    xpCache.xp, xpCache.max = xp, mx
+    local wasLeveled = OrbMath.LeveledUp(xpCache.xp, xpCache.max, xp, xpMax)
+    local delta = OrbMath.XPDelta(xpCache.xp, xpCache.max, xp, xpMax)
+    xpCache.xp, xpCache.max = xp, xpMax
     local now = GetTime()
     pruneExh(now) -- the queues must not grow while no kill claims their entries
     local rawExh, stateExh = readExh()
@@ -504,11 +505,11 @@ function handlers.PLAYER_XP_UPDATE(unit)
     end
     accumDrop = 0
     ns:Log("XPUPDATE delta=%s leveled=%s xp=%s max=%s exh=%s exhDrop=%s", tostring(delta), tostring(wasLeveled),
-        tostring(xp), tostring(mx), tostring(rawExh), tostring(drop > 0 and drop or nil))
+        tostring(xp), tostring(xpMax), tostring(rawExh), tostring(drop > 0 and drop or nil))
     if delta > 0 then
         local claimed = false
-        for i, a in ipairs(awaiting) do -- the burst was emitted before this update: it can no longer use the drop
-            if a.amount == delta and now - a.t <= DROP_TTL then
+        for i, waiting in ipairs(awaiting) do -- the burst was emitted before this update: it can no longer use the drop
+            if waiting.amount == delta and now - waiting.t <= DROP_TTL then
                 table.remove(awaiting, i)
                 claimed = true
                 break

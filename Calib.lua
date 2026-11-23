@@ -16,10 +16,10 @@ local POINTS_MAX = ns.ZOOM_POINTS_MAX
 local MARKER_SIZE = 20
 local ARM_FROM, ARM_TO = 6, 18 -- reticle arms run from here to here (px from the centre)
 
-local nudge, acc = 0, 0
+local nudge, acc = 0, 0 -- the user's nudge (px) and the OnUpdate time accumulator
 local panel, marker, readout, fitBtn
 
-local function db()
+local function settings()
     if not ns.db then
         ns:InitDB()
     end
@@ -27,9 +27,9 @@ local function db()
 end
 
 -- The offset the current settings give at this zoom (no nudge), or nil.
-local function baseOffset(z)
-    local d = db()
-    return z and OrbMath.ZoomOffset(z, d.zoomA, d.zoomB, d.zoomMin) or nil
+local function baseOffset(zoom)
+    local saved = settings()
+    return zoom and OrbMath.ZoomOffset(zoom, saved.zoomA, saved.zoomB, saved.zoomMin) or nil
 end
 
 local function fmt(v)
@@ -37,23 +37,23 @@ local function fmt(v)
 end
 
 local function refresh()
-    local z = ns.Orbs.ReadZoom()
-    local off = baseOffset(z)
+    local zoom = ns.Orbs.ReadZoom()
+    local off = baseOffset(zoom)
     local plate = nil
     if ns.Target and ns.Target.TargetPlate then
         local ok, p = pcall(ns.Target.TargetPlate, ns.Target)
         plate = ok and p or nil
     end
-    local npts = #db().zoomPoints
+    local numPoints = #settings().zoomPoints
     if readout then
-        readout:SetText(string.format("zoom %s   %s   points %d", fmt(z),
+        readout:SetText(string.format("zoom %s   %s   points %d", fmt(zoom),
             plate and ("offset " .. (off and fmt(off + nudge) or "n/a") .. " px")
-                or "target a mob with its nameplate showing", npts))
+                or "target a mob with its nameplate showing", numPoints))
     end
     if fitBtn then
-        local fn = npts >= 2 and fitBtn.Enable or fitBtn.Disable
-        if fn then
-            fn(fitBtn)
+        local setEnabled = numPoints >= 2 and fitBtn.Enable or fitBtn.Disable
+        if setEnabled then
+            setEnabled(fitBtn)
         end
     end
     if not marker then
@@ -73,6 +73,7 @@ local function refresh()
     end
 end
 
+-- Move the marker one step (shift = the big step). dir -1 = up, 1 = down.
 local function bump(dir)
     local big = IsShiftKeyDown and IsShiftKeyDown()
     nudge = nudge + dir * (big and STEP_BIG or STEP)
@@ -87,27 +88,27 @@ end
 -- Records { z, off } at the current zoom (off includes the nudge), drops the oldest beyond 8, then refits at once so
 -- the curve passes through where the marker was put (otherwise the marker snaps back and saving looks like a no-op).
 function Calib.SavePoint()
-    local z = ns.Orbs.ReadZoom()
-    local base = baseOffset(z)
+    local zoom = ns.Orbs.ReadZoom()
+    local base = baseOffset(zoom)
     if not base then
         ns.Print("camera zoom is unreadable, can't save a point")
         return false
     end
-    local d = db()
-    local pts = d.zoomPoints
+    local saved = settings()
+    local points = saved.zoomPoints
     local off = base + nudge
-    pts[#pts + 1] = { z = z, off = off }
-    while #pts > POINTS_MAX do
-        table.remove(pts, 1)
+    points[#points + 1] = { z = zoom, off = off }
+    while #points > POINTS_MAX do
+        table.remove(points, 1)
     end
-    ns.Print(string.format("saved point: zoom %s, offset %s px (%d saved)", fmt(z), fmt(off), #pts))
-    local a, b = OrbMath.FitZoom(pts, d.zoomMin)
-    if a then
-        d.zoomA, d.zoomB = clampZoom("zoomA", a), clampZoom("zoomB", b)
-        ns.Print(string.format("curve refit: a=%s b=%s (offset = a + b / zoom)", fmt(d.zoomA), fmt(d.zoomB)))
+    ns.Print(string.format("saved point: zoom %s, offset %s px (%d saved)", fmt(zoom), fmt(off), #points))
+    local fitA, fitB = OrbMath.FitZoom(points, saved.zoomMin)
+    if fitA then
+        saved.zoomA, saved.zoomB = clampZoom("zoomA", fitA), clampZoom("zoomB", fitB)
+        ns.Print(string.format("curve refit: a=%s b=%s (offset = a + b / zoom)", fmt(saved.zoomA), fmt(saved.zoomB)))
     else
         -- one usable point (or all at one zoom): keep the slope, slide the curve through the point
-        d.zoomA = clampZoom("zoomA", off - d.zoomB / math.max(z, d.zoomMin))
+        saved.zoomA = clampZoom("zoomA", off - saved.zoomB / math.max(zoom, saved.zoomMin))
     end
     nudge = 0
     refresh()
@@ -116,23 +117,23 @@ end
 
 -- Refits zoomA / zoomB to all saved points. Returns true when it saved a fit.
 function Calib.Fit()
-    local d = db()
-    local a, b = OrbMath.FitZoom(d.zoomPoints, d.zoomMin)
-    if not a then
+    local saved = settings()
+    local fitA, fitB = OrbMath.FitZoom(saved.zoomPoints, saved.zoomMin)
+    if not fitA then
         ns.Print("save points at two or more different zooms")
         return false
     end
-    d.zoomA, d.zoomB = clampZoom("zoomA", a), clampZoom("zoomB", b)
+    saved.zoomA, saved.zoomB = clampZoom("zoomA", fitA), clampZoom("zoomB", fitB)
     nudge = 0
-    ns.Print(string.format("fit saved: a=%s b=%s (offset = a + b / zoom)", fmt(d.zoomA), fmt(d.zoomB)))
+    ns.Print(string.format("fit saved: a=%s b=%s (offset = a + b / zoom)", fmt(saved.zoomA), fmt(saved.zoomB)))
     refresh()
     return true
 end
 
 function Calib.Reset()
-    local d, def = db(), ns.defaults
-    d.zoomA, d.zoomB, d.zoomMin = def.zoomA, def.zoomB, def.zoomMin
-    d.zoomPoints = {}
+    local saved, defaults = settings(), ns.defaults
+    saved.zoomA, saved.zoomB, saved.zoomMin = defaults.zoomA, defaults.zoomB, defaults.zoomMin
+    saved.zoomPoints = {}
     nudge = 0
     ns.Print("zoom calibration reset to defaults")
     refresh()
@@ -165,10 +166,12 @@ local function makeMarker()
     orb:SetAlpha(0.6)
     orb:SetSize(MARKER_SIZE, MARKER_SIZE)
     orb:SetPoint("CENTER", f, "CENTER", 0, 0)
-    local mid, len = (ARM_FROM + ARM_TO) / 2, ARM_TO - ARM_FROM
+    local armMid, armLen = (ARM_FROM + ARM_TO) / 2, ARM_TO - ARM_FROM
     f.arms = {}
     for i = 1, 4 do
-        local dx, dy = (i == 1 and mid) or (i == 2 and -mid) or 0, (i == 3 and mid) or (i == 4 and -mid) or 0
+        -- arms 1/2 sit right/left of centre, 3/4 above/below
+        local dx = (i == 1 and armMid) or (i == 2 and -armMid) or 0
+        local dy = (i == 3 and armMid) or (i == 4 and -armMid) or 0
         local horizontal = i <= 2
         for pass = 1, 2 do -- black (4 px, under) then white (2 px)
             local line = f:CreateTexture(nil, "OVERLAY", nil, pass == 1 and 1 or 2)
@@ -178,24 +181,24 @@ local function makeMarker()
                 line:SetColorTexture(1, 1, 1, 0.95)
                 f.arms[#f.arms + 1] = line
             end
-            local w = pass == 1 and 4 or 2
-            local l = len + (pass == 1 and 2 or 0)
-            line:SetSize(horizontal and l or w, horizontal and w or l)
+            local w = pass == 1 and 4 or 2 -- line thickness
+            local length = armLen + (pass == 1 and 2 or 0)
+            line:SetSize(horizontal and length or w, horizontal and w or length)
             line:SetPoint("CENTER", f, "CENTER", dx, dy)
         end
     end
     return f
 end
 
-local function tip(b, text)
-    b:SetScript("OnEnter", function(self)
+local function tip(btn, text)
+    btn:SetScript("OnEnter", function(self)
         pcall(function()
             GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
             GameTooltip:SetText(text)
             GameTooltip:Show()
         end)
     end)
-    b:SetScript("OnLeave", function()
+    btn:SetScript("OnLeave", function()
         pcall(function()
             GameTooltip:Hide()
         end)
@@ -203,14 +206,14 @@ local function tip(b, text)
 end
 
 local function button(parent, text, w, x, onClick)
-    local b = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
-    b:SetSize(w, 22)
-    b:SetPoint("BOTTOMLEFT", parent, "BOTTOMLEFT", x, 10)
-    b:SetText(text)
-    b:SetScript("OnClick", function()
+    local btn = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
+    btn:SetSize(w, 22)
+    btn:SetPoint("BOTTOMLEFT", parent, "BOTTOMLEFT", x, 10)
+    btn:SetText(text)
+    btn:SetScript("OnClick", function()
         pcall(onClick)
     end)
-    return b
+    return btn
 end
 
 local function makePanel()
@@ -297,19 +300,20 @@ end
 -- ---------------------------------------------------------------- commands and status
 
 local function zoomState()
-    local d = db()
-    local z = ns.Orbs.ReadZoom()
-    local off = baseOffset(z)
-    return string.format("zoom=%s a=%s b=%s zMin=%s camera=%s offset=%s points=%d", d.zoomAnchor and "on" or "off",
-        fmt(d.zoomA), fmt(d.zoomB), fmt(d.zoomMin), fmt(z), fmt(off), #d.zoomPoints)
+    local saved = settings()
+    local zoom = ns.Orbs.ReadZoom()
+    local off = baseOffset(zoom)
+    return string.format("zoom=%s a=%s b=%s zMin=%s camera=%s offset=%s points=%d",
+        saved.zoomAnchor and "on" or "off", fmt(saved.zoomA), fmt(saved.zoomB), fmt(saved.zoomMin), fmt(zoom),
+        fmt(off), #saved.zoomPoints)
 end
 
 function ns.commands.zoomanchor(arg)
-    local d = db()
+    local saved = settings()
     if arg == "on" then
-        d.zoomAnchor = true
+        saved.zoomAnchor = true
     elseif arg == "off" then
-        d.zoomAnchor = false
+        saved.zoomAnchor = false
     elseif arg ~= "" then
         ns.Print("usage: /xporbs zoomanchor on|off")
         return

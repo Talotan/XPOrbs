@@ -7,7 +7,7 @@ local ADDON, ns = ...
 local XPParse = {}
 ns.XPParse = XPParse
 
-local smatch, ssub, sgsub = string.match, string.sub, string.gsub
+local stringMatch, stringSub, stringGsub = string.match, string.sub, string.gsub
 
 -- Format string -> anchored pattern plus capture order.
 -- %s -> (.-), %d -> (%d+), %1$s / %2$d positional forms, %% literal. order[i] = format-argument index of capture i.
@@ -17,31 +17,31 @@ function XPParse.PatternFrom(fmt)
     end
     local out, order = { "^" }, {}
     local nextArg = 1
-    local i, n = 1, #fmt
-    while i <= n do
-        local c = ssub(fmt, i, i)
-        if c == "%" then
-            local pos, conv, after = smatch(fmt, "^(%d+)%$([sd])()", i + 1)
+    local i, length = 1, #fmt
+    while i <= length do
+        local char = stringSub(fmt, i, i)
+        if char == "%" then
+            local pos, conv, after = stringMatch(fmt, "^(%d+)%$([sd])()", i + 1)
             if not pos then
-                conv, after = smatch(fmt, "^([sd])()", i + 1)
+                conv, after = stringMatch(fmt, "^([sd])()", i + 1)
             end
             if conv then
-                local idx
+                local argIndex
                 if pos then
-                    idx = tonumber(pos)
+                    argIndex = tonumber(pos)
                 else
-                    idx = nextArg
+                    argIndex = nextArg
                     nextArg = nextArg + 1
                 end
-                order[#order + 1] = idx
+                order[#order + 1] = argIndex
                 out[#out + 1] = (conv == "s") and "(.-)" or "(%d+)"
                 i = after
             else
                 out[#out + 1] = "%%" -- "%%" (or a stray "%") is a literal percent sign
-                i = i + (ssub(fmt, i + 1, i + 1) == "%" and 2 or 1)
+                i = i + (stringSub(fmt, i + 1, i + 1) == "%" and 2 or 1)
             end
         else
-            out[#out + 1] = (sgsub(c, "%p", "%%%0"))
+            out[#out + 1] = (stringGsub(char, "%p", "%%%0"))
             i = i + 1
         end
     end
@@ -54,8 +54,8 @@ local SUFFIXES = { "", "_GROUP", "_RAID" }
 local function nameList()
     local list = {}
     local function add(base, kind, role)
-        for _, s in ipairs(SUFFIXES) do
-            list[#list + 1] = { name = "COMBATLOG_XPGAIN_" .. base .. s, kind = kind, role = role }
+        for _, suffix in ipairs(SUFFIXES) do
+            list[#list + 1] = { name = "COMBATLOG_XPGAIN_" .. base .. suffix, kind = kind, role = role }
         end
     end
     add("FIRSTPERSON", "kill", nil)
@@ -70,11 +70,11 @@ local function nameList()
 end
 
 -- "+45" / "45" -> 45. Leading sign stripped; nil when not a number.
-local function magnitude(s)
-    if type(s) ~= "string" then
+local function magnitude(text)
+    if type(text) ~= "string" then
         return nil
     end
-    return tonumber((sgsub(s, "^[+-]", "")))
+    return tonumber((stringGsub(text, "^[+-]", "")))
 end
 
 -- Build a parser from a table of globals (e.g. _G). Non-string globals are skipped, identical patterns collapse.
@@ -98,11 +98,11 @@ function XPParse.Build(globals)
             end
         end
     end
-    table.sort(entries, function(a, b)
-        if #a.pattern ~= #b.pattern then
-            return #a.pattern > #b.pattern
+    table.sort(entries, function(left, right)
+        if #left.pattern ~= #right.pattern then
+            return #left.pattern > #right.pattern
         end
-        return a.seq < b.seq
+        return left.seq < right.seq
     end)
 
     local parser = { entries = entries }
@@ -115,27 +115,27 @@ function XPParse.Build(globals)
         if readable and not readable(msg) then
             return nil
         end
-        for _, e in ipairs(self.entries) do
-            local ok, c1, c2, c3, c4, c5, c6 = pcall(smatch, msg, e.pattern)
+        for _, entry in ipairs(self.entries) do
+            local ok, c1, c2, c3, c4, c5, c6 = pcall(stringMatch, msg, entry.pattern)
             if ok and c1 ~= nil then
-                local caps = { c1, c2, c3, c4, c5, c6 }
+                local captures = { c1, c2, c3, c4, c5, c6 }
                 local args = {}
-                for ci, argIdx in ipairs(e.order) do
-                    args[argIdx] = caps[ci]
+                for captureIndex, argIdx in ipairs(entry.order) do
+                    args[argIdx] = captures[captureIndex]
                 end
-                local amountIdx = (e.kind == "kill") and 2 or 1
+                local amountIdx = (entry.kind == "kill") and 2 or 1
                 local amount = tonumber(args[amountIdx])
                 if amount then
-                    local res = { amount = amount, kind = e.kind }
-                    if e.kind == "kill" then
-                        res.mob = args[1]
+                    local result = { amount = amount, kind = entry.kind }
+                    if entry.kind == "kill" then
+                        result.mob = args[1]
                     end
-                    if e.role == "rested" then
-                        res.rested = magnitude(args[amountIdx + 1])
-                    elseif e.role == "penalty" then
-                        res.penalty = magnitude(args[amountIdx + 1])
+                    if entry.role == "rested" then
+                        result.rested = magnitude(args[amountIdx + 1])
+                    elseif entry.role == "penalty" then
+                        result.penalty = magnitude(args[amountIdx + 1])
                     end
-                    return res
+                    return result
                 end
             end
         end

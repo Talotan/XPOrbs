@@ -112,7 +112,7 @@ def test_births_within_30_ms_at_the_start_point_and_ring_radius(env):
     assert all(
         (o.px, o.py) == pytest.approx(ORIGIN) for o in recs
     )  # one centre without the unknown spread
-    rad = [math.hypot(o.ax - o.px, o.ay - o.py) for o in recs]
+    rad = [math.hypot(o.ringX - o.px, o.ringY - o.py) for o in recs]
     assert min(rad) >= 18 - 1e-6 and max(rad) <= 30 + 1e-6 and max(rad) - min(rad) > 6
     g.stub.tick(
         0.001
@@ -154,7 +154,7 @@ def test_launches_are_nearest_to_the_bar_first_over_0_2_s(env):
     dx, dy = dest_of(g)
     recs = live_recs(g)
     ordered = sorted(recs, key=lambda o: o.hold)
-    dist = [math.hypot(dx - o.ax, dy - o.ay) for o in ordered]
+    dist = [math.hypot(dx - o.ringX, dy - o.ringY) for o in ordered]
     assert dist == sorted(dist)  # nearest ring point launches first
     holds = [o.hold for o in ordered]
     assert holds[0] == pytest.approx(BLOOM) and holds[-1] - holds[0] == pytest.approx(
@@ -197,8 +197,8 @@ def test_nothing_flies_back_through_the_centre(env):
     g = make(env, fixed_random=False)
     fire(g, "streampop", n=40)
     for o in live_recs(g):
-        rx, ry = o.ax - o.px, o.ay - o.py  # outward, away from the ring centre
-        assert (o.c1x - o.x0) * rx + (o.c1y - o.y0) * ry > 0
+        rx, ry = o.ringX - o.px, o.ringY - o.py  # outward, away from the ring centre
+        assert (o.control1X - o.x0) * rx + (o.control1Y - o.y0) * ry > 0
     settle(g)
 
 
@@ -215,7 +215,7 @@ def test_unknown_origin_wide_shares_one_ellipse_centre_and_off_does_not(env):
     ex, ey = (c0[0] - ORIGIN[0]) / RX, (c0[1] - ORIGIN[1]) / RY
     assert ex**2 + ey**2 <= 1 + 1e-6  # inside the ellipse
     for o in recs:
-        assert 18 - 1e-6 <= math.hypot(o.ax - o.px, o.ay - o.py) <= 30 + 1e-6  # each ring around the shared centre
+        assert 18 - 1e-6 <= math.hypot(o.ringX - o.px, o.ringY - o.py) <= 30 + 1e-6  # each ring around the shared centre
     assert g.orbs.lastUnknown == "wide"
     settle(g)
     fire(g, "streampop", "off", n=30, est="default")
@@ -298,5 +298,5 @@ def test_other_styles_are_unchanged(env, style, result):
     )
     assert g.orbs.Burst(g.orbs, g.env.lua.table_from(opts)) == result
     if style == "stream":
-        assert all(o.hold == 0 and o.prof is None for o in live_recs(g))
+        assert all(o.hold == 0 and o.profile is None for o in live_recs(g))
     settle(g)

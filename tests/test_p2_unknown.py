@@ -217,7 +217,7 @@ def test_off_keeps_the_small_start_disc(env):
     settle(g)
     fire(g, "crossfade")
     (o,) = live_recs(g)
-    assert math.hypot(o.ax - ORIGIN[0], o.ay - ORIGIN[1]) == pytest.approx(32.5126, abs=1e-3)
+    assert math.hypot(o.ringX - ORIGIN[0], o.ringY - ORIGIN[1]) == pytest.approx(32.5126, abs=1e-3)
     settle(g)
 
 

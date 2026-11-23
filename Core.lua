@@ -1,6 +1,10 @@
 -- SPDX-License-Identifier: GPL-3.0-or-later
 local ADDON, ns = ...
 
+-- Core: loaded first. Owns the saved-variable schema (defaults, slider ranges, migration from older saves and
+-- sanitising of hand-edited ones), the debug log ring (ns:Log), the style helpers shared by the options and the
+-- kill pipeline, and the /xporbs slash command table (other files add their own entries to ns.commands).
+
 ns.defaults = {
     enabled = true,
     density = 100, -- orb multiplier in % (100 = normal), see OrbMath.Count
@@ -70,15 +74,15 @@ ns.statusProviders = {}
 local LOG_MAX = 500
 local LOG_SLACK = 100 -- the ring is trimmed back to LOG_MAX in one pass once it is this far over
 
-local function deepFill(dst, src)
-    for k, v in pairs(src) do
+local function deepFill(target, source)
+    for k, v in pairs(source) do
         if type(v) == "table" then
-            if type(dst[k]) ~= "table" then
-                dst[k] = {}
+            if type(target[k]) ~= "table" then
+                target[k] = {}
             end
-            deepFill(dst[k], v)
-        elseif dst[k] == nil then
-            dst[k] = v
+            deepFill(target[k], v)
+        elseif target[k] == nil then
+            target[k] = v
         end
     end
 end
@@ -105,34 +109,34 @@ ns.POPMODE_LABEL = { nameplate = "Nameplate", direct = "Direct" }
 -- The renderer's own style for a style name (any alias) and a popMode: "popstream" (pop on the nameplate),
 -- "streampop" (pop at the estimate, screen space), "crossfade" or "stream". Unknown names give the default.
 function ns.RenderStyle(style, popMode)
-    local a = STYLE_ALIAS[style] or STYLE_ALIAS[ns.defaults.style]
-    if a[1] ~= "popstream" then
-        return a[1]
+    local alias = STYLE_ALIAS[style] or STYLE_ALIAS[ns.defaults.style]
+    if alias[1] ~= "popstream" then
+        return alias[1]
     end
-    return (a[2] or popMode) == "direct" and "streampop" or "popstream"
+    return (alias[2] or popMode) == "direct" and "streampop" or "popstream"
 end
 
 -- Player-facing name of the db's style, e.g. "Popstream (Nameplate)" or "Direct Stream".
 function ns.StyleLabel(db)
-    local s = db.style
-    if s == "popstream" then
+    local style = db.style
+    if style == "popstream" then
         return "Popstream (" .. (ns.POPMODE_LABEL[db.popMode] or "Nameplate") .. ")"
     end
-    return ns.STYLE_LABEL[s] or tostring(s)
+    return ns.STYLE_LABEL[style] or tostring(style)
 end
 
 -- Writes a style name (any alias) into db; false when the name isn't one. Aliases that carry a popMode or the
 -- zoom-scaled spread set them.
 function ns.SetStyle(db, name)
-    local a = STYLE_ALIAS[name]
-    if not a then
+    local alias = STYLE_ALIAS[name]
+    if not alias then
         return false
     end
-    db.style = a[1]
-    if a[2] then
-        db.popMode = a[2]
+    db.style = alias[1]
+    if alias[2] then
+        db.popMode = alias[2]
     end
-    if a[3] then
+    if alias[3] then
         db.zoomSpread = true
     end
     return true
@@ -141,12 +145,12 @@ local OLD_COLOR, OLD_RESTED = { 0.35, 0.65, 1.0 }, { 0.7, 0.45, 1.0 }
 -- the 1.0.x defaults, replaced by the schema-5 ones when a save still holds them
 local V4_COLOR, V4_RESTED, V4_FLIGHT = { 0.20, 0.50, 1.00 }, { 1.0, 0.30, 0.85 }, 0.75
 
-local function sameColour(c, ref)
-    if type(c) ~= "table" then
+local function sameColour(colour, reference)
+    if type(colour) ~= "table" then
         return false
     end
     for i = 1, 3 do
-        if type(c[i]) ~= "number" or math.abs(c[i] - ref[i]) > 0.005 then
+        if type(colour[i]) ~= "number" or math.abs(colour[i] - reference[i]) > 0.005 then
             return false
         end
     end
@@ -165,8 +169,8 @@ end
 -- deepFill adds the missing keys (a stored false or an existing value is never overwritten, a missing key gets the
 -- default).
 local function migrate(db)
-    local v = type(db.version) == "number" and db.version or 0
-    if v < 2 then
+    local version = type(db.version) == "number" and db.version or 0
+    if version < 2 then
         if sameColour(db.color, OLD_COLOR) then
             db.color = nil
         end
@@ -175,12 +179,12 @@ local function migrate(db)
         end
     end
     db.probe = nil -- removed in v0.17; harmless if left behind, but there is nothing to read it
-    if v < 4 then
+    if version < 4 then
         db.origin = nil
         db.corpsePop = nil
         db.style = "popstream"
     end
-    if v < 5 then
+    if version < 5 then
         if sameColour(db.color, V4_COLOR) then
             db.color = nil
         end
@@ -191,7 +195,7 @@ local function migrate(db)
             db.flightTime = nil
         end
     end
-    if v < 6 then
+    if version < 6 then
         if db.style == "popstream" then
             db.popMode = "nameplate" -- the 1.1 popstream (a v5 save has no popMode yet)
         end
@@ -210,17 +214,17 @@ ns.ZOOM_POINTS_MAX = ZOOM_POINTS_MAX
 ns.zoomRanges = ZOOM_RANGES -- { min, max } per key; Calib.lua clamps fitted values with these
 local COLOURS = { "color", "restedColor" }
 
-local function copyColour(c)
-    return { c[1], c[2], c[3] }
+local function copyColour(colour)
+    return { colour[1], colour[2], colour[3] }
 end
 
-local function validColour(c)
-    if type(c) ~= "table" then
+local function validColour(colour)
+    if type(colour) ~= "table" then
         return false
     end
     for i = 1, 3 do
-        local v = c[i]
-        if type(v) ~= "number" or v ~= v then
+        local channel = colour[i]
+        if type(channel) ~= "number" or channel ~= channel then
             return false
         end
     end
@@ -232,26 +236,27 @@ end
 -- throws and never touches the version, the log or unknown keys.
 local function sanitize(db)
     local defaults, Snap = ns.defaults, ns.OrbMath.Snap
-    for key, r in pairs(ns.ranges) do
-        local v = Snap(db[key], r[1], r[2], r[3])
-        if v == nil then
-            v = defaults[key]
+    for key, range in pairs(ns.ranges) do
+        local value = Snap(db[key], range[1], range[2], range[3])
+        if value == nil then
+            value = defaults[key]
         end
-        db[key] = v
+        db[key] = value
     end
     for _, key in ipairs(COLOURS) do
-        local c = db[key]
-        if validColour(c) then
+        local colour = db[key]
+        if validColour(colour) then
             for i = 1, 3 do
-                c[i] = math.max(0, math.min(1, c[i]))
+                colour[i] = math.max(0, math.min(1, colour[i]))
             end
         else
             db[key] = copyColour(defaults[key])
         end
     end
     -- an old name in a schema-6 save (hand-edited, or written by an older copy) is mapped like the v6 migration
-    local st = db.style
-    if st ~= "popstream" and st ~= "crossfade" and st ~= "stream" and not ns.SetStyle(db, st) then
+    local styleName = db.style
+    local isCurrentName = styleName == "popstream" or styleName == "crossfade" or styleName == "stream"
+    if not isCurrentName and not ns.SetStyle(db, styleName) then
         db.style = defaults.style
     end
     if db.popMode ~= "nameplate" and db.popMode ~= "direct" then
@@ -281,20 +286,22 @@ local function sanitize(db)
     if db.zoomA == 10 and db.zoomB == 500 and db.zoomMin == 2 then
         db.zoomA, db.zoomB, db.zoomMin = defaults.zoomA, defaults.zoomB, defaults.zoomMin
     end
-    for key, r in pairs(ZOOM_RANGES) do
-        local v = db[key]
-        if type(v) == "number" and v == v and v ~= math.huge and v ~= -math.huge then
-            db[key] = math.max(r[1], math.min(r[2], v))
+    for key, range in pairs(ZOOM_RANGES) do
+        local value = db[key]
+        if type(value) == "number" and value == value and value ~= math.huge and value ~= -math.huge then
+            db[key] = math.max(range[1], math.min(range[2], value))
         else
             db[key] = defaults[key]
         end
     end
-    local pts, clean = db.zoomPoints, {}
-    if type(pts) == "table" then
-        for _, p in ipairs(pts) do
-            if type(p) == "table" and type(p.z) == "number" and p.z == p.z and p.z > 0 and p.z ~= math.huge
-                and type(p.off) == "number" and p.off == p.off and math.abs(p.off) ~= math.huge then
-                clean[#clean + 1] = { z = p.z, off = p.off }
+    local points, clean = db.zoomPoints, {}
+    if type(points) == "table" then
+        for _, point in ipairs(points) do
+            local zoom, offset = type(point) == "table" and point.z, type(point) == "table" and point.off
+            -- finite numbers only (x ~= x is the NaN test), zoom positive
+            if type(zoom) == "number" and zoom == zoom and zoom > 0 and zoom ~= math.huge
+                and type(offset) == "number" and offset == offset and math.abs(offset) ~= math.huge then
+                clean[#clean + 1] = { z = zoom, off = offset }
             end
         end
     end
@@ -327,11 +334,11 @@ function ns.AtMaxLevel()
     if ns.debugForceMax then
         return true
     end
-    local okl, lvl = pcall(UnitLevel, "player")
-    local okm, mx = pcall(GetMaxPlayerLevel)
-    if okl and okm and type(lvl) == "number" and type(mx) == "number"
-        and not (issecretvalue and (issecretvalue(lvl) or issecretvalue(mx))) then
-        return lvl >= mx
+    local okLevel, level = pcall(UnitLevel, "player")
+    local okMax, maxLevel = pcall(GetMaxPlayerLevel)
+    if okLevel and okMax and type(level) == "number" and type(maxLevel) == "number"
+        and not (issecretvalue and (issecretvalue(level) or issecretvalue(maxLevel))) then
+        return level >= maxLevel
     end
     return false
 end
@@ -433,17 +440,17 @@ end
 
 function commands.status()
     local db = ns.db
-    local ver = "?"
+    local version = "?"
     if C_AddOns and C_AddOns.GetAddOnMetadata then
-        local ok, v = pcall(C_AddOns.GetAddOnMetadata, ADDON, "Version")
-        if ok and v then
-            ver = v
+        local ok, versionText = pcall(C_AddOns.GetAddOnMetadata, ADDON, "Version")
+        if ok and versionText then
+            version = versionText
         end
     end
-    say("XPOrbs " .. ver .. " (db schema " .. tostring(db.version) .. "), enabled=" .. tostring(db.enabled)
+    say("XPOrbs " .. version .. " (db schema " .. tostring(db.version) .. "), enabled=" .. tostring(db.enabled)
         .. ", debug=" .. tostring(db.debug))
-    local n = type(ns.db.log) == "table" and #ns.db.log or 0
-    say("log entries: " .. n)
+    local logCount = type(ns.db.log) == "table" and #ns.db.log or 0
+    say("log entries: " .. logCount)
     for _, provider in ipairs(ns.statusProviders) do
         local ok, line = pcall(provider)
         if ok and line then
@@ -459,15 +466,15 @@ end
 -- Restore every setting to its default. The schema version, the debug flag and the log are kept.
 function commands.reset()
     local db = ns.db
-    for k in pairs(db) do
-        if k ~= "version" and k ~= "log" and k ~= "debug" and k ~= "minimap" then
-            db[k] = nil
+    for key in pairs(db) do
+        if key ~= "version" and key ~= "log" and key ~= "debug" and key ~= "minimap" then
+            db[key] = nil
         end
     end
     -- LibDBIcon holds the minimap table itself, so it is emptied in place rather than replaced
     if type(db.minimap) == "table" then
-        for k in pairs(db.minimap) do
-            db.minimap[k] = nil
+        for key in pairs(db.minimap) do
+            db.minimap[key] = nil
         end
     else
         db.minimap = nil

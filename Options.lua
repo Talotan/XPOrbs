@@ -82,7 +82,7 @@ Options.resets = {} -- key -> the per-row reset button
 Options.descs = {} -- style / popMode / "zoomSpread" -> its description FontString
 Options.CONTENT_H = CONTENT_H
 
-local function D()
+local function settings()
     if not ns.db then
         ns:InitDB()
     end
@@ -131,14 +131,14 @@ local function copyDefault(v)
     return v
 end
 
-local function hex(c)
-    if type(c) ~= "table" then
+local function hex(colour)
+    if type(colour) ~= "table" then
         return "?"
     end
-    local function b(v)
+    local function byte(v)
         return floor((tonumber(v) or 0) * 255 + 0.5)
     end
-    return string.format("#%02X%02X%02X", b(c[1]), b(c[2]), b(c[3]))
+    return string.format("#%02X%02X%02X", byte(colour[1]), byte(colour[2]), byte(colour[3]))
 end
 
 local function onOff(v)
@@ -178,14 +178,14 @@ end
 -- ---------------------------------------------------------------- building blocks
 
 local function text(parent, template, str, x, y, width)
-    local fs = parent:CreateFontString(nil, "ARTWORK", template)
-    fs:SetPoint("TOPLEFT", parent, "TOPLEFT", x, y)
-    fs:SetJustifyH("LEFT")
+    local fontString = parent:CreateFontString(nil, "ARTWORK", template)
+    fontString:SetPoint("TOPLEFT", parent, "TOPLEFT", x, y)
+    fontString:SetJustifyH("LEFT")
     if width then
-        fs:SetWidth(width)
+        fontString:SetWidth(width)
     end
-    fs:SetText(str)
-    return fs
+    fontString:SetText(str)
+    return fontString
 end
 
 -- Draws a section header at y and returns the y of its first row.
@@ -208,21 +208,21 @@ local function newRow(y, h)
 end
 
 local function label(row, str, x)
-    local fs = row:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
-    fs:SetPoint("LEFT", row, "LEFT", x, 0)
-    fs:SetJustifyH("LEFT")
-    fs:SetText(str)
-    return fs
+    local fontString = row:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+    fontString:SetPoint("LEFT", row, "LEFT", x, 0)
+    fontString:SetJustifyH("LEFT")
+    fontString:SetText(str)
+    return fontString
 end
 
-local function hideTemplateText(b)
+local function hideTemplateText(btn)
     for _, k in ipairs({ "Text", "text" }) do
-        local fs = b[k]
-        if type(fs) == "table" and fs.Hide then
-            if fs.SetText then
-                fs:SetText("")
+        local fontString = btn[k]
+        if type(fontString) == "table" and fontString.Hide then
+            if fontString.SetText then
+                fontString:SetText("")
             end
-            fs:Hide()
+            fontString:Hide()
         end
     end
 end
@@ -312,18 +312,18 @@ local function addReset(row, name, keys, describe)
         hideTip()
     end)
     btn:SetScript("OnClick", function()
-        local d = D()
+        local saved = settings()
         for _, k in ipairs(keys) do
-            d[k] = copyDefault(ns.defaults[k])
+            saved[k] = copyDefault(ns.defaults[k])
         end
         hideTip()
         Options:Refresh()
     end)
     btn:Hide() -- shown by updateResets once the db is known; it keeps its space either way
     resets[#resets + 1] = function()
-        local d, differs = D(), false
+        local saved, differs = settings(), false
         for _, k in ipairs(keys) do
-            if OrbMath.Differs(d[k], ns.defaults[k]) then
+            if OrbMath.Differs(saved[k], ns.defaults[k]) then
                 differs = true
             end
         end
@@ -348,10 +348,10 @@ local function checkbox(y, key, labelStr, opts)
     label(row, labelStr, opts.labelX or LABEL_X)
     local cb = newCheck(row, CTRL_X - 3)
     local get = opts.get or function()
-        return D()[key]
+        return settings()[key]
     end
     local set = opts.set or function(v)
-        D()[key] = v
+        settings()[key] = v
     end
     cb:SetScript("OnClick", function(self)
         set(self:GetChecked() and true or false)
@@ -377,25 +377,25 @@ local function checkbox(y, key, labelStr, opts)
 end
 
 local function newSlider(row)
-    local ok, s = pcall(CreateFrame, "Slider", nil, row, "OptionsSliderTemplate")
-    if ok and s then
-        -- the template's own title and min/max captions are replaced by our label and value text
+    local ok, sliderFrame = pcall(CreateFrame, "Slider", nil, row, "OptionsSliderTemplate")
+    if ok and sliderFrame then
+        -- the template'sliderFrame own title and min/max captions are replaced by our label and value text
         for _, k in ipairs({ "Text", "Low", "High" }) do
-            if s[k] and s[k].Hide then
-                s[k]:Hide()
+            if sliderFrame[k] and sliderFrame[k].Hide then
+                sliderFrame[k]:Hide()
             end
         end
-        return s
+        return sliderFrame
     end
-    s = CreateFrame("Slider", nil, row)
-    s:SetOrientation("HORIZONTAL")
-    s:SetThumbTexture("Interface\\Buttons\\UI-SliderBar-Button-Horizontal")
-    local bg = s:CreateTexture(nil, "BACKGROUND")
+    sliderFrame = CreateFrame("Slider", nil, row)
+    sliderFrame:SetOrientation("HORIZONTAL")
+    sliderFrame:SetThumbTexture("Interface\\Buttons\\UI-SliderBar-Button-Horizontal")
+    local bg = sliderFrame:CreateTexture(nil, "BACKGROUND")
     bg:SetColorTexture(0, 0, 0, 0.5)
-    bg:SetPoint("LEFT", s, "LEFT", 0, 0)
-    bg:SetPoint("RIGHT", s, "RIGHT", 0, 0)
+    bg:SetPoint("LEFT", sliderFrame, "LEFT", 0, 0)
+    bg:SetPoint("RIGHT", sliderFrame, "RIGHT", 0, 0)
     bg:SetHeight(6)
-    return s
+    return sliderFrame
 end
 
 -- Right-click the value to type one: an InputBoxTemplate box replaces the text; Enter or losing focus applies the
@@ -427,7 +427,7 @@ local function attachValueEdit(row, key, val, lo, hi, step, unit)
         if apply then
             local v = OrbMath.Snap(OrbMath.ParseNumber(typed), lo, hi, step)
             if v then
-                D()[key] = v
+                settings()[key] = v
             end
         end
         Options:Refresh() -- repaints the slider and the value text (the old value when the input was junk)
@@ -445,7 +445,7 @@ local function attachValueEdit(row, key, val, lo, hi, step, unit)
         if button ~= "RightButton" or editing then
             return
         end
-        local cur = D()[key]
+        local cur = settings()[key]
         if type(cur) ~= "number" then
             return
         end
@@ -480,25 +480,25 @@ local function slider(y, key, labelStr, fmt, unit, onChange)
     local lo, hi, step = ns.ranges[key][1], ns.ranges[key][2], ns.ranges[key][3]
     local row = newRow(y, 32)
     label(row, labelStr, LABEL_X)
-    local s = newSlider(row)
-    s:SetPoint("LEFT", row, "LEFT", CTRL_X, 0)
-    s:SetSize(SLIDER_W, 16)
-    s:SetMinMaxValues(lo, hi)
-    s:SetValueStep(step)
-    if s.SetObeyStepOnDrag then
-        s:SetObeyStepOnDrag(true)
+    local sliderFrame = newSlider(row)
+    sliderFrame:SetPoint("LEFT", row, "LEFT", CTRL_X, 0)
+    sliderFrame:SetSize(SLIDER_W, 16)
+    sliderFrame:SetMinMaxValues(lo, hi)
+    sliderFrame:SetValueStep(step)
+    if sliderFrame.SetObeyStepOnDrag then
+        sliderFrame:SetObeyStepOnDrag(true)
     end
     local val = row:CreateFontString(nil, "ARTWORK", "GameFontNormal")
     val:SetPoint("LEFT", row, "LEFT", VALUE_X, 0)
     val:SetJustifyH("LEFT")
-    s:SetScript("OnValueChanged", function(_, v)
+    sliderFrame:SetScript("OnValueChanged", function(_, v)
         v = OrbMath.Snap(v, lo, hi, step)
         if not v then
             return
         end
         val:SetText(string.format(fmt, v))
         if not refreshing then
-            D()[key] = v
+            settings()[key] = v
             changed()
             if onChange then
                 onChange(v)
@@ -506,100 +506,100 @@ local function slider(y, key, labelStr, fmt, unit, onChange)
         end
     end)
     refreshers[#refreshers + 1] = function()
-        local v = D()[key]
+        local v = settings()[key]
         if type(v) ~= "number" then
             return
         end
-        s:SetValue(v)
+        sliderFrame:SetValue(v)
         val:SetText(string.format(fmt, OrbMath.Snap(v, lo, hi, step) or v))
     end
     attachValueEdit(row, key, val, lo, hi, step, unit)
     addReset(row, key, { key }, function()
         return string.format(fmt, ns.defaults[key])
     end)
-    Options.controls[key] = s
+    Options.controls[key] = sliderFrame
     Options.rows[key] = row
 end
 
 -- A colour swatch at x in the row. Returns the swatch button (hidden when there is no colour picker).
 local function swatch(row, key, x)
-    local b = CreateFrame("Button", nil, row)
-    b:SetSize(22, 22)
-    b:SetPoint("LEFT", row, "LEFT", x, 0)
-    local border = b:CreateTexture(nil, "BACKGROUND")
-    border:SetAllPoints(b)
+    local swatchBtn = CreateFrame("Button", nil, row)
+    swatchBtn:SetSize(22, 22)
+    swatchBtn:SetPoint("LEFT", row, "LEFT", x, 0)
+    local border = swatchBtn:CreateTexture(nil, "BACKGROUND")
+    border:SetAllPoints(swatchBtn)
     border:SetColorTexture(0.75, 0.75, 0.75, 1)
-    local fill = b:CreateTexture(nil, "ARTWORK")
-    fill:SetPoint("TOPLEFT", b, "TOPLEFT", 2, -2)
-    fill:SetPoint("BOTTOMRIGHT", b, "BOTTOMRIGHT", -2, 2)
+    local fill = swatchBtn:CreateTexture(nil, "ARTWORK")
+    fill:SetPoint("TOPLEFT", swatchBtn, "TOPLEFT", 2, -2)
+    fill:SetPoint("BOTTOMRIGHT", swatchBtn, "BOTTOMRIGHT", -2, 2)
     local function paint()
-        local c = D()[key]
-        if type(c) == "table" then
-            fill:SetColorTexture(c[1] or 1, c[2] or 1, c[3] or 1, 1)
+        local colour = settings()[key]
+        if type(colour) == "table" then
+            fill:SetColorTexture(colour[1] or 1, colour[2] or 1, colour[3] or 1, 1)
         end
     end
-    b:SetScript("OnClick", function()
-        if b.IsEnabled and not b:IsEnabled() then
+    swatchBtn:SetScript("OnClick", function()
+        if swatchBtn.IsEnabled and not swatchBtn:IsEnabled() then
             return
         end
         if not ColorPickerFrame or not ColorPickerFrame.SetupColorPickerAndShow then
             return
         end
-        local c = D()[key]
-        local prev = { c[1], c[2], c[3] }
+        local colour = settings()[key]
+        local prev = { colour[1], colour[2], colour[3] }
         ColorPickerFrame:SetupColorPickerAndShow({
             r = prev[1],
             g = prev[2],
             b = prev[3],
             hasOpacity = false,
             swatchFunc = function()
-                local r, g, bl = ColorPickerFrame:GetColorRGB()
-                D()[key] = { r, g, bl }
+                local r, g, blue = ColorPickerFrame:GetColorRGB()
+                settings()[key] = { r, g, blue }
                 paint()
                 changed()
             end,
             cancelFunc = function()
-                D()[key] = { prev[1], prev[2], prev[3] }
+                settings()[key] = { prev[1], prev[2], prev[3] }
                 paint()
                 changed()
             end,
         })
     end)
     if not (ColorPickerFrame and ColorPickerFrame.SetupColorPickerAndShow) then
-        b:Hide()
+        swatchBtn:Hide()
     end
     refreshers[#refreshers + 1] = paint
-    Options.controls[key] = b
-    return b
+    Options.controls[key] = swatchBtn
+    return swatchBtn
 end
 
 local function button(row, str, x, w, onClick)
-    local b = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
-    b:SetSize(w, 22)
-    b:SetPoint("LEFT", row, "LEFT", x, 0)
-    b:SetText(str)
-    b:SetScript("OnClick", function()
+    local btn = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
+    btn:SetSize(w, 22)
+    btn:SetPoint("LEFT", row, "LEFT", x, 0)
+    btn:SetText(str)
+    btn:SetScript("OnClick", function()
         pcall(onClick)
     end)
-    return b
+    return btn
 end
 
 local function destinationText()
-    local d, T = D(), ns.Target
-    pcall(T.GetDestination, T)
-    local using, picked = T.lastName, d.targetFrame
-    local pickedSource = T.PickSource(picked)
+    local saved, Target = settings(), ns.Target
+    pcall(Target.GetDestination, Target)
+    local using, picked = Target.lastName, saved.targetFrame
+    local pickedSource = Target.PickSource(picked)
     if pickedSource then
-        if T.lastSource == pickedSource.id then
+        if Target.lastSource == pickedSource.id then
             return pickedSource.label .. " (picked)"
         end
         return "Picked " .. pickedSource.label .. " is unavailable; using "
             .. (using or "the bottom-centre fallback")
     end
-    if picked and T.lastSourceViaPick then
-        return picked .. " (picked; using " .. T.lastSourceLabel .. ")"
-    elseif T.lastSourceLabel and not picked then
-        return T.lastSourceLabel .. " (auto)"
+    if picked and Target.lastSourceViaPick then
+        return picked .. " (picked; using " .. Target.lastSourceLabel .. ")"
+    elseif Target.lastSourceLabel and not picked then
+        return Target.lastSourceLabel .. " (auto)"
     elseif picked and using == picked then
         return picked .. " (picked)"
     elseif picked then
@@ -610,7 +610,7 @@ end
 
 -- Radio click: store the value, then repaint (this is also what re-ticks a radio the user clicked while selected).
 local function radioClick(key, v)
-    D()[key] = v
+    settings()[key] = v
     Options:Refresh()
 end
 
@@ -622,52 +622,52 @@ local function soundVoiceRow(y)
     Options.rows.soundVoice = row
     label(row, "Sound", 48)
     local function pick(v)
-        D().soundVoice = v
+        settings().soundVoice = v
         if ns.Orbs and ns.Orbs.PreviewSound then
             pcall(ns.Orbs.PreviewSound, ns.Orbs, v)
         end
         Options:Refresh()
     end
-    local dd
+    local dropdown
     local okMenu = pcall(function()
-        dd = CreateFrame("DropdownButton", nil, row, "WowStyle1DropdownTemplate")
-        dd:SetPoint("LEFT", row, "LEFT", CTRL_X, 0)
-        dd:SetSize(150, 26)
-        dd:SetupMenu(function(_, root)
+        dropdown = CreateFrame("DropdownButton", nil, row, "WowStyle1DropdownTemplate")
+        dropdown:SetPoint("LEFT", row, "LEFT", CTRL_X, 0)
+        dropdown:SetSize(150, 26)
+        dropdown:SetupMenu(function(_, root)
             for _, v in ipairs(VOICES) do
                 root:CreateRadio(VOICE_NAME[v], function()
-                    return D().soundVoice == v
+                    return settings().soundVoice == v
                 end, function()
                     pick(v)
                 end)
             end
         end)
     end)
-    if okMenu and dd then
-        Options.soundDropdown = dd
-        Options.controls.soundVoice = dd
+    if okMenu and dropdown then
+        Options.soundDropdown = dropdown
+        Options.controls.soundVoice = dropdown
         refreshers[#refreshers + 1] = function()
-            if dd.GenerateMenu then
-                dd:GenerateMenu()
+            if dropdown.GenerateMenu then
+                dropdown:GenerateMenu()
             end
         end
     else
-        if dd then
-            pcall(dd.Hide, dd) -- a half-built dropdown must not sit over the radios
+        if dropdown then
+            pcall(dropdown.Hide, dropdown) -- a half-built dropdown must not sit over the radios
         end
         Options.soundDropdown = nil
-        local btns = {}
+        local radioBtns = {}
         for i, v in ipairs(VOICES) do
-            local rb = newRadio(row, CTRL_X + (i - 1) * 100, VOICE_NAME[v])
-            rb:SetScript("OnClick", function()
+            local radio = newRadio(row, CTRL_X + (i - 1) * 100, VOICE_NAME[v])
+            radio:SetScript("OnClick", function()
                 pick(v)
             end)
-            btns[i] = rb
-            Options.controls["soundVoice_" .. v] = rb
+            radioBtns[i] = radio
+            Options.controls["soundVoice_" .. v] = radio
         end
         refreshers[#refreshers + 1] = function()
             for i, v in ipairs(VOICES) do
-                btns[i]:SetChecked(D().soundVoice == v)
+                radioBtns[i]:SetChecked(settings().soundVoice == v)
             end
         end
     end
@@ -687,7 +687,7 @@ local function previewVolume()
     end
     lastVolumeSample = now
     if ns.Orbs and ns.Orbs.PreviewSound then
-        pcall(ns.Orbs.PreviewSound, ns.Orbs, D().soundVoice)
+        pcall(ns.Orbs.PreviewSound, ns.Orbs, settings().soundVoice)
     end
 end
 
@@ -773,18 +773,18 @@ local function build()
     slider(y, "soundVolume", "Chime volume", "%d%%", "%", previewVolume)
     -- dimmed with the chime off but left enabled (no controls passed), so a volume can still be auditioned and set
     postRefresh[#postRefresh + 1] = function()
-        setDim(Options.rows.soundVolume, {}, D().sound == true)
+        setDim(Options.rows.soundVolume, {}, settings().sound == true)
     end
     y = y + 32
     checkbox(y, "minimap", "Show minimap button", {
         get = function()
-            return not D().minimap.hide
+            return not settings().minimap.hide
         end,
         set = function(v)
             if ns.Minimap then
                 ns.Minimap.SetShown(v)
             else
-                D().minimap.hide = not v
+                settings().minimap.hide = not v
             end
         end,
     })
@@ -802,86 +802,86 @@ local function build()
     end
 
     -- Orb colour: swatch + "Class colour" checkbox; one reset button resets both
-    local crow = newRow(y, 28)
-    Options.rows.color = crow
-    local clabel = label(crow, "Orb colour", LABEL_X)
-    local sw = swatch(crow, "color", CTRL_X)
-    local ccb = newCheck(crow, 297)
-    label(crow, "Class colour", 297 + 24 + 2)
-    ccb:SetScript("OnClick", function(self)
-        D().classColor = self:GetChecked() and true or false
+    local colourRow = newRow(y, 28)
+    Options.rows.color = colourRow
+    local colourLabel = label(colourRow, "Orb colour", LABEL_X)
+    local swatchBtn = swatch(colourRow, "color", CTRL_X)
+    local classColourCheck = newCheck(colourRow, 297)
+    label(colourRow, "Class colour", 297 + 24 + 2)
+    classColourCheck:SetScript("OnClick", function(self)
+        settings().classColor = self:GetChecked() and true or false
         changed()
     end)
     refreshers[#refreshers + 1] = function()
-        ccb:SetChecked(D().classColor and true or false)
+        classColourCheck:SetChecked(settings().classColor and true or false)
     end
-    Options.controls.classColor = ccb
-    addReset(crow, "color", { "color", "classColor" }, function()
+    Options.controls.classColor = classColourCheck
+    addReset(colourRow, "color", { "color", "classColor" }, function()
         return hex(ns.defaults.color) .. ", class colour " .. onOff(ns.defaults.classColor)
     end)
     postRefresh[#postRefresh + 1] = function()
-        local on = not D().classColor
-        enable(sw, on)
-        sw:SetAlpha(on and 1 or SWATCH_OFF_ALPHA)
+        local on = not settings().classColor
+        enable(swatchBtn, on)
+        swatchBtn:SetAlpha(on and 1 or SWATCH_OFF_ALPHA)
     end
-    if not sw:IsShown() then
-        clabel:Hide() -- no colour picker on this client: the colour can't be edited, class colour still works
+    if not swatchBtn:IsShown() then
+        colourLabel:Hide() -- no colour picker on this client: the colour can't be edited, class colour still works
     end
 
     y = y + 28
     checkbox(y, "restedTint", "Rested tint")
     y = y + 28
-    local rrow = newRow(y, 28)
-    Options.rows.restedColor = rrow
-    local rlabel = label(rrow, "Rested colour", 48)
-    local rsw = swatch(rrow, "restedColor", CTRL_X)
-    addReset(rrow, "restedColor", { "restedColor" }, function()
+    local restedRow = newRow(y, 28)
+    Options.rows.restedColor = restedRow
+    local restedLabel = label(restedRow, "Rested colour", 48)
+    local restedSwatch = swatch(restedRow, "restedColor", CTRL_X)
+    addReset(restedRow, "restedColor", { "restedColor" }, function()
         return hex(ns.defaults.restedColor)
     end)
-    if not rsw:IsShown() then
-        rlabel:Hide()
+    if not restedSwatch:IsShown() then
+        restedLabel:Hide()
     end
     postRefresh[#postRefresh + 1] = function()
-        setDim(rrow, { rsw }, D().restedTint)
+        setDim(restedRow, { restedSwatch }, settings().restedTint)
     end
 
     y = y + 28
     -- "Arrival": the shape and offsets decide where orbs land even with the glow off
     y = header("Arrival", y + 14)
-    local shrow = newRow(y, 24)
-    Options.rows.glowShape = shrow
-    label(shrow, "Target frame shape", LABEL_X)
+    local shapeRow = newRow(y, 24)
+    Options.rows.glowShape = shapeRow
+    label(shapeRow, "Target frame shape", LABEL_X)
     local shapeBtns = {}
     for i, sh in ipairs(SHAPES) do
         local x = CTRL_X + (i - 1) * SHAPE_SPACING
-        local rb = newRadio(shrow, x, SHAPE_NAME[sh])
-        rb:SetScript("OnClick", function()
+        local radio = newRadio(shapeRow, x, SHAPE_NAME[sh])
+        radio:SetScript("OnClick", function()
             radioClick("glowShape", sh)
         end)
-        shapeBtns[#shapeBtns + 1] = rb
-        Options.controls["glowShape_" .. sh] = rb
+        shapeBtns[#shapeBtns + 1] = radio
+        Options.controls["glowShape_" .. sh] = radio
     end
     refreshers[#refreshers + 1] = function()
-        local cur = D().glowShape
+        local cur = settings().glowShape
         for i, sh in ipairs(SHAPES) do
             shapeBtns[i]:SetChecked(cur == sh)
         end
     end
-    addReset(shrow, "glowShape", { "glowShape" }, function()
+    addReset(shapeRow, "glowShape", { "glowShape" }, function()
         return SHAPE_NAME[ns.defaults.glowShape] or tostring(ns.defaults.glowShape)
     end)
     y = y + 26
-    local sdrow = newRow(y, 84)
-    Options.rows.glowShapeDesc = sdrow
-    local sd = sdrow:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
-    sd:SetPoint("TOPLEFT", sdrow, "TOPLEFT", CTRL_X, 0)
-    sd:SetWidth(280)
-    pcall(sd.SetSpacing, sd, 2)
-    sd:SetJustifyH("LEFT")
-    sd:SetWordWrap(true)
-    sd:SetTextColor(GREY, GREY, GREY)
-    sd:SetText(SHAPE_DESC)
-    Options.shapeDesc = sd
+    local shapeDescRow = newRow(y, 84)
+    Options.rows.glowShapeDesc = shapeDescRow
+    local shapeDescText = shapeDescRow:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+    shapeDescText:SetPoint("TOPLEFT", shapeDescRow, "TOPLEFT", CTRL_X, 0)
+    shapeDescText:SetWidth(280)
+    pcall(shapeDescText.SetSpacing, shapeDescText, 2)
+    shapeDescText:SetJustifyH("LEFT")
+    shapeDescText:SetWordWrap(true)
+    shapeDescText:SetTextColor(GREY, GREY, GREY)
+    shapeDescText:SetText(SHAPE_DESC)
+    Options.shapeDesc = shapeDescText
 
     -- the shape and offsets describe the target frame, so they stay live with Show glow off; only the intensity dims
     y = y + 90
@@ -889,15 +889,15 @@ local function build()
     y = y + 32
     slider(y, "glowOffsetY", "Target offset Y", "%d px", " px")
     y = y + 36
-    local od = text(child, "GameFontHighlight", OFFSET_DESC, LABEL_X, -y, 490)
-    od:SetTextColor(GREY, GREY, GREY)
-    Options.offsetDesc = od
+    local offsetDescText = text(child, "GameFontHighlight", OFFSET_DESC, LABEL_X, -y, 490)
+    offsetDescText:SetTextColor(GREY, GREY, GREY)
+    Options.offsetDesc = offsetDescText
     y = y + 22
     checkbox(y, "glow", "Show glow")
     y = y + 28
     slider(y, "glowIntensity", "Glow intensity", "%d%%", "%")
     postRefresh[#postRefresh + 1] = function()
-        setDim(Options.rows.glowIntensity, { Options.controls.glowIntensity }, D().glow ~= false)
+        setDim(Options.rows.glowIntensity, { Options.controls.glowIntensity }, settings().glow ~= false)
     end
     y = y + 32
 
@@ -914,13 +914,13 @@ local function build()
     end
     local function styleRadio(st, ry)
         local row = newRow(ry, 24)
-        local rb = newRadio(row, LABEL_X, STYLE_NAME[st])
-        rb:SetScript("OnClick", function()
+        local radio = newRadio(row, LABEL_X, STYLE_NAME[st])
+        radio:SetScript("OnClick", function()
             radioClick("style", st)
         end)
-        tipOn(rb, STYLE_NAME[st], STYLE_TIP[st])
-        radios[st] = rb
-        Options.controls["style_" .. st] = rb
+        tipOn(radio, STYLE_NAME[st], STYLE_TIP[st])
+        radios[st] = radio
+        Options.controls["style_" .. st] = radio
         Options.rows["style_" .. st] = row
         local desc = text(child, "GameFontHighlight", STYLE_DESC[st], LABEL_X + 24, -(ry + 24), 490)
         desc:SetTextColor(GREY, GREY, GREY)
@@ -934,14 +934,14 @@ local function build()
     for i, pm in ipairs(POPMODES) do
         local ry = y + i * 42
         local row = newRow(ry, 24)
-        local rb = newRadio(row, LABEL_X + 24, POPMODE_NAME[pm])
-        rb:SetScript("OnClick", function()
-            D().style = "popstream" -- a sub-choice only means something under Popstream
+        local radio = newRadio(row, LABEL_X + 24, POPMODE_NAME[pm])
+        radio:SetScript("OnClick", function()
+            settings().style = "popstream" -- a sub-choice only means something under Popstream
             radioClick("popMode", pm)
         end)
-        tipOn(rb, "Popstream (" .. ns.POPMODE_LABEL[pm] .. ")", POPMODE_TIP[pm])
-        subs[pm] = rb
-        Options.controls["popMode_" .. pm] = rb
+        tipOn(radio, "Popstream (" .. ns.POPMODE_LABEL[pm] .. ")", POPMODE_TIP[pm])
+        subs[pm] = radio
+        Options.controls["popMode_" .. pm] = radio
         Options.rows["popMode_" .. pm] = row
         local desc = text(child, "GameFontHighlight", POPMODE_DESC[pm], LABEL_X + 48, -(ry + 24), 466)
         desc:SetTextColor(GREY, GREY, GREY)
@@ -950,12 +950,12 @@ local function build()
     styleRadio("crossfade", y + 136)
     styleRadio("stream", y + 182)
     refreshers[#refreshers + 1] = function()
-        local d = D()
+        local saved = settings()
         for _, st in ipairs(STYLES) do
-            radios[st]:SetChecked(d.style == st)
+            radios[st]:SetChecked(saved.style == st)
         end
         for _, pm in ipairs(POPMODES) do
-            subs[pm]:SetChecked(d.popMode == pm)
+            subs[pm]:SetChecked(saved.popMode == pm)
         end
     end
     -- Zoom-scaled spread (db.zoomSpread, /xporbs wide): applies to every style, so it never dims. The unknown-position
@@ -963,12 +963,12 @@ local function build()
     y = y + 238
     local _, scb = checkbox(y, "zoomSpread", "Zoom-scaled spread")
     tipOn(scb, "Zoom-scaled spread", SPREAD_TIP)
-    local sd = text(child, "GameFontHighlight", SPREAD_DESC, LABEL_X, -(y + 28), 490)
-    sd:SetWordWrap(true)
-    sd:SetTextColor(GREY, GREY, GREY)
-    Options.descs.zoomSpread = sd
+    local spreadDescText = text(child, "GameFontHighlight", SPREAD_DESC, LABEL_X, -(y + 28), 490)
+    spreadDescText:SetWordWrap(true)
+    spreadDescText:SetTextColor(GREY, GREY, GREY)
+    Options.descs.zoomSpread = spreadDescText
     postRefresh[#postRefresh + 1] = function()
-        local on = D().style == "popstream"
+        local on = settings().style == "popstream"
         for _, pm in ipairs(POPMODES) do
             -- dimmed but still clickable: picking one also picks Popstream
             Options.rows["popMode_" .. pm]:SetAlpha(on and 1 or DIM)
@@ -977,30 +977,30 @@ local function build()
     end
 
     y = header("XP bar", y + 28 + 50)
-    local drow = newRow(y, 36)
-    Options.rows.targetFrame = drow
-    label(drow, "XP bar frame", LABEL_X)
-    local dest = drow:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
-    dest:SetPoint("LEFT", drow, "LEFT", CTRL_X, 0)
+    local destRow = newRow(y, 36)
+    Options.rows.targetFrame = destRow
+    label(destRow, "XP bar frame", LABEL_X)
+    local dest = destRow:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+    dest:SetPoint("LEFT", destRow, "LEFT", CTRL_X, 0)
     dest:SetWidth(280)
     dest:SetJustifyH("LEFT")
     dest:SetWordWrap(true)
     refreshers[#refreshers + 1] = function()
         dest:SetText(destinationText())
     end
-    addReset(drow, "targetFrame", { "targetFrame" }, function()
+    addReset(destRow, "targetFrame", { "targetFrame" }, function()
         return "auto-detect"
     end)
     y = y + 36
-    local pkrow = newRow(y, 30)
-    button(pkrow, "Pick XP bar frame", CTRL_X, 150, function()
+    local pickRow = newRow(y, 30)
+    button(pickRow, "Pick XP bar frame", CTRL_X, 150, function()
         ns.commands.pick("")
     end)
 
-    local ph = text(child, "GameFontHighlight", PICK_HINT, LABEL_X, -(y + 34), 520)
-    ph:SetWordWrap(true)
-    ph:SetTextColor(GREY, GREY, GREY)
-    Options.pickHint = ph
+    local pickHintText = text(child, "GameFontHighlight", PICK_HINT, LABEL_X, -(y + 34), 520)
+    pickHintText:SetWordWrap(true)
+    pickHintText:SetTextColor(GREY, GREY, GREY)
+    Options.pickHint = pickHintText
 
     y = header("Advanced", y + 34 + 28 + 14)
     checkbox(y, "debug", "Debug log")
@@ -1021,7 +1021,7 @@ local function build()
     test:SetText("Test burst")
     test:SetScript("OnClick", function()
         -- the same orbs a kill would make: rested ones too when Rested tint is on
-        pcall(ns.commands.test, D().restedTint and "5 rested" or "5")
+        pcall(ns.commands.test, settings().restedTint and "5 rested" or "5")
     end)
     local resetAll = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
     resetAll:SetSize(160, 22)

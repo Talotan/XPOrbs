@@ -45,14 +45,14 @@ end
 
 local retry = CreateFrame("Frame")
 Plates.retryFrame = retry
-local acc = 0
+local retryElapsed = 0
 
 local onRetry
 
 -- GUIDs can become readable once combat ends, so a hostile plate without one is asked again until it has one.
 local function needsRetry()
-    for _, e in pairs(entries) do
-        if e.hostile and e.guid == nil then
+    for _, entry in pairs(entries) do
+        if entry.hostile and entry.guid == nil then
             return true
         end
     end
@@ -60,21 +60,21 @@ local function needsRetry()
 end
 
 function onRetry(_, elapsed)
-    acc = acc + (elapsed or 0)
-    if acc < RETRY_INTERVAL then
+    retryElapsed = retryElapsed + (elapsed or 0)
+    if retryElapsed < RETRY_INTERVAL then
         return
     end
-    acc = 0
-    for _, e in pairs(entries) do
-        if e.hostile and e.guid == nil then
-            e.guid = readString(UnitGUID, e.unit)
-            if e.name == nil then
-                e.name = readString(UnitName, e.unit)
+    retryElapsed = 0
+    for _, entry in pairs(entries) do
+        if entry.hostile and entry.guid == nil then
+            entry.guid = readString(UnitGUID, entry.unit)
+            if entry.name == nil then
+                entry.name = readString(UnitName, entry.unit)
             end
-            if not e.plate and C_NamePlate and C_NamePlate.GetNamePlateForUnit then
-                local ok, p = pcall(C_NamePlate.GetNamePlateForUnit, e.unit) -- the plate can arrive late
-                if ok and p and readable(p) then
-                    e.plate = p
+            if not entry.plate and C_NamePlate and C_NamePlate.GetNamePlateForUnit then
+                local ok, newPlate = pcall(C_NamePlate.GetNamePlateForUnit, entry.unit) -- the plate can arrive late
+                if ok and newPlate and readable(newPlate) then
+                    entry.plate = newPlate
                 end
             end
         end
@@ -87,7 +87,7 @@ end
 local function updateRetry()
     if needsRetry() then
         if not retry:GetScript("OnUpdate") then
-            acc = 0
+            retryElapsed = 0
             retry:SetScript("OnUpdate", onRetry)
         end
     elseif retry:GetScript("OnUpdate") then
@@ -118,20 +118,20 @@ local function onAdded(unit)
     end
     local plate
     if C_NamePlate and C_NamePlate.GetNamePlateForUnit then
-        local ok, p = pcall(C_NamePlate.GetNamePlateForUnit, unit)
-        if ok and readable(p) then
-            plate = p
+        local ok, foundPlate = pcall(C_NamePlate.GetNamePlateForUnit, unit)
+        if ok and readable(foundPlate) then
+            plate = foundPlate
         end
     end
     local hostile = true -- unknown counts as hostile
-    local okH, canAttack = pcall(UnitCanAttack, "player", unit)
-    if okH and readable(canAttack) then
+    local okCanAttack, canAttack = pcall(UnitCanAttack, "player", unit)
+    if okCanAttack and readable(canAttack) then
         hostile = canAttack and true or false
     end
     if plate and ns.Orbs and ns.Orbs.PlateReused then
-        local okR, errR = pcall(ns.Orbs.PlateReused, ns.Orbs, plate)
-        if not okR then
-            ns:Log("PlateReused error %s", tostring(errR))
+        local okReuse, errReuse = pcall(ns.Orbs.PlateReused, ns.Orbs, plate)
+        if not okReuse then
+            ns:Log("PlateReused error %s", tostring(errReuse))
         end
     end
     local entry = {
@@ -155,16 +155,16 @@ local function onRemoved(unit)
     end
     entries[unit] = nil
     local dead, deadKnown = false, false
-    local ok1, isDead = pcall(UnitIsDead, unit)
-    if ok1 and readable(isDead) and type(isDead) == "boolean" then
+    local okDead, isDead = pcall(UnitIsDead, unit)
+    if okDead and readable(isDead) and type(isDead) == "boolean" then
         deadKnown = true
         dead = isDead
     end
     if not dead then
-        local ok2, hp = pcall(UnitHealth, unit)
-        if ok2 and readable(hp) and type(hp) == "number" then
+        local okHealth, health = pcall(UnitHealth, unit)
+        if okHealth and readable(health) and type(health) == "number" then
             deadKnown = true
-            dead = hp == 0
+            dead = health == 0
         end
     end
     entry.deadAtRemoval = dead
@@ -189,15 +189,15 @@ function Plates:FindByGUID(guid)
     if not readable(guid) or type(guid) ~= "string" then
         return nil
     end
-    for _, e in pairs(entries) do
-        if e.guid ~= nil and e.guid == guid then
-            return e
+    for _, entry in pairs(entries) do
+        if entry.guid ~= nil and entry.guid == guid then
+            return entry
         end
     end
     prune()
-    for _, e in ipairs(held) do
-        if e.guid ~= nil and e.guid == guid then
-            return e
+    for _, entry in ipairs(held) do
+        if entry.guid ~= nil and entry.guid == guid then
+            return entry
         end
     end
     return nil

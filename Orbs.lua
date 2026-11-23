@@ -3,6 +3,14 @@ local ADDON, ns = ...
 
 -- Orb renderer: one overlay frame, a hand-rolled texture pool and a single OnUpdate driver that only runs
 -- while orbs or the arrival flash are alive. Frames are created lazily on the first burst.
+--
+-- How it fits together: Kills.lua (and /xporbs test) call Orbs:Burst, which builds one "orb" record per orb in `live`
+-- (start point, control point, flight time, textures) and hands them to the driver. The driver (`drive`) moves every
+-- orb each frame along a cubic curve from OrbMath towards the XP bar (Target:GetDestination) and plays the arrival
+-- chime and flash. A corpse pop or crossfade shares one pooled "group" (a small frame anchored to the nameplate plus
+-- its textures) between its orbs. Orb record fields: x0/y0 stream start, control1X/Y first control point, px/py
+-- P-hat (the estimated mob position), ux/uy unit vector from P-hat towards the bar, ringX/Y ring point (pop and
+-- crossfade copy A), hold seconds spent in that ring before the flight, dur flight time, delay start delay.
 
 local Orbs = {}
 ns.Orbs = Orbs
@@ -101,24 +109,27 @@ local XF_BLOOM_R = 24 -- px: smallest ring radius reached (ease-out cubic) by th
 local XF_BLOOM_SIZE = 1.6 -- start-size multiplier during the bloom, easing to 1.0 by its end
 local XF_FADE_IN = 0.06 -- s: alpha fade-in at birth
 local XF_EASE_OUT = 0.70 -- ease-out weight of copy B's launch (PopEase default 0.5): fast entry, slowing into the bar
--- Profile of the crossfade plate-copy machinery (o.prof), a static table built once so nothing allocates per frame.
+-- Profile of the crossfade plate-copy machinery (orb.profile), a static table built once so nothing allocates per
+-- frame.
 -- bloom: seconds the bloom from P-hat to the ring point takes; bsize: start-size multiplier of the bloom; fadeIn:
 -- alpha fade-in seconds; flight: flightTime multiplier;
 -- ease: ease-out weight of the launch; hold: base seconds before the flight; rmin/rmax/drift: ring radius range and
 -- extra upward drift of the ring point.
 -- leave = true (crossfade) switches on the leave / reappear behaviour: leaveDist px along u over leaveTime s with
--- ease-in (q^2), alpha 1 - q^2, size 1 -> 0.8; each orb's leave starts a random 0..leaveStagger s after the bloom; B's
--- flight starts gap s after A is gone (so hold = bloom + stagger + leaveTime + gap); B fades in over bFade s, starts at
--- (bDmin..bDmax, min(bFrac * screen height, bL * L)) px from the bar and flies flightTime * flight *
--- (jlo..jlo + jspan); cAhead / cJit put its first control point cAhead * dist ahead along u, jittered sideways by
--- +-cJit * dist (no lift); gh1 / gh2 are the px its trail ghosts sit behind it (along -u) during the fade-in.
--- ux, uy, bx, by are per-burst scratch (see XF_PROFILE.plan).
+-- ease-in (progress^2), alpha 1 - progress^2, size 1 -> 0.8; each orb's leave starts a random 0..leaveStagger s after
+-- the bloom; B's flight starts gap s after A is gone (so hold = bloom + stagger + leaveTime + gap); B fades in over
+-- bFade s, starts at (bDistMin..bDistMax, min(bScreenFrac * screen height, bLengthFrac * L)) px from the bar and
+-- flies flightTime * flight * (jitterLow..jitterLow + jitterSpan); ctrlAhead / ctrlJitter put its first control
+-- point ctrlAhead * dist ahead along u, jittered sideways by +-ctrlJitter * dist (no lift); ghost1Gap / ghost2Gap are
+-- the px its trail ghosts sit behind it (along -u) during the fade-in.
+-- ux, uy, bCentreX, bCentreY, leaveDistClamped are per-burst scratch (see XF_PROFILE.plan).
 local XF_PROFILE = { bloom = XF_HOLD, bsize = XF_BLOOM_SIZE, fadeIn = XF_FADE_IN,
     flight = 0.40, ease = XF_EASE_OUT, hold = XF_HOLD, rmin = XF_BLOOM_R, rmax = 36, drift = 8, born = 0.04,
     leave = true, leaveDist = 180, leaveTime = 0.26, leaveStagger = 0.15, gap = 0.10, bFade = 0.08, bSpread = 14,
-    bDmin = 80, bDmax = 320, bFrac = 0.30, bL = 0.60, jlo = 0.94, jspan = 0.12, cAhead = 0.4, cJit = 0.1,
-    gh1 = 12, gh2 = 24,
-    ux = 0, uy = 1, bx = 0, by = 0 }
+    bDistMin = 80, bDistMax = 320, bScreenFrac = 0.30, bLengthFrac = 0.60, jitterLow = 0.94, jitterSpan = 0.12,
+    ctrlAhead = 0.4, ctrlJitter = 0.1,
+    ghost1Gap = 12, ghost2Gap = 24,
+    ux = 0, uy = 1, bCentreX = 0, bCentreY = 0 }
 -- db.unknownOrigin for the "mob position unknown" case (est == "default"): "wide" (the default) starts the stream
 -- (Popstream (Nameplate), Direct Stream) or the pop (Popstream (Direct)) somewhere over an ellipse (semi-axes
 -- rx * screen width, ry * screen height at camera zoom zRef) instead of one point; "off" keeps the
@@ -130,9 +141,9 @@ local UNKNOWN = { rx = 0.064, ry = 0.04, zRef = 15, zK = 5, fMin = 0.5, fMax = 2
 -- clamp((zRef + zK) / (zoom + zK), fMin, fMax) for the current camera zoom: 1 at zoom 15, 2 zoomed in, 0.5 zoomed out;
 -- 1 when the zoom can't be read. A field of UNKNOWN, so Burst (near Lua 5.1's upvalue cap) needs no new upvalue.
 function UNKNOWN.factor()
-    local z = Orbs.ReadZoom()
-    if z and z > -UNKNOWN.zK then
-        return max(UNKNOWN.fMin, min(UNKNOWN.fMax, (UNKNOWN.zRef + UNKNOWN.zK) / (z + UNKNOWN.zK)))
+    local zoom = Orbs.ReadZoom()
+    if zoom and zoom > -UNKNOWN.zK then
+        return max(UNKNOWN.fMin, min(UNKNOWN.fMax, (UNKNOWN.zRef + UNKNOWN.zK) / (zoom + UNKNOWN.zK)))
     end
     return 1
 end
@@ -142,13 +153,13 @@ end
 -- within `born` s, pops out to a ring of rmin..rmax px (RingAngle, ease-out cubic over `bloom` s, size bsize -> 1,
 -- alpha fade-in over fadeIn s), keeps drifting (driftUp / driftOut px/s along its ring angle) until its launch, then
 -- flies the normal stream path from where the drift ended. Launches are ordered nearest-to-the-bar first, spread over
--- launchSpan s from launch0. The first control point leaves along the ring angle blended (cBlend of it, the rest
--- towards the bar) so nothing flies back through the middle. cx/cy (ring centre: the start point, or the orb's own
--- unknown-origin ellipse point), ang, rx/ry (ring point), hd (hold), dist and idx (launch order) are per-burst
--- scratch arrays (see plan).
+-- launchSpan s from launch0. The first control point leaves along the ring angle blended (ctrlBlend of it, the rest
+-- towards the bar) so nothing flies back through the middle. centreX/centreY (ring centre: the start point, or the
+-- orb's own unknown-origin ellipse point), ringAngle, ringX/ringY (ring point), holds (launch hold seconds), dist
+-- and idx (launch order) are per-burst scratch arrays (see plan).
 local SP_PROFILE = { born = 0.03, bloom = 0.16, bsize = 1.5, fadeIn = 0.05, rmin = 18, rmax = 30, launch0 = 0.16,
-    launchSpan = 0.20, jlo = 0.94, jspan = 0.12, driftUp = 15, driftOut = 8, cBlend = 0.6, cx = {}, cy = {}, ang = {},
-    rx = {}, ry = {}, hd = {}, dist = {}, idx = {} }
+    launchSpan = 0.20, jitterLow = 0.94, jitterSpan = 0.12, driftUp = 15, driftOut = 8, ctrlBlend = 0.6,
+    centreX = {}, centreY = {}, ringAngle = {}, ringX = {}, ringY = {}, holds = {}, dist = {}, idx = {} }
 XF_PROFILE.sp = SP_PROFILE -- reached through XF_PROFILE from Burst, which cannot take another upvalue
 
 -- table.sort comparator over SP_PROFILE.idx: nearest ring point first (dist), ties by index. File-level so a burst
@@ -161,32 +172,33 @@ local function byRingDist(a, b)
     return a < b
 end
 
--- Per-burst plan of n orbs around (x, y): the ring centre (uv > 0: one random point of the zoom-scaled unknown-origin
--- ellipse, scale f, shared by every orb), ring points (radius x sf, the zoom-scaled spread) and launch holds ordered by
--- distance from the ring point to (dx, dy).
-function SP_PROFILE.plan(n, x, y, dx, dy, uv, f, sf)
-    local m = SP_PROFILE
-    local dist, idx = m.dist, m.idx
+-- Per-burst plan of n orbs around (x, y): the ring centre (unknownLevel > 0: one random point of the zoom-scaled
+-- unknown-origin ellipse, scale zoomFactor, shared by every orb), ring points (radius x spreadFactor, the zoom-scaled
+-- spread) and launch holds ordered by distance from the ring point to (dx, dy).
+function SP_PROFILE.plan(n, x, y, dx, dy, unknownLevel, zoomFactor, spreadFactor)
+    local profile = SP_PROFILE
+    local dist, idx = profile.dist, profile.idx
     for i = #idx, n + 1, -1 do -- table.sort sorts #idx slots: drop what a larger earlier burst left behind
         idx[i] = nil
     end
-    local cx, cy = x, y
-    if uv > 0 then -- one random point of the ellipse is the shared pop centre, so the pop keeps its ring shape
-        local a, rr = random() * TWO_PI, sqrt(random())
-        cx = x + cos(a) * rr * UNKNOWN.rx * f * UIParent:GetWidth()
-        cy = y + sin(a) * rr * UNKNOWN.ry * f * UIParent:GetHeight()
+    local centreX, centreY = x, y
+    if unknownLevel > 0 then -- one random point of the ellipse is the shared pop centre: the pop keeps its ring shape
+        local angle, radiusFraction = random() * TWO_PI, sqrt(random())
+        centreX = x + cos(angle) * radiusFraction * UNKNOWN.rx * zoomFactor * UIParent:GetWidth()
+        centreY = y + sin(angle) * radiusFraction * UNKNOWN.ry * zoomFactor * UIParent:GetHeight()
     end
     for i = 1, n do
-        local ang = OrbMath.RingAngle(i, n, random)
-        local rad = (m.rmin + random() * (m.rmax - m.rmin)) * sf
-        local rx, ry = cx + cos(ang) * rad, cy + sin(ang) * rad
-        m.cx[i], m.cy[i], m.ang[i], m.rx[i], m.ry[i] = cx, cy, ang, rx, ry
-        dist[i], idx[i] = (dx - rx) * (dx - rx) + (dy - ry) * (dy - ry), i
+        local ringAngle = OrbMath.RingAngle(i, n, random)
+        local ringRadius = (profile.rmin + random() * (profile.rmax - profile.rmin)) * spreadFactor
+        local ringX, ringY = centreX + cos(ringAngle) * ringRadius, centreY + sin(ringAngle) * ringRadius
+        profile.centreX[i], profile.centreY[i], profile.ringAngle[i] = centreX, centreY, ringAngle
+        profile.ringX[i], profile.ringY[i] = ringX, ringY
+        dist[i], idx[i] = (dx - ringX) * (dx - ringX) + (dy - ringY) * (dy - ringY), i
     end
     table.sort(idx, byRingDist)
     local span = max(n - 1, 1)
     for rank = 0, n - 1 do
-        m.hd[idx[rank + 1]] = m.launch0 + m.launchSpan * rank / span
+        profile.holds[idx[rank + 1]] = profile.launch0 + profile.launchSpan * rank / span
     end
 end
 
@@ -199,15 +211,15 @@ local arrivedRecently, flashAge, flashOn, flashRested = 0, 0, false, false
 local freePop, popsCreated = {}, 0
 local pops, nPops = {}, 0
 local popErrSeen = false
-local xfs, nXf = {}, 0 -- crossfade pop frames alive (their orbs are driven from the stream loop)
+local crossfadeGroups, nCrossfade = {}, 0 -- crossfade pop frames alive (their orbs are driven from the stream loop)
 local portraitMode = false -- decided once per Burst (Target:PortraitMode): orbs aim at the portrait centre, round flash
 local chime = ns.Chime.New({ now = GetTime, gap = 0.07, perBurst = 6 })
 local soundDead = false -- the first sound failure switches the chime off for the session
 Orbs.chime = chime -- exposed for tests
-local burstSeq = 0 -- burst key counter; every orb carries its burst's key (o.bk)
+local burstSeq = 0 -- burst key counter; every orb carries its burst's key (orb.burstKey)
 local burstLeft = {} -- burst key -> orbs of that burst still alive (the chime forgets a burst when it hits 0)
 
-local function db()
+local function settings()
     if not ns.db then
         ns:InitDB()
     end
@@ -216,14 +228,14 @@ end
 
 -- Room for two full-cap bursts, so a pull that kills several mobs at once doesn't leave the later kills without orbs.
 local function ceiling()
-    return db().cap * (1 + EXTRAS) * 2 + 8
+    return settings().cap * (1 + EXTRAS) * 2 + 8
 end
 
 local function readable(v)
     return not issecretvalue or not issecretvalue(v)
 end
 
-local function num(v)
+local function isNumber(v)
     return type(v) == "number" and readable(v)
 end
 
@@ -232,9 +244,9 @@ function Orbs.ReadZoom()
     if type(GetCameraZoom) ~= "function" then
         return nil
     end
-    local ok, z = pcall(GetCameraZoom)
-    if ok and num(z) and z == z then
-        return z
+    local ok, zoom = pcall(GetCameraZoom)
+    if ok and isNumber(zoom) and zoom == zoom then
+        return zoom
     end
     return nil
 end
@@ -242,76 +254,77 @@ end
 -- Decided once per burst, never per frame: the y offset (negative, px below the plate's BOTTOM) of the body anchor, or
 -- nil when the option is off or the zoom can't be read (every frame then keeps its own default anchor). Also keeps
 -- the last zoom/offset for /xporbs status.
-local function zoomAnchorY(d)
-    if not d.zoomAnchor then
+local function zoomAnchorY(config)
+    if not config.zoomAnchor then
         return nil
     end
-    local z = Orbs.ReadZoom()
-    local off = z and OrbMath.ZoomOffset(z, d.zoomA, d.zoomB, d.zoomMin)
-    if not off then
+    local zoom = Orbs.ReadZoom()
+    local offset = zoom and OrbMath.ZoomOffset(zoom, config.zoomA, config.zoomB, config.zoomMin)
+    if not offset then
         return nil
     end
-    Orbs.lastZoom, Orbs.lastOffset = z, off
-    return -off
+    Orbs.lastZoom, Orbs.lastOffset = zoom, offset
+    return -offset
 end
 
--- (relPoint, y) of a plate-anchored frame's single anchor: the body anchor when zy is set, else the caller's default.
--- Shared by the pop, the crossfade copy and any later style that hangs a frame off a plate.
-local function plateAnchor(zy, relPoint, y)
-    if zy then
-        return "BOTTOM", zy
+-- (relPoint, y) of a plate-anchored frame's single anchor: the body anchor when bodyAnchorY is set, else the
+-- caller's default. Shared by the pop, the crossfade copy and any later style that hangs a frame off a plate.
+local function plateAnchor(bodyAnchorY, relPoint, y)
+    if bodyAnchorY then
+        return "BOTTOM", bodyAnchorY
     end
     return relPoint, y
 end
 
 -- The orb colour for the next burst: the player's class colour when db.classColor is on and the API answers, else
 -- db.color. One reusable table, filled in once per burst (never per frame); the arrival flash reads it too.
-local normalC = { 0.2, 0.5, 1 }
+local normalColour = { 0.2, 0.5, 1 }
 
 local function classRGB()
     if not UnitClass then
         return nil
     end
-    local ok, r, g, b = pcall(function()
+    local ok, red, green, blue = pcall(function()
         local _, classFile = UnitClass("player")
         if type(classFile) ~= "string" then
             return nil
         end
-        local c = nil
+        local colour = nil
         if C_ClassColor and C_ClassColor.GetClassColor then
-            c = C_ClassColor.GetClassColor(classFile)
+            colour = C_ClassColor.GetClassColor(classFile)
         end
-        if not c and RAID_CLASS_COLORS then
-            c = RAID_CLASS_COLORS[classFile]
+        if not colour and RAID_CLASS_COLORS then
+            colour = RAID_CLASS_COLORS[classFile]
         end
-        if c then
-            return c.r, c.g, c.b
+        if colour then
+            return colour.r, colour.g, colour.b
         end
         return nil
     end)
-    if ok and type(r) == "number" and type(g) == "number" and type(b) == "number" and readable(r) then
-        return r, g, b
+    if ok and type(red) == "number" and type(green) == "number" and type(blue) == "number" and readable(red) then
+        return red, green, blue
     end
     return nil
 end
 
-local function resolveNormal(d)
-    local c = d.color
-    local r, g, b = c[1], c[2], c[3]
-    if d.classColor then
-        local cr, cg, cb = classRGB()
-        if cr then
-            r, g, b = cr, cg, cb
+-- Fills normalColour for this burst (class colour or the saved colour) and returns it.
+local function resolveNormal(config)
+    local colour = config.color
+    local red, green, blue = colour[1], colour[2], colour[3]
+    if config.classColor then
+        local classRed, classGreen, classBlue = classRGB()
+        if classRed then
+            red, green, blue = classRed, classGreen, classBlue
         end
     end
-    normalC[1], normalC[2], normalC[3] = r, g, b
-    return normalC
+    normalColour[1], normalColour[2], normalColour[3] = red, green, blue
+    return normalColour
 end
 
 -- Circular shape = the destination is a round frame (a portrait): the orbs aim at its centre, not the XP fill edge.
 -- Independent of Show glow (v0.14): the shape describes the target frame, not just the flash.
-local function aimCentre(d)
-    return portraitMode or d.glowShape == "round"
+local function aimCentre(config)
+    return portraitMode or config.glowShape == "round"
 end
 
 local function ensureFrames()
@@ -334,7 +347,7 @@ local function ensureFrames()
     texCreated = 1 -- the flash counts towards the ceiling
 end
 
-local function acquire(path, sub, r, g, b, blend)
+local function acquire(path, subLayer, red, green, blue, blendMode)
     local tex = freeTex[#freeTex]
     if tex then
         freeTex[#freeTex] = nil
@@ -345,9 +358,9 @@ local function acquire(path, sub, r, g, b, blend)
     end
     texInUse = texInUse + 1
     tex:SetTexture(path)
-    tex:SetBlendMode(blend or "ADD")
-    tex:SetDrawLayer("ARTWORK", sub)
-    tex:SetVertexColor(r, g, b)
+    tex:SetBlendMode(blendMode or "ADD")
+    tex:SetDrawLayer("ARTWORK", subLayer)
+    tex:SetVertexColor(red, green, blue)
     tex:SetAlpha(0)
     tex:Hide()
     tex.xoShown = false
@@ -393,83 +406,83 @@ local function hideTex(tex)
 end
 
 local function newRec()
-    local n = #freeRec
-    if n > 0 then
-        local r = freeRec[n]
-        freeRec[n] = nil
-        return r
+    local count = #freeRec
+    if count > 0 then
+        local rec = freeRec[count]
+        freeRec[count] = nil
+        return rec
     end
     return {}
 end
 
-local releasePop, dropXf -- defined with the pop code below
+local releasePop, dropCrossfade -- defined with the pop code below
 
 -- Gives an orb record and everything it holds back to the pools. Tolerates a half-built record (Burst failed midway).
-local function freeOrb(o)
-    local bk = o.bk
-    if bk then
-        o.bk = nil
-        local left = (burstLeft[bk] or 1) - 1
+local function freeOrb(orb)
+    local burstKey = orb.burstKey
+    if burstKey then
+        orb.burstKey = nil
+        local left = (burstLeft[burstKey] or 1) - 1
         if left > 0 then
-            burstLeft[bk] = left
+            burstLeft[burstKey] = left
         else
-            burstLeft[bk] = nil
-            chime:Done(bk)
+            burstLeft[burstKey] = nil
+            chime:Done(burstKey)
         end
     end
-    if o.under then
-        release(o.under)
+    if orb.under then
+        release(orb.under)
     end
-    if o.orb then
-        release(o.orb)
+    if orb.body then
+        release(orb.body)
     end
-    if o.spark then
-        release(o.spark)
+    if orb.spark then
+        release(orb.spark)
     end
-    if o.g1 then
-        release(o.g1)
+    if orb.ghost1 then
+        release(orb.ghost1)
     end
-    if o.g2 then
-        release(o.g2)
+    if orb.ghost2 then
+        release(orb.ghost2)
     end
-    o.under, o.orb, o.spark, o.g1, o.g2 = nil, nil, nil, nil, nil
-    if o.g then
-        local g = o.g
-        o.g = nil
+    orb.under, orb.body, orb.spark, orb.ghost1, orb.ghost2 = nil, nil, nil, nil, nil
+    if orb.group then
+        local group = orb.group
+        orb.group = nil
         for j = 1, 3 do
-            hideTex(g.tex[o.k + j])
+            hideTex(group.tex[orb.slotBase + j])
         end
-        g.refs = g.refs - 1
-        if g.refs <= 0 then
-            dropXf(g)
-            releasePop(g)
+        group.refs = group.refs - 1
+        if group.refs <= 0 then
+            dropCrossfade(group)
+            releasePop(group)
         end
     end
-    freeRec[#freeRec + 1] = o
+    freeRec[#freeRec + 1] = orb
 end
 
 -- Crossfade copy A: this orb's textures on the plate-anchored frame, offset by (B - P-hat). Under pcall.
-local function drawA(o, g, ex, ey, s, alpha)
-    local tex, k = g.tex, o.k
+local function drawA(orb, group, posX, posY, size, alpha)
+    local tex, slotBase = group.tex, orb.slotBase
     if alpha <= 0 then
-        hideTex(tex[k + 1])
-        hideTex(tex[k + 2])
-        hideTex(tex[k + 3])
+        hideTex(tex[slotBase + 1])
+        hideTex(tex[slotBase + 2])
+        hideTex(tex[slotBase + 3])
         return
     end
-    local f, ox, oy = g.f, ex - o.px, ey - o.py
-    placeRel(tex[k + 1], f, ox, oy, s * GLOW * UNDER_SIZE, alpha * UNDER_ALPHA)
-    placeRel(tex[k + 2], f, ox, oy, s * GLOW, alpha)
-    local sp = tex[k + 3]
-    placeRel(sp, f, ox, oy, s * SPARKLE, alpha * SPARKLE_ALPHA)
-    sp:SetRotation(o.rot0 + TWO_PI * (o.el - o.delay))
+    local frame, ox, oy = group.frame, posX - orb.px, posY - orb.py
+    placeRel(tex[slotBase + 1], frame, ox, oy, size * GLOW * UNDER_SIZE, alpha * UNDER_ALPHA)
+    placeRel(tex[slotBase + 2], frame, ox, oy, size * GLOW, alpha)
+    local sparkle = tex[slotBase + 3]
+    placeRel(sparkle, frame, ox, oy, size * SPARKLE, alpha * SPARKLE_ALPHA)
+    sparkle:SetRotation(orb.startRotation + TWO_PI * (orb.elapsed - orb.delay))
 end
 
 -- drawA under pcall; the first failure silences copy A for the whole burst frame and is logged once.
-local function safeA(o, g, ex, ey, s, alpha)
-    local ok, err = pcall(drawA, o, g, ex, ey, s, alpha)
+local function safeA(orb, group, posX, posY, size, alpha)
+    local ok, err = pcall(drawA, orb, group, posX, posY, size, alpha)
     if not ok then
-        g.fm = 0
+        group.fadeMultiplier = 0
         if not popErrSeen then
             popErrSeen = true
             ns:Log("POP_ERR crossfade %s", string.sub(tostring(err), 1, 120))
@@ -477,351 +490,370 @@ local function safeA(o, g, ex, ey, s, alpha)
     end
 end
 
-local function hideB(o)
-    hideTex(o.under)
-    hideTex(o.orb)
-    hideTex(o.spark)
-    if o.g1 then
-        hideTex(o.g1)
-        hideTex(o.g2)
+local function hideB(orb)
+    hideTex(orb.under)
+    hideTex(orb.body)
+    hideTex(orb.spark)
+    if orb.ghost1 then
+        hideTex(orb.ghost1)
+        hideTex(orb.ghost2)
     end
 end
 
--- Crossfade hold: t seconds after the orb's birth. Copy A only, blooming from P-hat out to the ring start (o.x0, o.y0)
--- with a size boost that eases off. Copy B (screen space) stays hidden.
-local function drawHold(o, t)
-    local prof = o.prof
-    local h = t / prof.bloom
-    local dv = t - prof.bloom
-    if h > 1 then
-        h = 1
+-- Crossfade hold: `age` seconds after the orb's birth. Copy A only, blooming from P-hat out to its ring point
+-- (orb.ringX, orb.ringY) with a size boost that eases off, then leaving along u. Copy B (screen space) stays hidden.
+local function drawHold(orb, age)
+    local profile = orb.profile
+    local bloomProgress = age / profile.bloom
+    local sinceBloom = age - profile.bloom
+    if bloomProgress > 1 then
+        bloomProgress = 1
     end
-    local e = 1 - (1 - h) * (1 - h) * (1 - h)
-    local a = t < prof.fadeIn and t / prof.fadeIn or 1
-    local g = o.g
-    hideB(o)
-    local rx, ry = o.ax, o.ay -- x0, y0 is copy B's start near the bar; A rests on its own ring point
-    local q = (dv - o.ls) / prof.leaveTime
-    if q > 0 then
-        -- leave: accelerate away along u, fading out; q >= 1 draws nothing (the gap before B appears)
-        if q >= 1 then
-            safeA(o, g, rx, ry, 0, 0)
+    local eased = 1 - (1 - bloomProgress) * (1 - bloomProgress) * (1 - bloomProgress)
+    local alpha = age < profile.fadeIn and age / profile.fadeIn or 1
+    local group = orb.group
+    hideB(orb)
+    local ringX, ringY = orb.ringX, orb.ringY -- x0, y0 is copy B's start near the bar; A rests on its own ring point
+    local leaveProgress = (sinceBloom - orb.leaveStart) / profile.leaveTime
+    if leaveProgress > 0 then
+        -- leave: accelerate away along u, fading out; leaveProgress >= 1 draws nothing (the gap before B appears)
+        if leaveProgress >= 1 then
+            safeA(orb, group, ringX, ringY, 0, 0)
         else
-            local k = o.ld * q * q
-            safeA(o, g, rx + o.ux * k, ry + o.uy * k, o.size * (1 - 0.2 * q), (1 - q * q) * g.fm)
+            local leaveOffset = orb.leaveDist * leaveProgress * leaveProgress
+            safeA(orb, group, ringX + orb.ux * leaveOffset, ringY + orb.uy * leaveOffset,
+                orb.size * (1 - 0.2 * leaveProgress), (1 - leaveProgress * leaveProgress) * group.fadeMultiplier)
         end
         return
     end
-    safeA(o, g, o.px + (rx - o.px) * e, o.py + (ry - o.py) * e, o.size * (1 + (prof.bsize - 1) * (1 - e)), a * g.fm)
+    safeA(orb, group, orb.px + (ringX - orb.px) * eased, orb.py + (ringY - orb.py) * eased,
+        orb.size * (1 + (profile.bsize - 1) * (1 - eased)), alpha * group.fadeMultiplier)
 end
 
--- Stream pop hold: t seconds after the orb's birth, before its launch. Screen space: out from the ring centre to the
--- ring point (ease-out cubic, size boost easing off, alpha fade-in), then drifting. Allocates nothing.
-local function drawSpHold(o, t)
-    local m = SP_PROFILE
-    local h = t / m.bloom
-    local dv = t - m.bloom
-    if h > 1 then
-        h = 1
+-- Stream pop hold: `age` seconds after the orb's birth, before its launch. Screen space: out from the ring centre to
+-- the ring point (ease-out cubic, size boost easing off, alpha fade-in), then drifting. Allocates nothing.
+local function drawSpHold(orb, age)
+    local profile = SP_PROFILE
+    local bloomProgress = age / profile.bloom
+    local driftTime = age - profile.bloom
+    if bloomProgress > 1 then
+        bloomProgress = 1
     end
-    if dv < 0 then
-        dv = 0
+    if driftTime < 0 then
+        driftTime = 0
     end
-    local e = 1 - (1 - h) * (1 - h) * (1 - h)
-    local a = t < m.fadeIn and t / m.fadeIn or 1
-    local x, y = o.px + (o.ax - o.px) * e + o.dvx * dv, o.py + (o.ay - o.py) * e + o.dvy * dv
-    local s = o.size * (1 + (m.bsize - 1) * (1 - e))
-    place(o.under, x, y, s * GLOW * UNDER_SIZE, a * UNDER_ALPHA)
-    place(o.orb, x, y, s * GLOW, a)
-    place(o.spark, x, y, s * SPARKLE, a * SPARKLE_ALPHA)
-    o.spark:SetRotation(o.rot0 + TWO_PI * (o.el - o.delay))
+    local eased = 1 - (1 - bloomProgress) * (1 - bloomProgress) * (1 - bloomProgress)
+    local alpha = age < profile.fadeIn and age / profile.fadeIn or 1
+    local x = orb.px + (orb.ringX - orb.px) * eased + orb.driftVx * driftTime
+    local y = orb.py + (orb.ringY - orb.py) * eased + orb.driftVy * driftTime
+    local size = orb.size * (1 + (profile.bsize - 1) * (1 - eased))
+    place(orb.under, x, y, size * GLOW * UNDER_SIZE, alpha * UNDER_ALPHA)
+    place(orb.body, x, y, size * GLOW, alpha)
+    place(orb.spark, x, y, size * SPARKLE, alpha * SPARKLE_ALPHA)
+    orb.spark:SetRotation(orb.startRotation + TWO_PI * (orb.elapsed - orb.delay))
 end
 
-local function drawOrb(o, p, dx, dy)
-    local x0, y0, c1x, c1y = o.x0, o.y0, o.c1x, o.c1y
-    local c2x, c2y = OrbMath.HomeControl(c1x, c1y, dx, dy, o.dist0)
-    local ew = o.ew
-    local ex, ey = OrbMath.Cubic(OrbMath.PopEase(p, ew), x0, y0, c1x, c1y, c2x, c2y, dx, dy)
-    local s = o.size
-    if p > SHRINK_FROM then
-        s = s * (1 - 0.4 * (p - SHRINK_FROM) / (1 - SHRINK_FROM))
+-- One flying orb at `progress` (0..1) of its flight towards the destination (dx, dy): position on the cubic curve,
+-- shrink near the end, fade-in, spark rotation and the two trail ghosts (the same curve a little earlier in time).
+local function drawOrb(orb, progress, dx, dy)
+    local x0, y0, control1X, control1Y = orb.x0, orb.y0, orb.control1X, orb.control1Y
+    local control2X, control2Y = OrbMath.HomeControl(control1X, control1Y, dx, dy, orb.flightDist)
+    local easeWeight = orb.easeWeight
+    local orbX, orbY = OrbMath.Cubic(OrbMath.PopEase(progress, easeWeight), x0, y0, control1X, control1Y,
+        control2X, control2Y, dx, dy)
+    local size = orb.size
+    if progress > SHRINK_FROM then
+        size = size * (1 - 0.4 * (progress - SHRINK_FROM) / (1 - SHRINK_FROM))
     end
-    local fi = o.fadeIn
-    local a = p < fi and p / fi or 1
-    local g = o.g
-    place(o.under, ex, ey, s * GLOW * UNDER_SIZE, a * UNDER_ALPHA)
-    place(o.orb, ex, ey, s * GLOW, a)
-    place(o.spark, ex, ey, s * SPARKLE, a * SPARKLE_ALPHA)
-    o.spark:SetRotation(o.rot0 + TWO_PI * (o.el - o.delay))
-    if o.g1 then
-        local pk = p - GHOST_STEP
-        if g and p < fi then
+    local fadeIn = orb.fadeIn
+    local alpha = progress < fadeIn and progress / fadeIn or 1
+    local group = orb.group
+    place(orb.under, orbX, orbY, size * GLOW * UNDER_SIZE, alpha * UNDER_ALPHA)
+    place(orb.body, orbX, orbY, size * GLOW, alpha)
+    place(orb.spark, orbX, orbY, size * SPARKLE, alpha * SPARKLE_ALPHA)
+    orb.spark:SetRotation(orb.startRotation + TWO_PI * (orb.elapsed - orb.delay))
+    if orb.ghost1 then
+        local ghostProgress = progress - GHOST_STEP
+        if group and progress < fadeIn then
             -- crossfade B fading in: the ghosts sit behind it along -u, so it arrives "from" the implied path
-            local gh = o.prof
-            place(o.g1, ex - o.ux * gh.gh1, ey - o.uy * gh.gh1, s * GLOW * GHOST1_SIZE, a * GHOST1_ALPHA)
-            place(o.g2, ex - o.ux * gh.gh2, ey - o.uy * gh.gh2, s * GLOW * GHOST2_SIZE, a * GHOST2_ALPHA)
+            local profile = orb.profile
+            place(orb.ghost1, orbX - orb.ux * profile.ghost1Gap, orbY - orb.uy * profile.ghost1Gap,
+                size * GLOW * GHOST1_SIZE, alpha * GHOST1_ALPHA)
+            place(orb.ghost2, orbX - orb.ux * profile.ghost2Gap, orbY - orb.uy * profile.ghost2Gap,
+                size * GLOW * GHOST2_SIZE, alpha * GHOST2_ALPHA)
             return
         end
-        if pk > 0 then
-            local gx, gy = OrbMath.Cubic(OrbMath.PopEase(pk, ew), x0, y0, c1x, c1y, c2x, c2y, dx, dy)
-            place(o.g1, gx, gy, s * GLOW * GHOST1_SIZE, a * GHOST1_ALPHA)
+        if ghostProgress > 0 then
+            local ghostX, ghostY = OrbMath.Cubic(OrbMath.PopEase(ghostProgress, easeWeight), x0, y0, control1X,
+                control1Y, control2X, control2Y, dx, dy)
+            place(orb.ghost1, ghostX, ghostY, size * GLOW * GHOST1_SIZE, alpha * GHOST1_ALPHA)
         else
-            hideTex(o.g1)
+            hideTex(orb.ghost1)
         end
-        pk = p - 2 * GHOST_STEP
-        if pk > 0 then
-            local gx, gy = OrbMath.Cubic(OrbMath.PopEase(pk, ew), x0, y0, c1x, c1y, c2x, c2y, dx, dy)
-            place(o.g2, gx, gy, s * GLOW * GHOST2_SIZE, a * GHOST2_ALPHA)
+        ghostProgress = progress - 2 * GHOST_STEP
+        if ghostProgress > 0 then
+            local ghostX, ghostY = OrbMath.Cubic(OrbMath.PopEase(ghostProgress, easeWeight), x0, y0, control1X,
+                control1Y, control2X, control2Y, dx, dy)
+            place(orb.ghost2, ghostX, ghostY, size * GLOW * GHOST2_SIZE, alpha * GHOST2_ALPHA)
         else
-            hideTex(o.g2)
+            hideTex(orb.ghost2)
         end
     end
 end
 
 -- ---------------------------------------------------------------- corpse pop
 
--- A pooled pop: g.f is a 1x1 frame whose ONLY anchor is the nameplate; g.tex holds up to POP_MAX * 3 textures
--- (underlay, orb, sparkle per orb) created lazily and parented to g.f; per-orb parameters live in g.dx/dy/size/rot.
+-- A pooled pop ("group"): group.frame is a 1x1 frame whose ONLY anchor is the nameplate; group.tex holds up to
+-- POP_MAX * 3 textures (underlay, orb, sparkle per orb) created lazily and parented to group.frame; per-orb parameters
+-- live in the arrays group.offsetX/offsetY/drift/size/rotation.
 local function newPop()
-    local f = CreateFrame("Frame", nil, UIParent)
-    f:SetSize(1, 1)
-    f:SetFrameStrata("HIGH")
-    f:EnableMouse(false)
-    f:Hide()
-    return { f = f, tex = {}, dx = {}, dy = {}, drift = {}, size = {}, rot = {}, n = 0, used = 0 }
+    local frame = CreateFrame("Frame", nil, UIParent)
+    frame:SetSize(1, 1)
+    frame:SetFrameStrata("HIGH")
+    frame:EnableMouse(false)
+    frame:Hide()
+    return { frame = frame, tex = {}, offsetX = {}, offsetY = {}, drift = {}, size = {}, rotation = {}, n = 0,
+        used = 0 }
 end
 
-function releasePop(g)
-    if g.free then
+function releasePop(group)
+    if group.free then
         return -- already back in the pool (a second release would hand the frame out twice)
     end
-    g.free = true
-    local tex = g.tex
-    for i = 1, g.used do
-        local t = tex[i]
-        t:Hide()
-        t.xoShown = false
+    group.free = true
+    local tex = group.tex
+    for i = 1, group.used do
+        local texture = tex[i]
+        texture:Hide()
+        texture.xoShown = false
     end
-    g.used, g.plate, g.xf, g.refs = 0, nil, false, 0
-    pcall(g.f.ClearAllPoints, g.f)
-    pcall(g.f.Hide, g.f)
-    freePop[#freePop + 1] = g
+    group.used, group.plate, group.isCrossfade, group.refs = 0, nil, false, 0
+    pcall(group.frame.ClearAllPoints, group.frame)
+    pcall(group.frame.Hide, group.frame)
+    freePop[#freePop + 1] = group
 end
 
--- Fills g for m orbs (rested: the first nP). Anchors g.f to the plate with a single point. sf scales the ring radius
--- and drift (the zoom-scaled spread, 1 = fixed). Errors propagate (pcall'd).
-local function setupPop(g, plate, m, scale, nP, rc, bc, ux, uy, zy, sf)
-    local d = ns.db
-    local f, tex = g.f, g.tex
-    f:ClearAllPoints()
-    local rel, y = plateAnchor(zy, "CENTER", POP_Y)
-    f:SetPoint("CENTER", plate, rel, 0, y)
-    f:Show()
-    for i = 1, m * 3 do
+-- Fills group for orbCount orbs (rested: the first restedCount). Anchors group.frame to the plate with a single point.
+-- (ux, uy) is the exit vector the pop orbs launch along; spreadFactor scales the ring radius and drift (the
+-- zoom-scaled spread, 1 = fixed). Errors propagate (pcall'd).
+local function setupPop(group, plate, orbCount, scale, restedCount, restedColour, normalColour, ux, uy, bodyAnchorY,
+                        spreadFactor)
+    local config = ns.db
+    local frame, tex = group.frame, group.tex
+    frame:ClearAllPoints()
+    local rel, y = plateAnchor(bodyAnchorY, "CENTER", POP_Y)
+    frame:SetPoint("CENTER", plate, rel, 0, y)
+    frame:Show()
+    for i = 1, orbCount * 3 do
         if not tex[i] then
-            tex[i] = f:CreateTexture(nil, "ARTWORK")
+            tex[i] = frame:CreateTexture(nil, "ARTWORK")
         end
     end
-    for i = 1, m do
-        local rested = i <= nP
-        local c = rested and rc or bc
-        local r, gg, b = c[1], c[2], c[3]
-        local k = (i - 1) * 3
-        local u, o, s = tex[k + 1], tex[k + 2], tex[k + 3]
-        u:SetTexture(ORB_TEX)
-        u:SetBlendMode("BLEND")
-        u:SetDrawLayer("ARTWORK", -1)
-        u:SetVertexColor(r * UNDER_K, gg * UNDER_K, b * UNDER_K)
-        o:SetTexture(ORB_TEX)
-        o:SetBlendMode("ADD")
-        o:SetDrawLayer("ARTWORK", 0)
-        o:SetVertexColor(r, gg, b)
-        s:SetTexture(SPARKLE_TEX)
-        s:SetBlendMode("ADD")
-        s:SetDrawLayer("ARTWORK", 1)
-        s:SetVertexColor(r + (1 - r) * SPARKLE_WHITE, gg + (1 - gg) * SPARKLE_WHITE, b + (1 - b) * SPARKLE_WHITE)
+    for i = 1, orbCount do
+        local rested = i <= restedCount
+        local colour = rested and restedColour or normalColour
+        local red, green, blue = colour[1], colour[2], colour[3]
+        local slotBase = (i - 1) * 3
+        local underTex, orbTex, sparkleTex = tex[slotBase + 1], tex[slotBase + 2], tex[slotBase + 3]
+        underTex:SetTexture(ORB_TEX)
+        underTex:SetBlendMode("BLEND")
+        underTex:SetDrawLayer("ARTWORK", -1)
+        underTex:SetVertexColor(red * UNDER_K, green * UNDER_K, blue * UNDER_K)
+        orbTex:SetTexture(ORB_TEX)
+        orbTex:SetBlendMode("ADD")
+        orbTex:SetDrawLayer("ARTWORK", 0)
+        orbTex:SetVertexColor(red, green, blue)
+        sparkleTex:SetTexture(SPARKLE_TEX)
+        sparkleTex:SetBlendMode("ADD")
+        sparkleTex:SetDrawLayer("ARTWORK", 1)
+        sparkleTex:SetVertexColor(red + (1 - red) * SPARKLE_WHITE, green + (1 - green) * SPARKLE_WHITE,
+            blue + (1 - blue) * SPARKLE_WHITE)
         for j = 1, 3 do
-            local t = tex[k + j]
-            t:SetAlpha(0)
-            t:Hide()
-            t.xoShown = false
+            local texture = tex[slotBase + j]
+            texture:SetAlpha(0)
+            texture:Hide()
+            texture.xoShown = false
         end
-        local ang = OrbMath.RingAngle(i, m, random)
-        local rad = (POP_R_MIN + random() * (POP_R_MAX - POP_R_MIN)) * sf
-        g.dx[i], g.dy[i] = cos(ang) * rad, sin(ang) * rad
-        g.drift[i] = random() * POP_DRIFT * sf
-        g.size[i] = d.size * scale * (rested and RESTED_SIZE or 1)
-        g.rot[i] = random() * TWO_PI
+        local angle = OrbMath.RingAngle(i, orbCount, random)
+        local radius = (POP_R_MIN + random() * (POP_R_MAX - POP_R_MIN)) * spreadFactor
+        group.offsetX[i], group.offsetY[i] = cos(angle) * radius, sin(angle) * radius
+        group.drift[i] = random() * POP_DRIFT * spreadFactor
+        group.size[i] = config.size * scale * (rested and RESTED_SIZE or 1)
+        group.rotation[i] = random() * TWO_PI
     end
-    g.used = m * 3
-    g.n = m
-    g.ux, g.uy = ux, uy
+    group.used = orbCount * 3
+    group.n = orbCount
+    group.ux, group.uy = ux, uy
 end
 
 -- Takes a pooled pop frame (or creates one under the POP_FRAMES cap). nil when none is free.
 local function takePopFrame()
-    local g = freePop[#freePop]
-    if g then
+    local group = freePop[#freePop]
+    if group then
         freePop[#freePop] = nil
-        g.free = false
-        return g
+        group.free = false
+        return group
     end
     if popsCreated < POP_FRAMES then
-        local ok, ng = pcall(newPop)
+        local ok, newGroup = pcall(newPop)
         if ok then
             popsCreated = popsCreated + 1
-            return ng
+            return newGroup
         end
     end
     return nil
 end
 
 -- Returns true when a pop was started. Never throws; every failure just means "no pop".
-local function startPop(plate, n, scale, nPurple, ux, uy, zy, sf)
+local function startPop(plate, n, scale, nPurple, ux, uy, bodyAnchorY, spreadFactor)
     if type(plate) ~= "table" or not readable(plate) then
         return false
     end
-    local g = takePopFrame()
-    if not g then
+    local group = takePopFrame()
+    if not group then
         return false
     end
-    local d = ns.db
-    local m = min(n, POP_MAX)
-    local nP = nPurple > 0 and floor(nPurple * m / n + 0.5) or 0
-    local ok, err = pcall(setupPop, g, plate, m, scale, nP, d.restedColor, normalC, ux, uy, zy, sf)
+    local config = ns.db
+    local count = min(n, POP_MAX)
+    local restedCount = nPurple > 0 and floor(nPurple * count / n + 0.5) or 0
+    local ok, err = pcall(setupPop, group, plate, count, scale, restedCount, config.restedColor, normalColour, ux, uy,
+        bodyAnchorY, spreadFactor)
     if not ok then
         if not popErrSeen then
             popErrSeen = true
             ns:Log("POP_ERR setup %s", string.sub(tostring(err), 1, 120))
         end
-        releasePop(g)
+        releasePop(group)
         return false
     end
-    g.plate, g.el, g.fading, g.fadeEl, g.xf = plate, 0, false, 0, false
+    group.plate, group.elapsed, group.fading, group.fadeElapsed, group.isCrossfade = plate, 0, false, 0, false
     nPops = nPops + 1
-    pops[nPops] = g
+    pops[nPops] = group
     return true
 end
 
 -- Crossfade: a pop frame anchored to the plate's BOTTOM that will carry copy A of every orb. Returns the frame or nil.
-local function startXf(plate, zy)
+local function startCrossfade(plate, bodyAnchorY)
     if type(plate) ~= "table" or not readable(plate) then
         return nil
     end
-    local g = takePopFrame()
-    if not g then
+    local group = takePopFrame()
+    if not group then
         return nil
     end
-    local f = g.f
+    local frame = group.frame
     local ok, err = pcall(function()
-        f:ClearAllPoints()
-        local rel, y = plateAnchor(zy, "BOTTOM", 0)
-        f:SetPoint("CENTER", plate, rel, 0, y)
-        f:Show()
+        frame:ClearAllPoints()
+        local rel, y = plateAnchor(bodyAnchorY, "BOTTOM", 0)
+        frame:SetPoint("CENTER", plate, rel, 0, y)
+        frame:Show()
     end)
     if not ok then
         if not popErrSeen then
             popErrSeen = true
             ns:Log("POP_ERR crossfade setup %s", string.sub(tostring(err), 1, 120))
         end
-        releasePop(g)
+        releasePop(group)
         return nil
     end
-    g.plate, g.xf, g.refs, g.fm, g.fading, g.fadeEl = plate, true, 0, 1, false, 0
-    nXf = nXf + 1
-    xfs[nXf] = g
-    return g
+    group.plate, group.isCrossfade, group.refs = plate, true, 0
+    group.fadeMultiplier, group.fading, group.fadeElapsed = 1, false, 0
+    nCrossfade = nCrossfade + 1
+    crossfadeGroups[nCrossfade] = group
+    return group
 end
 
-function dropXf(g)
-    for i = 1, nXf do
-        if xfs[i] == g then
-            xfs[i] = xfs[nXf]
-            xfs[nXf] = nil
-            nXf = nXf - 1
+function dropCrossfade(group)
+    for i = 1, nCrossfade do
+        if crossfadeGroups[i] == group then
+            crossfadeGroups[i] = crossfadeGroups[nCrossfade]
+            crossfadeGroups[nCrossfade] = nil
+            nCrossfade = nCrossfade - 1
             break
         end
     end
 end
 
--- Creates/configures the 3 textures of orb slot k+1..k+3 on the crossfade frame. Errors propagate (pcall'd).
-local function xfTextures(g, k, r, gg, b)
-    local tex, f = g.tex, g.f
+-- Creates/configures the 3 textures of orb slot slotBase+1..slotBase+3 on the crossfade frame. Errors propagate
+-- (pcall'd).
+local function crossfadeTextures(group, slotBase, red, green, blue)
+    local tex, frame = group.tex, group.frame
     for j = 1, 3 do
-        if not tex[k + j] then
-            tex[k + j] = f:CreateTexture(nil, "ARTWORK")
+        if not tex[slotBase + j] then
+            tex[slotBase + j] = frame:CreateTexture(nil, "ARTWORK")
         end
     end
-    local u, o, s = tex[k + 1], tex[k + 2], tex[k + 3]
-    u:SetTexture(ORB_TEX)
-    u:SetBlendMode("BLEND")
-    u:SetDrawLayer("ARTWORK", -1)
-    u:SetVertexColor(r * UNDER_K, gg * UNDER_K, b * UNDER_K)
-    o:SetTexture(ORB_TEX)
-    o:SetBlendMode("ADD")
-    o:SetDrawLayer("ARTWORK", 0)
-    o:SetVertexColor(r, gg, b)
-    s:SetTexture(SPARKLE_TEX)
-    s:SetBlendMode("ADD")
-    s:SetDrawLayer("ARTWORK", 1)
-    s:SetVertexColor(r + (1 - r) * SPARKLE_WHITE, gg + (1 - gg) * SPARKLE_WHITE, b + (1 - b) * SPARKLE_WHITE)
+    local underTex, orbTex, sparkleTex = tex[slotBase + 1], tex[slotBase + 2], tex[slotBase + 3]
+    underTex:SetTexture(ORB_TEX)
+    underTex:SetBlendMode("BLEND")
+    underTex:SetDrawLayer("ARTWORK", -1)
+    underTex:SetVertexColor(red * UNDER_K, green * UNDER_K, blue * UNDER_K)
+    orbTex:SetTexture(ORB_TEX)
+    orbTex:SetBlendMode("ADD")
+    orbTex:SetDrawLayer("ARTWORK", 0)
+    orbTex:SetVertexColor(red, green, blue)
+    sparkleTex:SetTexture(SPARKLE_TEX)
+    sparkleTex:SetBlendMode("ADD")
+    sparkleTex:SetDrawLayer("ARTWORK", 1)
+    sparkleTex:SetVertexColor(red + (1 - red) * SPARKLE_WHITE, green + (1 - green) * SPARKLE_WHITE,
+        blue + (1 - blue) * SPARKLE_WHITE)
     for j = 1, 3 do
-        local t = tex[k + j]
-        t:SetAlpha(0)
-        t:Hide()
-        t.xoShown = false
+        local texture = tex[slotBase + j]
+        texture:SetAlpha(0)
+        texture:Hide()
+        texture.xoShown = false
     end
-    if k + 3 > g.used then
-        g.used = k + 3
+    if slotBase + 3 > group.used then
+        group.used = slotBase + 3
     end
 end
 
 -- Positions every pop orb. Called under pcall from the driver; allocates nothing.
-local function drawPop(g)
-    local p = g.el / POP_TIME
-    if p > 1 then
-        p = 1
+local function drawPop(group)
+    local progress = group.elapsed / POP_TIME
+    if progress > 1 then
+        progress = 1
     end
-    local e = 1 - (1 - p) * (1 - p) * (1 - p)
-    local sc = p > POP_SHRINK_FROM and 1 - (p - POP_SHRINK_FROM) / (1 - POP_SHRINK_FROM) or 1
-    local a = p > POP_FADE_FROM and 1 - (p - POP_FADE_FROM) / (1 - POP_FADE_FROM) or 1
-    if g.fading then
-        a = a * (1 - g.fadeEl / POP_FADE_OUT)
+    local eased = 1 - (1 - progress) * (1 - progress) * (1 - progress)
+    local sizeScale = progress > POP_SHRINK_FROM and 1 - (progress - POP_SHRINK_FROM) / (1 - POP_SHRINK_FROM) or 1
+    local alpha = progress > POP_FADE_FROM and 1 - (progress - POP_FADE_FROM) / (1 - POP_FADE_FROM) or 1
+    if group.fading then
+        alpha = alpha * (1 - group.fadeElapsed / POP_FADE_OUT)
     end
-    local q = p > POP_EXIT_FROM and (p - POP_EXIT_FROM) / (1 - POP_EXIT_FROM) or 0
-    local gather = 1 - POP_GATHER * q
-    local exit = POP_EXIT_DIST * q * q
-    local exx, exy = g.ux * exit, g.uy * exit
-    local f, tex = g.f, g.tex
-    local spin = TWO_PI * g.el
-    for i = 1, g.n do
-        local ox = g.dx[i] * e * gather + exx
-        local oy = (g.dy[i] + g.drift[i]) * e * gather + exy
-        local s = g.size[i] * GLOW * POP_SIZE * sc
-        local k = (i - 1) * 3
-        placeRel(tex[k + 1], f, ox, oy, s * UNDER_SIZE, a * POP_UNDER_ALPHA)
-        placeRel(tex[k + 2], f, ox, oy, s, a)
-        local sp = tex[k + 3]
-        placeRel(sp, f, ox, oy, s * SPARKLE, a * SPARKLE_ALPHA)
-        sp:SetRotation(g.rot[i] + spin)
+    local exitProgress = progress > POP_EXIT_FROM and (progress - POP_EXIT_FROM) / (1 - POP_EXIT_FROM) or 0
+    local gather = 1 - POP_GATHER * exitProgress
+    local exit = POP_EXIT_DIST * exitProgress * exitProgress
+    local exitX, exitY = group.ux * exit, group.uy * exit
+    local frame, tex = group.frame, group.tex
+    local spin = TWO_PI * group.elapsed
+    for i = 1, group.n do
+        local ox = group.offsetX[i] * eased * gather + exitX
+        local oy = (group.offsetY[i] + group.drift[i]) * eased * gather + exitY
+        local size = group.size[i] * GLOW * POP_SIZE * sizeScale
+        local slotBase = (i - 1) * 3
+        placeRel(tex[slotBase + 1], frame, ox, oy, size * UNDER_SIZE, alpha * POP_UNDER_ALPHA)
+        placeRel(tex[slotBase + 2], frame, ox, oy, size, alpha)
+        local sparkle = tex[slotBase + 3]
+        placeRel(sparkle, frame, ox, oy, size * SPARKLE, alpha * SPARKLE_ALPHA)
+        sparkle:SetRotation(group.rotation[i] + spin)
     end
 end
 
 local function updatePops(dt)
     local i = 1
     while i <= nPops do
-        local g = pops[i]
-        g.el = g.el + dt
+        local group = pops[i]
+        group.elapsed = group.elapsed + dt
         local drop = false
-        if g.fading then
-            g.fadeEl = g.fadeEl + dt
-            drop = g.fadeEl >= POP_FADE_OUT
+        if group.fading then
+            group.fadeElapsed = group.fadeElapsed + dt
+            drop = group.fadeElapsed >= POP_FADE_OUT
         end
-        if g.el >= POP_TIME then
+        if group.elapsed >= POP_TIME then
             drop = true
         end
         if not drop then
-            local ok, err = pcall(drawPop, g)
+            local ok, err = pcall(drawPop, group)
             if not ok then
                 drop = true
                 if not popErrSeen then
@@ -831,7 +863,7 @@ local function updatePops(dt)
             end
         end
         if drop then
-            releasePop(g)
+            releasePop(group)
             pops[i] = pops[nPops]
             pops[nPops] = nil
             nPops = nPops - 1
@@ -843,12 +875,12 @@ end
 
 -- An orb arrived: asks the chime for a note and plays it. The first failure (an error, or the client saying the file
 -- won't play) logs SOUND_ERR once and silences the chime for the session. Allocates nothing.
-local function playChime(key)
-    local n = chime:Arrive(key)
-    if not n then
+local function playChime(burstKey)
+    local note = chime:Arrive(burstKey)
+    if not note then
         return
     end
-    local ok, willPlay = pcall(PlaySoundFile, chimeNotePaths(ns.db.soundVoice)[n], "SFX")
+    local ok, willPlay = pcall(PlaySoundFile, chimeNotePaths(ns.db.soundVoice)[note], "SFX")
     if not ok or willPlay == false then
         soundDead = true
         ns:Log("SOUND_ERR %s", ok and "the client won't play the file" or string.sub(tostring(willPlay), 1, 120))
@@ -864,46 +896,46 @@ local function drive(self, dt)
     if nPops > 0 then
         updatePops(dt)
     end
-    for i = 1, nXf do
-        local g = xfs[i]
-        if g.fading then
-            g.fadeEl = g.fadeEl + dt
-            g.fm = g.fadeEl >= POP_FADE_OUT and 0 or 1 - g.fadeEl / POP_FADE_OUT
+    for i = 1, nCrossfade do
+        local group = crossfadeGroups[i]
+        if group.fading then
+            group.fadeElapsed = group.fadeElapsed + dt
+            group.fadeMultiplier = group.fadeElapsed >= POP_FADE_OUT and 0 or 1 - group.fadeElapsed / POP_FADE_OUT
         end
     end
     local dx, dy = Target:GetDestination(aimCentre(ns.db), portraitMode)
     local i = 1
     while i <= nLive do
-        local o = live[i]
-        o.el = o.el + dt
-        local t = o.el - o.delay
+        local orb = live[i]
+        orb.elapsed = orb.elapsed + dt
+        local age = orb.elapsed - orb.delay -- seconds since the orb's start delay ran out
         local drop = false
-        if t >= 0 then
-            local ft = t - o.hold -- flight time; negative during the crossfade hold
-            if ft < 0 then
-                if o.g then
-                    drawHold(o, t)
+        if age >= 0 then
+            local flightElapsed = age - orb.hold -- flight time; negative during the crossfade hold
+            if flightElapsed < 0 then
+                if orb.group then
+                    drawHold(orb, age)
                 else
-                    drawSpHold(o, t) -- stream pop: the hold of a screen-space orb
+                    drawSpHold(orb, age) -- stream pop: the hold of a screen-space orb
                 end
             else
-                local p = ft / o.dur
-                if p >= 1 then
+                local progress = flightElapsed / orb.dur
+                if progress >= 1 then
                     if ns.db.sound and not soundDead then
-                        playChime(o.bk)
+                        playChime(orb.burstKey)
                     end
                     if ns.db.glow ~= false then
                         arrivedRecently = arrivedRecently + 1
-                        flashAge, flashOn, flashRested = 0, true, o.rested
+                        flashAge, flashOn, flashRested = 0, true, orb.rested
                     end
                     drop = true
                 else
-                    drawOrb(o, p, dx, dy)
+                    drawOrb(orb, progress, dx, dy)
                 end
             end
         end
         if drop then
-            freeOrb(o)
+            freeOrb(orb)
             live[i] = live[nLive]
             live[nLive] = nil
             nLive = nLive - 1
@@ -918,9 +950,10 @@ local function drive(self, dt)
             flashOn, arrivedRecently = false, 0
             flash:Hide()
         else
-            local c = flashRested and ns.db.restedColor or normalC
-            local kA, kS = OrbMath.GlowIntensity(ns.db.glowIntensity)
-            local a = min(1, min(1, FLASH_ALPHA + FLASH_STEP * arrivedRecently) * (1 - flashAge / FLASH_TIME) * kA)
+            local colour = flashRested and ns.db.restedColor or normalColour
+            local glowAlphaFactor, glowSizeFactor = OrbMath.GlowIntensity(ns.db.glowIntensity)
+            local alpha = min(1, min(1, FLASH_ALPHA + FLASH_STEP * arrivedRecently) * (1 - flashAge / FLASH_TIME)
+                * glowAlphaFactor)
             -- round for a portrait or the Circular shape; upright for the Vertical shape, and under Horizontal for a
             -- destination that is a vertical bar; otherwise the horizontal flash
             local glowShape = ns.db.glowShape
@@ -934,21 +967,21 @@ local function drive(self, dt)
                 flashShape = shape
                 flash:SetTexture(FLASH_SHAPE_TEX[shape])
             end
-            flash:SetVertexColor(c[1] + (1 - c[1]) * FLASH_WHITE, c[2] + (1 - c[2]) * FLASH_WHITE,
-                c[3] + (1 - c[3]) * FLASH_WHITE)
+            flash:SetVertexColor(colour[1] + (1 - colour[1]) * FLASH_WHITE, colour[2] + (1 - colour[2]) * FLASH_WHITE,
+                colour[3] + (1 - colour[3]) * FLASH_WHITE)
             flash:ClearAllPoints()
             flash:SetPoint("CENTER", overlay, "BOTTOMLEFT", dx, dy)
             if shape == "round" then
-                local dia = OrbMath.GlowDiameter(Target.lastW, Target.lastH, ns.db.size)
-                flash:SetSize(dia * kS, dia * kS)
+                local diameter = OrbMath.GlowDiameter(Target.lastW, Target.lastH, ns.db.size)
+                flash:SetSize(diameter * glowSizeFactor, diameter * glowSizeFactor)
             elseif shape == "vertical" then
-                local tall = ns.db.size * FLASH_W * kS
+                local tall = ns.db.size * FLASH_W * glowSizeFactor
                 flash:SetSize(tall / FLASH_ASPECT, tall)
             else
-                local w = ns.db.size * FLASH_W * kS
+                local w = ns.db.size * FLASH_W * glowSizeFactor
                 flash:SetSize(w, w / FLASH_ASPECT)
             end
-            flash:SetAlpha(a)
+            flash:SetAlpha(alpha)
             flash:Show()
         end
     end
@@ -976,11 +1009,11 @@ local function abortDriver(err)
         pops[i] = nil
     end
     nPops = 0
-    for i = nXf, 1, -1 do
-        pcall(releasePop, xfs[i])
-        xfs[i] = nil
+    for i = nCrossfade, 1, -1 do
+        pcall(releasePop, crossfadeGroups[i])
+        crossfadeGroups[i] = nil
     end
-    nXf = 0
+    nCrossfade = 0
     flashOn, arrivedRecently = false, 0
     if flash then
         pcall(flash.Hide, flash)
@@ -993,11 +1026,11 @@ end
 
 -- The OnUpdate script. Hoisted (no closure per frame); times each frame when debugprofilestop exists.
 local function onUpdate(self, dt)
-    local prof = debugprofilestop
-    local t0 = prof and prof()
+    local clock = debugprofilestop
+    local startTime = clock and clock()
     local ok, err = pcall(drive, self, dt)
-    if t0 then
-        local ms = prof() - t0
+    if startTime then
+        local ms = clock() - startTime
         perfFrames = perfFrames + 1
         perfTotal = perfTotal + ms
         if ms > perfMax then
@@ -1009,25 +1042,26 @@ local function onUpdate(self, dt)
     end
 end
 
-local function lighten(c)
-    return c + (1 - c) * SPARKLE_WHITE
+local function lighten(channel)
+    return channel + (1 - channel) * SPARKLE_WHITE
 end
 
--- Wide start of one stream orb: o.x0, o.y0 moves to a random point of the unknown-origin ellipse around (x, y)
--- (uv == 0: left alone). f scales the ellipse (the camera-zoom factor, read once per burst).
-local function placeUnknown(o, uv, x, y, f)
-    if uv == 0 then
+-- Wide start of one stream orb: orb.x0, orb.y0 moves to a random point of the unknown-origin ellipse around (x, y)
+-- (unknownLevel == 0: left alone). zoomFactor scales the ellipse (the camera-zoom factor, read once per burst).
+local function placeUnknown(orb, unknownLevel, x, y, zoomFactor)
+    if unknownLevel == 0 then
         return
     end
-    local ang, rad = random() * TWO_PI, sqrt(random()) -- sqrt: uniform over the ellipse, not clustered at the centre
-    o.x0 = x + cos(ang) * rad * UNKNOWN.rx * f * UIParent:GetWidth()
-    o.y0 = y + sin(ang) * rad * UNKNOWN.ry * f * UIParent:GetHeight()
+    -- sqrt: uniform over the ellipse, not clustered at the centre
+    local angle, radius = random() * TWO_PI, sqrt(random())
+    orb.x0 = x + cos(angle) * radius * UNKNOWN.rx * zoomFactor * UIParent:GetWidth()
+    orb.y0 = y + sin(angle) * radius * UNKNOWN.ry * zoomFactor * UIParent:GetHeight()
 end
 
 -- Crossfade per-burst plan (scratch in XF_PROFILE, read while the orbs are built): u = unit vector from P-hat towards
--- the bar (straight up when they coincide), and the centre of copy B's start disc, D px short of the bar.
+-- the bar (straight up when they coincide), and the centre of copy B's start disc, startDist px short of the bar.
 function XF_PROFILE.plan(px, py, dx, dy) -- a method of the profile: one upvalue fewer in Burst
-    local m = XF_PROFILE
+    local profile = XF_PROFILE
     local vx, vy = dx - px, dy - py
     local len = sqrt(vx * vx + vy * vy)
     if len > 1e-6 then
@@ -1035,13 +1069,15 @@ function XF_PROFILE.plan(px, py, dx, dy) -- a method of the profile: one upvalue
     else
         vx, vy = 0, 1
     end
-    local D = max(m.bDmin, min(m.bDmax, m.bFrac * UIParent:GetHeight(), m.bL * len))
-    -- short plate-to-bar distances: shorten the leave and keep B's start ahead of where A vanishes (per orb: o.ld)
-    local ld = max(60, min(m.leaveDist, 0.40 * len))
-    D = max(50, min(D, len - ld))
-    m.ld = ld
-    m.ux, m.uy = vx, vy
-    m.bx, m.by = dx - vx * D, dy - vy * D
+    local startDist = max(profile.bDistMin,
+        min(profile.bDistMax, profile.bScreenFrac * UIParent:GetHeight(), profile.bLengthFrac * len))
+    -- short plate-to-bar distances: shorten the leave and keep B's start ahead of where A vanishes (per orb:
+    -- orb.leaveDist)
+    local leaveDist = max(60, min(profile.leaveDist, 0.40 * len))
+    startDist = max(50, min(startDist, len - leaveDist))
+    profile.leaveDistClamped = leaveDist
+    profile.ux, profile.uy = vx, vy
+    profile.bCentreX, profile.bCentreY = dx - vx * startDist, dy - vy * startDist
 end
 
 -- Burst{ x=, y= (stream origin, UIParent coords; nil -> screen centre), n=, scale= (default 1), nPurple= (default 0),
@@ -1050,70 +1086,70 @@ end
 -- ex=, ey= (P-hat, the estimated mob position in UIParent coords; default = MobEstimate.Default), est=, estW= (source
 -- label and mouseover weight, informational) }. n < 1 is a no-op.
 -- Returns "pop+stream" | "crossfade" | "stream" | "streampop" (a plate is ignored by "streampop").
-function Orbs:Burst(p)
-    if type(p) ~= "table" or type(p.n) ~= "number" or p.n < 1 then
+function Orbs:Burst(params)
+    if type(params) ~= "table" or type(params.n) ~= "number" or params.n < 1 then
         return
     end
-    local d = db()
+    local config = settings()
     ensureFrames()
-    local n = floor(p.n)
-    local scale = type(p.scale) == "number" and p.scale or 1
-    local nPurple = type(p.nPurple) == "number" and p.nPurple or 0
-    if not d.restedTint then
+    local n = floor(params.n)
+    local scale = type(params.scale) == "number" and params.scale or 1
+    local nPurple = type(params.nPurple) == "number" and params.nPurple or 0
+    if not config.restedTint then
         nPurple = 0
     end
-    local x, y = p.x, p.y
-    local style = ns.RenderStyle(p.style or d.style, p.popMode or d.popMode)
-    if p.kind == "other" then
+    local x, y = params.x, params.y
+    local style = ns.RenderStyle(params.style or config.style, params.popMode or config.popMode)
+    if params.kind == "other" then
         style = "stream" -- quest and other XP: no pop (Kills passes the origin; the centre is the default)
     end
     if type(x) ~= "number" or type(y) ~= "number" then
         x, y = UIParent:GetWidth() / 2, UIParent:GetHeight() * 0.65
     end
     portraitMode = Target:PortraitMode() == true -- once per burst, never per frame
-    local dx, dy, destFound = Target:GetDestination(aimCentre(d), portraitMode)
+    local dx, dy, destFound = Target:GetDestination(aimCentre(config), portraitMode)
     if destFound == false and ns.Setup then
         ns.Setup:NoBarFound() -- once per session offers the "find your XP bar" window (Setup.lua); cheap after that
     end
-    local normal = resolveNormal(d)
+    local baseColour = resolveNormal(config)
     -- P-hat: our best guess of where the mob is on screen (Kills passes the mouseover/cursor estimate)
-    local px, py = p.ex, p.ey
+    local px, py = params.ex, params.ey
     if type(px) ~= "number" or type(py) ~= "number" then
         px, py = ns.MobEstimate.Default(UIParent:GetWidth(), UIParent:GetHeight())
     end
-    local popped, xg = false, nil
-    local sp = style == "streampop" -- screen space only: never any plate frame
-    local zy = p.plate ~= nil and not sp and zoomAnchorY(d) or nil
+    local popped, crossfadeGroup = false, nil
+    local isStreamPop = style == "streampop" -- screen space only: never any plate frame
+    local bodyAnchorY = params.plate ~= nil and not isStreamPop and zoomAnchorY(config) or nil
     -- unknown-origin spread: only when nobody hovered the mob, and either the plain stream (which starts at P-hat) or
     -- a plate-space pop or copy is really drawn
-    local uv = 0
+    local unknownLevel = 0
     -- (crossfade is exempt: its plate copy is exact and its screen copy starts near the bar)
-    local plated = p.plate ~= nil and style ~= "crossfade"
-    if p.est == "default" and p.kind ~= "other" and (style == "stream" or sp or plated) then
-        uv = UNKNOWN.level[d.unknownOrigin] or 0
+    local plated = params.plate ~= nil and style ~= "crossfade"
+    if params.est == "default" and params.kind ~= "other" and (style == "stream" or isStreamPop or plated) then
+        unknownLevel = UNKNOWN.level[config.unknownOrigin] or 0
     end
-    -- one zoom read per burst (unreadable -> 1): uf scales the unknown-origin ellipse (always), sf the spawn spread of
-    -- the pop rings and the stream's start disc (only with Zoom-scaled spread on and a located kill; 1 = the fixed
-    -- spread)
-    local uf = UNKNOWN.factor()
-    local sf = d.zoomSpread and p.kind ~= "other" and uf or 1
-    if p.plate ~= nil and style == "popstream" then
+    -- one zoom read per burst (unreadable -> 1): unknownZoomFactor scales the unknown-origin ellipse (always),
+    -- spreadFactor the spawn spread of the pop rings and the stream's start disc (only with Zoom-scaled spread on and
+    -- a located kill; 1 = the fixed spread)
+    local unknownZoomFactor = UNKNOWN.factor()
+    local spreadFactor = config.zoomSpread and params.kind ~= "other" and unknownZoomFactor or 1
+    if params.plate ~= nil and style == "popstream" then
         local ux, uy = OrbMath.ExitVector(x, y, px, py, dx, dy)
-        popped = startPop(p.plate, n, scale, nPurple, ux, uy, zy, sf)
-    elseif p.plate ~= nil and style == "crossfade" then
-        xg = startXf(p.plate, zy)
+        popped = startPop(params.plate, n, scale, nPurple, ux, uy, bodyAnchorY, spreadFactor)
+    elseif params.plate ~= nil and style == "crossfade" then
+        crossfadeGroup = startCrossfade(params.plate, bodyAnchorY)
     end
-    if xg then
+    if crossfadeGroup then
         x, y = px, py
     end
-    if not (popped or xg or sp or style == "stream") then
-        uv = 0
+    if not (popped or crossfadeGroup or isStreamPop or style == "stream") then
+        unknownLevel = 0
     end
-    Orbs.lastUnknown = uv > 0 and d.unknownOrigin or nil
+    Orbs.lastUnknown = unknownLevel > 0 and config.unknownOrigin or nil
     -- Budget the texture pool. A full burst with trails needs 5 textures per orb; when that doesn't fit, the burst
     -- drops its trail ghosts (3 per orb), then draws fewer orbs. Every burst still gets min(n, 3) orbs while 9
     -- textures are free, so the later kills of an AoE pull are never starved by the earlier ones.
-    local trail = d.trail and true or false
+    local trail = config.trail and true or false
     local need = trail and 1 + EXTRAS or 3 -- orb + underlay + sparkle (+ 2 ghosts)
     local limit = ceiling() - 1 -- the arrival flash holds one slot
     local free = limit - texInUse
@@ -1128,29 +1164,29 @@ function Orbs:Burst(p)
         nPurple = floor(nPurple * fit / n + 0.5)
         n = fit
     end
-    local prof = sp and XF_PROFILE.sp or XF_PROFILE -- (Burst is near the upvalue limit)
-    local extra = popped and STREAM_DELAY or 0
-    local stagger = (popped or xg) and STAGGER_POP or STAGGER
-    if xg then
+    local profile = isStreamPop and XF_PROFILE.sp or XF_PROFILE -- (Burst is near the upvalue limit)
+    local extraDelay = popped and STREAM_DELAY or 0
+    local stagger = (popped or crossfadeGroup) and STAGGER_POP or STAGGER
+    if crossfadeGroup then
         stagger = XF_PROFILE.born -- crossfade: the pop is one quick burst
-    elseif sp then
-        stagger = prof.born -- stream pop: all born at the start point together
+    elseif isStreamPop then
+        stagger = profile.born -- stream pop: all born at the start point together
     end
     local spread, lift = nil, nil -- PopControl defaults
-    if popped or xg then
+    if popped or crossfadeGroup then
         spread, lift = POP_STREAM_SPREAD, POP_STREAM_LIFT
     end
     local fadeIn = popped and FADE_IN_POP or FADE_IN
-    local flight = xg and prof.flight or 1
-    if xg then
+    local flightScale = crossfadeGroup and profile.flight or 1 -- crossfade copy B flies faster than the normal stream
+    if crossfadeGroup then
         XF_PROFILE.plan(px, py, dx, dy)
-    elseif sp then
-        prof.plan(n, x, y, dx, dy, uv, uf, sf)
+    elseif isStreamPop then
+        profile.plan(n, x, y, dx, dy, unknownLevel, unknownZoomFactor, spreadFactor)
     end
-    local xfCount = 0
-    local cur, curLive = nil, false -- the orb being built, and whether it is in `live` yet
+    local crossfadeCount = 0 -- orbs that got a plate-space copy A (each takes 3 texture slots on crossfadeGroup)
+    local building, buildingLive = nil, false -- the orb being built, and whether it is in `live` yet
     burstSeq = burstSeq + 1
-    local bk = burstSeq
+    local burstKey = burstSeq
 
     local ok, err = pcall(function()
         for i = 1, n do
@@ -1158,113 +1194,119 @@ function Orbs:Burst(p)
                 break
             end
             local rested = i <= nPurple
-            local c = rested and d.restedColor or normal
-            local r, g, bl = c[1], c[2], c[3]
-            local o = newRec()
-            cur, curLive = o, false
-            o.g, o.hold, o.ew, o.prof = nil, 0, nil, nil
-            o.dvx, o.dvy = 0, 0
-            if xg then
-                local k = xfCount * 3
-                if pcall(xfTextures, xg, k, r, g, bl) then
-                    xfCount = xfCount + 1
-                    o.g, o.k, o.px, o.py = xg, k, px, py
-                    o.hold, o.ew, o.prof = prof.hold, prof.ease, prof
-                    xg.refs = xg.refs + 1
+            local colour = rested and config.restedColor or baseColour
+            local red, green, blue = colour[1], colour[2], colour[3]
+            local orb = newRec()
+            building, buildingLive = orb, false
+            orb.group, orb.hold, orb.easeWeight, orb.profile = nil, 0, nil, nil
+            orb.driftVx, orb.driftVy = 0, 0
+            if crossfadeGroup then
+                local slotBase = crossfadeCount * 3 -- first of this orb's 3 texture slots on the group
+                if pcall(crossfadeTextures, crossfadeGroup, slotBase, red, green, blue) then
+                    crossfadeCount = crossfadeCount + 1
+                    orb.group, orb.slotBase, orb.px, orb.py = crossfadeGroup, slotBase, px, py
+                    orb.hold, orb.easeWeight, orb.profile = profile.hold, profile.ease, profile
+                    crossfadeGroup.refs = crossfadeGroup.refs + 1
                 end
             end
-            if sp then
+            if isStreamPop then
                 -- stream pop: the flight starts where the drift after the pop ends
-                local ang = prof.ang[i]
-                o.hold = prof.hd[i] + (rested and RESTED_DELAY or 0)
-                o.px, o.py, o.ax, o.ay = prof.cx[i], prof.cy[i], prof.rx[i], prof.ry[i]
-                o.dvx, o.dvy = cos(ang) * prof.driftOut, prof.driftUp + sin(ang) * prof.driftOut
-                local hd = o.hold - prof.bloom
-                o.x0, o.y0 = o.ax + o.dvx * hd, o.ay + o.dvy * hd
-            elseif o.g then
+                local ringAngle = profile.ringAngle[i]
+                orb.hold = profile.holds[i] + (rested and RESTED_DELAY or 0)
+                orb.px, orb.py = profile.centreX[i], profile.centreY[i]
+                orb.ringX, orb.ringY = profile.ringX[i], profile.ringY[i]
+                orb.driftVx = cos(ringAngle) * profile.driftOut
+                orb.driftVy = profile.driftUp + sin(ringAngle) * profile.driftOut
+                local driftTime = orb.hold - profile.bloom
+                orb.x0, orb.y0 = orb.ringX + orb.driftVx * driftTime, orb.ringY + orb.driftVy * driftTime
+            elseif orb.group then
                 -- crossfade: A blooms out to its ring point around P-hat and rests there; B starts near the bar, and
                 -- A has left before B's flight begins
-                local ang = OrbMath.RingAngle(i, n, random)
-                local rad = (prof.rmin + random() * (prof.rmax - prof.rmin)) * sf
-                o.ax, o.ay = x + cos(ang) * rad, y + sin(ang) * rad + random() * prof.drift * sf
-                o.ux, o.uy = prof.ux, prof.uy
-                o.ld = prof.ld
-                o.ls = random() * prof.leaveStagger
-                o.hold = prof.bloom + o.ls + prof.leaveTime + prof.gap
-                local sa, sr = random() * TWO_PI, prof.bSpread * sqrt(random())
-                o.x0, o.y0 = prof.bx + cos(sa) * sr, prof.by + sin(sa) * sr
+                local ringAngle = OrbMath.RingAngle(i, n, random)
+                local radius = (profile.rmin + random() * (profile.rmax - profile.rmin)) * spreadFactor
+                orb.ringX = x + cos(ringAngle) * radius
+                orb.ringY = y + sin(ringAngle) * radius + random() * profile.drift * spreadFactor
+                orb.ux, orb.uy = profile.ux, profile.uy
+                orb.leaveDist = profile.leaveDistClamped
+                orb.leaveStart = random() * profile.leaveStagger
+                orb.hold = profile.bloom + orb.leaveStart + profile.leaveTime + profile.gap
+                local spawnAngle, spawnRadius = random() * TWO_PI, profile.bSpread * sqrt(random())
+                orb.x0 = profile.bCentreX + cos(spawnAngle) * spawnRadius
+                orb.y0 = profile.bCentreY + sin(spawnAngle) * spawnRadius
             else
-                local ang, rad = random() * TWO_PI, START_RADIUS * sf * sqrt(random())
-                o.x0, o.y0 = x + cos(ang) * rad, y + sin(ang) * rad
+                local ringAngle, radius = random() * TWO_PI, START_RADIUS * spreadFactor * sqrt(random())
+                orb.x0, orb.y0 = x + cos(ringAngle) * radius, y + sin(ringAngle) * radius
             end
-            -- (Popstream (Direct) picked its shared ring centre in plan; uv is 0 for crossfade)
-            placeUnknown(o, sp and 0 or uv, x, y, uf)
-            if sp then
+            -- (Popstream (Direct) picked its shared ring centre in plan; unknownLevel is 0 for crossfade)
+            placeUnknown(orb, isStreamPop and 0 or unknownLevel, x, y, unknownZoomFactor)
+            if isStreamPop then
                 -- leave along the ring angle blended towards the bar (nobody flies back through the middle)
-                local ang, k = prof.ang[i], prof.cBlend
-                local vx, vy = dx - o.x0, dy - o.y0
-                local vl = sqrt(vx * vx + vy * vy)
-                if vl > 1e-6 then
-                    vx, vy = vx / vl, vy / vl
+                local ringAngle, blend = profile.ringAngle[i], profile.ctrlBlend
+                local vx, vy = dx - orb.x0, dy - orb.y0
+                local vecLen = sqrt(vx * vx + vy * vy)
+                if vecLen > 1e-6 then
+                    vx, vy = vx / vecLen, vy / vecLen
                 else
                     vx, vy = 0, 1
                 end
-                local r = (45 + random() * 55) * POP_STREAM_SPREAD * 2.2
-                o.c1x, o.c1y = o.x0 + (cos(ang) * k + vx * (1 - k)) * r, o.y0 + (sin(ang) * k + vy * (1 - k)) * r
-            elseif o.g then
+                local reach = (45 + random() * 55) * POP_STREAM_SPREAD * 2.2
+                orb.control1X = orb.x0 + (cos(ringAngle) * blend + vx * (1 - blend)) * reach
+                orb.control1Y = orb.y0 + (sin(ringAngle) * blend + vy * (1 - blend)) * reach
+            elseif orb.group then
                 -- crossfade B: first control point ahead along u (towards the bar), jittered sideways, no lift
-                local ddx, ddy = dx - o.x0, dy - o.y0
-                local d0 = sqrt(ddx * ddx + ddy * ddy)
-                local j = (random() * 2 - 1) * prof.cJit * d0
-                o.c1x = o.x0 + o.ux * prof.cAhead * d0 - o.uy * j
-                o.c1y = o.y0 + o.uy * prof.cAhead * d0 + o.ux * j
+                local ddx, ddy = dx - orb.x0, dy - orb.y0
+                local barDist = sqrt(ddx * ddx + ddy * ddy)
+                local sideways = (random() * 2 - 1) * profile.ctrlJitter * barDist
+                orb.control1X = orb.x0 + orb.ux * profile.ctrlAhead * barDist - orb.uy * sideways
+                orb.control1Y = orb.y0 + orb.uy * profile.ctrlAhead * barDist + orb.ux * sideways
             else
-                o.c1x, o.c1y = OrbMath.PopControl(i, n, o.x0, o.y0, random, spread, lift)
+                orb.control1X, orb.control1Y = OrbMath.PopControl(i, n, orb.x0, orb.y0, random, spread, lift)
             end
-            local ddx, ddy = dx - o.x0, dy - o.y0
-            o.dist0 = sqrt(ddx * ddx + ddy * ddy)
-            o.delay = random() * stagger + (rested and not sp and RESTED_DELAY or 0) + extra
-            local jlo, jspan = 0.85, 0.3
-            if (o.g or sp) and prof.jlo then
-                jlo, jspan = prof.jlo, prof.jspan
+            local ddx, ddy = dx - orb.x0, dy - orb.y0
+            orb.flightDist = sqrt(ddx * ddx + ddy * ddy)
+            orb.delay = random() * stagger + (rested and not isStreamPop and RESTED_DELAY or 0) + extraDelay
+            local jitterLow, jitterSpan = 0.85, 0.3
+            if (orb.group or isStreamPop) and profile.jitterLow then
+                jitterLow, jitterSpan = profile.jitterLow, profile.jitterSpan
             end
-            o.dur = max(MIN_DUR, d.flightTime * (o.g and flight or 1) * (jlo + random() * jspan))
-            o.el = 0
-            o.fadeIn = fadeIn -- plate-copy orbs fade in during the hold (prof.fadeIn); crossfade's B over bFade
-            if o.g then
-                o.fadeIn = prof.bFade / o.dur
-            elseif sp then
-                o.fadeIn = 0 -- the pop already faded in
+            orb.dur = max(MIN_DUR,
+                config.flightTime * (orb.group and flightScale or 1) * (jitterLow + random() * jitterSpan))
+            orb.elapsed = 0
+            orb.fadeIn = fadeIn -- plate-copy orbs fade in during the hold (profile.fadeIn); crossfade's B over bFade
+            if orb.group then
+                orb.fadeIn = profile.bFade / orb.dur
+            elseif isStreamPop then
+                orb.fadeIn = 0 -- the pop already faded in
             end
-            o.rested = rested
-            o.size = d.size * scale * (rested and RESTED_SIZE or 1)
-            o.rot0 = random() * TWO_PI
-            o.under = acquire(ORB_TEX, -1, r * UNDER_K, g * UNDER_K, bl * UNDER_K, "BLEND")
-            o.orb = acquire(ORB_TEX, 0, r, g, bl)
-            o.spark = acquire(SPARKLE_TEX, 1, lighten(r), lighten(g), lighten(bl))
+            orb.rested = rested
+            orb.size = config.size * scale * (rested and RESTED_SIZE or 1)
+            orb.startRotation = random() * TWO_PI
+            orb.under = acquire(ORB_TEX, -1, red * UNDER_K, green * UNDER_K, blue * UNDER_K, "BLEND")
+            orb.body = acquire(ORB_TEX, 0, red, green, blue)
+            orb.spark = acquire(SPARKLE_TEX, 1, lighten(red), lighten(green), lighten(blue))
             if trail then
-                o.g1 = acquire(ORB_TEX, 0, r, g, bl)
-                o.g2 = acquire(ORB_TEX, 0, r, g, bl)
+                orb.ghost1 = acquire(ORB_TEX, 0, red, green, blue)
+                orb.ghost2 = acquire(ORB_TEX, 0, red, green, blue)
             end
             nLive = nLive + 1
-            live[nLive] = o
-            o.bk = bk
-            burstLeft[bk] = (burstLeft[bk] or 0) + 1
-            curLive = true
+            live[nLive] = orb
+            orb.burstKey = burstKey
+            burstLeft[burstKey] = (burstLeft[burstKey] or 0) + 1
+            buildingLive = true
         end
     end)
     if not ok then
         -- Undo what this burst started, so nothing is left holding a pool slot: the half-built orb, every orb that
         -- shares the crossfade frame, and the pop frame (the newest entry of `pops`).
-        if cur and not curLive then
-            pcall(freeOrb, cur)
+        if building and not buildingLive then
+            pcall(freeOrb, building)
         end
-        if xg then
+        if crossfadeGroup then
             local i = 1
             while i <= nLive do
-                local o = live[i]
-                if o.g == xg then
-                    pcall(freeOrb, o)
+                local orb = live[i]
+                if orb.group == crossfadeGroup then
+                    pcall(freeOrb, orb)
                     live[i] = live[nLive]
                     live[nLive] = nil
                     nLive = nLive - 1
@@ -1274,21 +1316,21 @@ function Orbs:Burst(p)
             end
         end
         if popped and nPops > 0 then
-            local g = pops[nPops]
+            local group = pops[nPops]
             pops[nPops] = nil
             nPops = nPops - 1
-            releasePop(g)
+            releasePop(group)
         end
     end
-    if xg and (not ok or xg.refs <= 0) and xg.xf then
+    if crossfadeGroup and (not ok or crossfadeGroup.refs <= 0) and crossfadeGroup.isCrossfade then
         -- no orb got a plate-space copy (or the burst failed): give the frame back
-        dropXf(xg)
-        releasePop(xg)
+        dropCrossfade(crossfadeGroup)
+        releasePop(crossfadeGroup)
     end
     if not ok then
-        xg = nil
-    elseif xg and not xg.xf then
-        xg = nil
+        crossfadeGroup = nil
+    elseif crossfadeGroup and not crossfadeGroup.isCrossfade then
+        crossfadeGroup = nil
     end
 
     if (nLive > 0 or nPops > 0) and not active then
@@ -1298,10 +1340,10 @@ function Orbs:Burst(p)
     if not ok then
         error(err, 0) -- Kills logs it; everything above is already back in its pool
     end
-    if xg then
+    if crossfadeGroup then
         return "crossfade"
     end
-    if sp then
+    if isStreamPop then
         return "streampop"
     end
     return popped and "pop+stream" or "stream"
@@ -1310,15 +1352,15 @@ end
 -- A plate frame we may be anchored to was assigned to a new unit: fade its pop out (0.1 s) and release it.
 function Orbs:PlateReused(plate)
     for i = 1, nPops do
-        local g = pops[i]
-        if g.plate == plate and not g.fading then
-            g.fading, g.fadeEl = true, 0
+        local group = pops[i]
+        if group.plate == plate and not group.fading then
+            group.fading, group.fadeElapsed = true, 0
         end
     end
-    for i = 1, nXf do
-        local g = xfs[i]
-        if g.plate == plate and not g.fading then
-            g.fading, g.fadeEl = true, 0
+    for i = 1, nCrossfade do
+        local group = crossfadeGroups[i]
+        if group.plate == plate and not group.fading then
+            group.fading, group.fadeElapsed = true, 0
         end
     end
 end
@@ -1336,7 +1378,7 @@ end
 -- freePop, popFramesCreated, popsAlive, crossfadeFramesAlive: pool bookkeeping (idle = freePop == popFramesCreated and
 -- the other two 0; a released frame always has refs 0).
 function Orbs:PoolInfo()
-    return #freePop, popsCreated, nPops, nXf
+    return #freePop, popsCreated, nPops, nCrossfade
 end
 
 -- Stream origin for /xporbs test (style = a render style). Popstream (Nameplate) follows the kill rule
@@ -1346,39 +1388,39 @@ end
 -- checked for secrecy and pcall'd. Returns x, y, label (x, y nil only when even the screen size is unreadable).
 local function testOrigin(style, ex, ey)
     if style == "popstream" then
-        local sx, sy, sl = Target:StreamOrigin(ex, ey)
-        if sx then
-            return sx, sy, sl
+        local startX, startY, startLabel = Target:StreamOrigin(ex, ey)
+        if startX then
+            return startX, startY, startLabel
         end
-    elseif (style == "stream" or style == "streampop") and num(ex) and num(ey) then
+    elseif (style == "stream" or style == "streampop") and isNumber(ex) and isNumber(ey) then
         return ex, ey, "estimate"
     end
-    local fx, fy = Target:TargetFrameOrigin()
-    if fx then
-        return fx, fy, "targetframe"
+    local frameX, frameY = Target:TargetFrameOrigin()
+    if frameX then
+        return frameX, frameY, "targetframe"
     end
-    local okc, cx, cy = pcall(GetCursorPosition)
-    local oks, sc = pcall(UIParent.GetEffectiveScale, UIParent)
-    if okc and oks and num(cx) and num(cy) and num(sc) and sc > 0 then
-        return cx / sc, cy / sc, "cursor"
+    local okCursor, cursorX, cursorY = pcall(GetCursorPosition)
+    local okScale, scale = pcall(UIParent.GetEffectiveScale, UIParent)
+    if okCursor and okScale and isNumber(cursorX) and isNumber(cursorY) and isNumber(scale) and scale > 0 then
+        return cursorX / scale, cursorY / scale, "cursor"
     end
-    local okw, w = pcall(UIParent.GetWidth, UIParent)
-    local okh, h = pcall(UIParent.GetHeight, UIParent)
-    if okw and okh and num(w) and num(h) then
-        return w / 2, h / 2, "centre"
+    local okWidth, width = pcall(UIParent.GetWidth, UIParent)
+    local okHeight, height = pcall(UIParent.GetHeight, UIParent)
+    if okWidth and okHeight and isNumber(width) and isNumber(height) then
+        return width / 2, height / 2, "centre"
     end
     return nil, nil, "centre"
 end
 
 -- Fires one test burst of pct % of a level. Returns the numbers the /xporbs test report prints.
 local function fireTest(pct, rested, force, forceMode)
-    local d = db()
-    local okm, xpMax = pcall(UnitXPMax, "player")
-    if not okm or not num(xpMax) or xpMax <= 0 then
+    local config = settings()
+    local okXpMax, xpMax = pcall(UnitXPMax, "player")
+    if not okXpMax or not isNumber(xpMax) or xpMax <= 0 then
         xpMax = 1000 -- max level, no data or a secret value: any positive number gives the same orb count
     end
     local gain = pct / 100 * xpMax
-    local n, scale = OrbMath.Count(gain, xpMax, d.density, d.cap)
+    local n, scale = OrbMath.Count(gain, xpMax, config.density, config.cap)
     local nPurple = 0
     if rested then
         local _
@@ -1386,12 +1428,12 @@ local function fireTest(pct, rested, force, forceMode)
     end
     -- the target's estimate (its GUID, when readable, finds a mouseover sample); no target = a keyboard-style estimate
     local guid
-    local okg, tg = pcall(UnitGUID, "target")
-    if okg and readable(tg) and type(tg) == "string" then
-        guid = tg
+    local okGuid, targetGuid = pcall(UnitGUID, "target")
+    if okGuid and readable(targetGuid) and type(targetGuid) == "string" then
+        guid = targetGuid
     end
     local ex, ey, est, estW = ns.Mouseover:Estimate(guid)
-    local x, y, label = testOrigin(ns.RenderStyle(force or d.style, forceMode or d.popMode), ex, ey)
+    local x, y, label = testOrigin(ns.RenderStyle(force or config.style, forceMode or config.popMode), ex, ey)
     local mode = Orbs:Burst({
         x = x,
         y = y,
@@ -1422,7 +1464,7 @@ local function stressStop()
 end
 
 local function stressTick(_, dt)
-    stressEl = stressEl + (num(dt) and dt or 0)
+    stressEl = stressEl + (isNumber(dt) and dt or 0)
     while stressFired < stressN and stressEl >= stressFired * STRESS_TIME / stressN do
         stressFired = stressFired + 1
         local ok, err = pcall(fireTest, 1 + floor(random() * 15), false, nil)
@@ -1462,7 +1504,7 @@ function ns.commands.test(arg)
         startStress(count)
         return
     end
-    local d = db()
+    local config = settings()
     local pct, rested, force, forceMode = 5, false, nil, nil
     for tok in string.gmatch(arg or "", "%S+") do
         if tok == "rested" then
@@ -1498,9 +1540,9 @@ function ns.commands.perf(arg)
     end
     local mem = "n/a"
     if UpdateAddOnMemoryUsage and GetAddOnMemoryUsage then
-        local ok1 = pcall(UpdateAddOnMemoryUsage)
-        local ok2, kb = pcall(GetAddOnMemoryUsage, ADDON)
-        if ok1 and ok2 and num(kb) then
+        local okUpdate = pcall(UpdateAddOnMemoryUsage)
+        local okUsage, kb = pcall(GetAddOnMemoryUsage, ADDON)
+        if okUpdate and okUsage and isNumber(kb) then
             mem = string.format("%.1f KB", kb)
         end
     end
@@ -1536,14 +1578,14 @@ end
 function ns.commands.sound(arg)
     local word, rest = string.match(arg or "", "^%s*(%S*)%s*(.-)%s*$")
     if word == "on" or word == "coin" or word == "glass" then
-        db().sound = true
+        settings().sound = true
         if word ~= "on" then
-            db().soundVoice = word
+            settings().soundVoice = word
         end
         soundDead = false
         refreshPanel()
     elseif word == "off" then
-        db().sound = false
+        settings().sound = false
         refreshPanel()
     elseif word == "volume" then
         local range = ns.ranges.soundVolume
@@ -1552,18 +1594,19 @@ function ns.commands.sound(arg)
             ns.Print(string.format("sound: volume needs a number, %d to %d (percent)", range[1], range[2]))
             return
         end
-        db().soundVolume = percent
+        settings().soundVolume = percent
         refreshPanel()
-        if db().sound and not soundDead then
-            Orbs:PreviewSound(db().soundVoice)
+        if settings().sound and not soundDead then
+            Orbs:PreviewSound(settings().soundVoice)
         end
     elseif word ~= "" then
         ns.Print("sound: use on, off, coin, glass or volume N")
         return
     end
     local note = soundDead and " (switched off this session: the client wouldn't play the file)" or ""
-    ns.Print(string.format("chime: %s, %s, volume %d%%%s", db().sound and "on" or "off", tostring(db().soundVoice),
-        tonumber(db().soundVolume) or ns.defaults.soundVolume, note))
+    ns.Print(string.format("chime: %s, %s, volume %d%%%s", settings().sound and "on" or "off",
+        tostring(settings().soundVoice),
+        tonumber(settings().soundVolume) or ns.defaults.soundVolume, note))
 end
 
 -- true once a sound failure has switched the chime off for this session
@@ -1574,36 +1617,37 @@ end
 -- /xporbs style popstream [nameplate|direct] | crossfade | stream, plus the old names (Core STYLE_ALIAS): streampop =
 -- Popstream (Direct), wide / mob = Popstream (Nameplate) with Wide on. /xporbs pop on|off = popstream|stream.
 function ns.commands.style(arg)
-    local w, sub = string.match(arg or "", "^%s*(%S*)%s*(%S*)")
-    if w == "nameplate" or w == "direct" then
-        w, sub = "popstream", w
+    local word, subMode = string.match(arg or "", "^%s*(%S*)%s*(%S*)")
+    if word == "nameplate" or word == "direct" then
+        word, subMode = "popstream", word
     end
-    if w ~= "" then
-        local a = ns.STYLE_ALIAS[w]
-        if not a or (sub ~= "" and (a[1] ~= "popstream" or (sub ~= "nameplate" and sub ~= "direct"))) then
+    if word ~= "" then
+        local alias = ns.STYLE_ALIAS[word]
+        if not alias
+            or (subMode ~= "" and (alias[1] ~= "popstream" or (subMode ~= "nameplate" and subMode ~= "direct"))) then
             ns.Print("style: use popstream [nameplate|direct], crossfade or stream")
             return
         end
-        ns.SetStyle(db(), w)
-        if sub ~= "" then
-            db().popMode = sub
+        ns.SetStyle(settings(), word)
+        if subMode ~= "" then
+            settings().popMode = subMode
         end
         refreshPanel()
     end
-    ns.Print("kill style: " .. ns.StyleLabel(db()))
+    ns.Print("kill style: " .. ns.StyleLabel(settings()))
 end
 
 local function spreadState()
-    return db().zoomSpread and "on" or "off"
+    return settings().zoomSpread and "on" or "off"
 end
 
 -- /xporbs wide on|off: the "Zoom-scaled spread" tickbox (db.zoomSpread): located orbs' spawn spread scales with zoom.
 function ns.commands.wide(arg)
-    local w = string.match(arg or "", "%S+")
-    if w == "on" or w == "off" then
-        db().zoomSpread = w == "on"
+    local word = string.match(arg or "", "%S+")
+    if word == "on" or word == "off" then
+        settings().zoomSpread = word == "on"
         refreshPanel()
-    elseif w ~= nil then
+    elseif word ~= nil then
         ns.Print("wide: use on or off (now " .. spreadState() .. ")")
         return
     end
@@ -1613,30 +1657,30 @@ end
 -- /xporbs unknown off|wide: where the stream starts when the mob is not located (no Options control; "off" is kept
 -- for future quest/exploration streams)
 function ns.commands.unknown(arg)
-    local w = string.match(arg or "", "%S+")
-    if w ~= nil and UNKNOWN.level[w] == nil then
-        ns.Print("unknown: use off or wide (now " .. tostring(db().unknownOrigin) .. ")")
+    local word = string.match(arg or "", "%S+")
+    if word ~= nil and UNKNOWN.level[word] == nil then
+        ns.Print("unknown: use off or wide (now " .. tostring(settings().unknownOrigin) .. ")")
         return
     end
-    if w ~= nil then
-        db().unknownOrigin = w
+    if word ~= nil then
+        settings().unknownOrigin = word
     end
-    ns.Print("unknown origin: " .. tostring(db().unknownOrigin))
+    ns.Print("unknown origin: " .. tostring(settings().unknownOrigin))
 end
 
 function ns.commands.pop(arg)
-    local w = string.match(arg or "", "%S+")
-    if w == "on" then
-        db().style = "popstream"
+    local word = string.match(arg or "", "%S+")
+    if word == "on" then
+        settings().style = "popstream"
         refreshPanel()
-    elseif w == "off" then
-        db().style = "stream"
+    elseif word == "off" then
+        settings().style = "stream"
         refreshPanel()
-    elseif w ~= nil then
+    elseif word ~= nil then
         ns.Print("pop: use on or off")
         return
     end
-    ns.Print("kill style: " .. ns.StyleLabel(db()))
+    ns.Print("kill style: " .. ns.StyleLabel(settings()))
 end
 
 table.insert(ns.statusProviders, function()
@@ -1649,7 +1693,7 @@ table.insert(ns.statusProviders, function()
         ceiling(),
         tostring(Target.lastName) .. (Target.lastSourceLabel and (" [" .. Target.lastSourceLabel .. "]") or ""),
         Target.lastOk and "no" or "yes",
-        ns.RenderStyle(db().style, db().popMode),
+        ns.RenderStyle(settings().style, settings().popMode),
         nPops,
         popsCreated,
         POP_FRAMES
@@ -1657,9 +1701,9 @@ table.insert(ns.statusProviders, function()
 end)
 
 table.insert(ns.statusProviders, function()
-    return "kill style: " .. ns.StyleLabel(db()) .. ", zoom-scaled spread: " .. spreadState()
+    return "kill style: " .. ns.StyleLabel(settings()) .. ", zoom-scaled spread: " .. spreadState()
 end)
 
 table.insert(ns.statusProviders, function()
-    return "unknown origin: " .. tostring(db().unknownOrigin)
+    return "unknown origin: " .. tostring(settings().unknownOrigin)
 end)

@@ -12,12 +12,12 @@ local NAME = "XPOrbs"
 local ICON = "Interface\\AddOns\\XPOrbs\\media\\icon"
 local GREY = 0.7
 
-local ldb, ldbi -- the libraries, when they loaded
+local ldb, ldbi -- LibDataBroker and LibDBIcon, when they loaded
 local dataObject
 local registered = false
 Btn.err = nil
 
-local function D()
+local function settings()
     if not ns.db then
         ns:InitDB()
     end
@@ -33,7 +33,7 @@ local function fail(msg)
 end
 
 local function stateText()
-    return D().enabled and "orbs on" or "orbs off"
+    return settings().enabled and "orbs on" or "orbs off"
 end
 
 -- True when the Settings window is open on our own category (our canvas panel is only shown then).
@@ -63,8 +63,8 @@ end
 -- Left-click (or anything but right-click): toggle the settings panel. Right-click: orbs on/off.
 local function click(button)
     if button == "RightButton" then
-        local db = D()
-        db.enabled = not db.enabled
+        local saved = settings()
+        saved.enabled = not saved.enabled
         ns.Print(stateText())
         local panel = ns.Options and ns.Options.panel
         if panel and panel:IsShown() then
@@ -73,7 +73,7 @@ local function click(button)
     elseif optionsOpen() then
         closeOptions()
     else
-        ns.commands.options()  -- also switches over when the window is open on another addon's category
+        ns.commands.options() -- also switches over when the window is open on another addon's category
     end
 end
 
@@ -89,7 +89,7 @@ local function applyVisibility()
     if not (registered and ldbi) then
         return
     end
-    local hidden = D().minimap.hide
+    local hidden = settings().minimap.hide
     local ok, err = pcall(hidden and ldbi.Hide or ldbi.Show, ldbi, NAME)
     if not ok then
         fail(err)
@@ -98,14 +98,14 @@ end
 
 -- Show or hide the button (saved in db.minimap.hide).
 function Btn.SetShown(shown)
-    D().minimap.hide = not shown
+    settings().minimap.hide = not shown
     applyVisibility()
 end
 
 -- After a settings reset: the saved table was emptied in place, so let LibDBIcon re-read position and visibility.
 function Btn.Reapply()
     if registered and ldbi and ldbi.Refresh then
-        local ok, err = pcall(ldbi.Refresh, ldbi, NAME, D().minimap)
+        local ok, err = pcall(ldbi.Refresh, ldbi, NAME, settings().minimap)
         if not ok then
             fail(err)
         end
@@ -124,11 +124,11 @@ function ns.commands.minimap(arg)
         return
     end
     local note = Btn.err and (" (button unavailable: " .. Btn.err .. ")") or ""
-    ns.Print("minimap button " .. (D().minimap.hide and "hidden" or "shown") .. note)
+    ns.Print("minimap button " .. (settings().minimap.hide and "hidden" or "shown") .. note)
 end
 
 local function register()
-    local db = D()
+    local saved = settings()
     local ok, err = pcall(function()
         if type(LibStub) ~= "function" and type(LibStub) ~= "table" then
             error("LibStub is missing", 0)
@@ -154,7 +154,7 @@ local function register()
         if not dataObject then
             error("LibDataBroker refused the data object", 0)
         end
-        ldbi:Register(NAME, dataObject, db.minimap)
+        ldbi:Register(NAME, dataObject, saved.minimap)
         registered = true
     end)
     if not ok then
@@ -194,5 +194,5 @@ table.insert(ns.statusProviders, function()
     if Btn.err then
         return "minimap button: unavailable (" .. Btn.err .. ")"
     end
-    return "minimap button: " .. (D().minimap.hide and "hidden" or "shown")
+    return "minimap button: " .. (settings().minimap.hide and "hidden" or "shown")
 end)
