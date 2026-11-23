@@ -76,7 +76,7 @@ def test_sections_and_rows_run_in_the_agreed_order(env):
 
 def test_content_height_fits_the_last_row_exactly(env):
     m = build(env)
-    assert m.opt.CONTENT_H == m.opt.child.height == row_y(m, "debug") + 28 + 16 == 1450
+    assert m.opt.CONTENT_H == m.opt.child.height == row_y(m, "debug") + 28 + 16 == 1328
 
 
 def test_exploration_checkbox_and_tooltips(env):
@@ -116,7 +116,7 @@ def test_flight_style_is_a_dropdown_like_the_voice_one(env):
     )
     assert m.lua.eval("rawequal")(m.opt.controls["flightPath"], dropdown)
     assert dropdown.points[1][4] == 260 and dropdown.width == 150
-    assert "Flight Style" in texts(m) and "Flight path" not in texts(m)
+    assert "Flight style" in texts(m) and "Kill style" in texts(m) and "Flight path" not in texts(m)
     assert selection(dropdown) == [
         ("Smooth (default)", True),
         ("Chaos", False),
@@ -187,7 +187,7 @@ def test_the_button_itself_shows_the_current_options_tooltip(env):
     m = build(env)
     dropdown = m.opt.flightDropdown
     m.stub.hover(dropdown)
-    assert str(m.stub.tooltip.text) == "Smooth (default)" and m.stub.tooltip.shown
+    assert str(m.stub.tooltip.text) == "Smooth" and m.stub.tooltip.shown
     assert "A clean arc" in str(lua_list(m.stub.tooltip.lines)[-1])
     m.stub.unhover(dropdown)
     assert not m.stub.tooltip.shown

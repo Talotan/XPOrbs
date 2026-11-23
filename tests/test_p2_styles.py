@@ -283,9 +283,9 @@ def test_style_section_rows_and_sub_radios(env):
         o.rows[k].points[1][5]
         for k in ("style_popstream", "popMode_nameplate", "popMode_direct")
     ] == [
-        -528,
-        -570,
-        -612,
+        -550,
+        -592,
+        -634,
     ]
     for pm, x in (("nameplate", 54), ("direct", 54)):
         rb = ctl(m5, "popMode_" + pm)
@@ -333,10 +333,10 @@ def test_spread_checkbox_label_position_and_reset(env):
     show(m5)
     texts = panel_texts(m5)
     assert "Zoom-scaled spread" in texts and "Wide start" not in texts
-    assert m5.opt.descs["zoomSpread"].text.startswith("Pops and stream starts spread wider when zoomed in")
+    assert m5.opt.descs["zoomSpread"].text == "Wider when zoomed in, tighter when zoomed out."
     cb = ctl(m5, "zoomSpread")
-    assert cb.checked is True and m5.opt.rows["zoomSpread"].points[1][5] == -766
-    assert m5.opt.descs["zoomSpread"].points[1][5] == -(766 + 28)
+    assert cb.checked is True and m5.opt.rows["zoomSpread"].points[1][5] == -786
+    assert m5.opt.descs["zoomSpread"].points[1][5] == -(786 + 28)
     m5.stub.click(cb)
     assert m5.db.zoomSpread is False and cb.checked is False
     btn = m5.opt.resets["zoomSpread"]

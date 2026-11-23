@@ -895,7 +895,7 @@ def test_options_has_the_new_checkboxes_with_tooltips(env):
         for f in m.stub.frames.values()
         if f.kind == "FontString" and getattr(f, "text", None)
     ]
-    assert "Kill orbs at max level" in texts and "Chime when orbs arrive" in texts
+    assert "Orbs at max level" in texts and "Chime when orbs arrive" in texts
     cb = m.opt.controls["showAtMax"]
     m.stub.hover(cb)
     assert m.stub.tooltip.shown and "small burst of orbs to your portrait" in str(

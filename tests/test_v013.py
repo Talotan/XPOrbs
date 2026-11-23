@@ -256,8 +256,8 @@ def test_scroll_frame_exists_with_the_specified_anchors_and_content_height(m):
     ]
     assert pts[0][0] == "TOPLEFT" and (pts[0][3], pts[0][4]) == (0, -40)
     assert pts[1][0] == "BOTTOMRIGHT" and (pts[1][3], pts[1][4]) == (-28, 44)
-    # the last row (Debug log, y 1406) is 28 tall, plus the 16 px bottom margin
-    assert o.child.width == 584 and o.child.height == 1406 + 28 + 16 == o.CONTENT_H == 1450
+    # the last row (Debug log, y 1284) is 28 tall, plus the 16 px bottom margin
+    assert o.child.width == 584 and o.child.height == 1284 + 28 + 16 == o.CONTENT_H == 1328
 
 
 def test_scroll_template_falls_back(env):
@@ -295,19 +295,19 @@ def test_scroll_frame_without_any_template_still_scrolls(env):
         ("restedTint", 398),
         ("restedColor", 426),
         ("flightPath", 494),
-        ("style_popstream", 528),
-        ("popMode_nameplate", 570),
-        ("popMode_direct", 612),
-        ("style_crossfade", 664),
-        ("style_stream", 710),
-        ("zoomSpread", 766),
-        ("targetFrame", 864),
-        ("glowShape", 972),
-        ("glow", 1178),
-        ("sound", 1278),
-        ("soundVoice", 1306),
-        ("soundVolume", 1334),
-        ("debug", 1406),
+        ("style_popstream", 550),
+        ("popMode_nameplate", 592),
+        ("popMode_direct", 634),
+        ("style_crossfade", 686),
+        ("style_stream", 732),
+        ("zoomSpread", 786),
+        ("targetFrame", 856),
+        ("glowShape", 956),
+        ("glow", 1056),
+        ("sound", 1156),
+        ("soundVoice", 1184),
+        ("soundVolume", 1212),
+        ("debug", 1284),
     ],
 )
 def test_row_positions_follow_the_spec(m, key, y):
@@ -373,7 +373,7 @@ def test_label_rename(m):
         "Enabled",
         "Trail",
         "Quest bursts",
-        "Kill orbs at max level",
+        "Orbs at max level",
         "Chime when orbs arrive",
         "Orb colour",
         "Class colour",
@@ -422,9 +422,9 @@ def test_style_radios_use_the_radio_template_and_each_has_a_description(m):
 def test_style_description_positions(m):
     d = m.opt.descs
     for st, y in (
-        ("popstream", 528 + 24),
-        ("crossfade", 664 + 24),
-        ("stream", 710 + 24),
+        ("popstream", 550 + 24),
+        ("crossfade", 686 + 24),
+        ("stream", 732 + 24),
     ):
         pt = d[st].points[1]
         assert (pt[4], pt[5]) == (56, -y) and d[
@@ -455,7 +455,8 @@ def test_glow_shape_radios(m):
         ctl(m, "glowShape_round")
     )  # clicking the selected one keeps it selected
     assert ctl(m, "glowShape_round").checked
-    assert m.opt.shapeDesc.text.startswith("Horizontal: orbs land on the bar's fill edge")
+    m.stub.hover(ctl(m, "glowShape_bar"))  # the shape descriptions are tooltips now
+    assert "fill edge" in str(m.stub.tooltip.text) or "Horizontal" in str(m.stub.tooltip.text)
     # C3: the third radio, in the order Horizontal, Vertical, Circular
     assert ctl(m, "glowShape_vertical").template == "UIRadioButtonTemplate"
     m.stub.click(ctl(m, "glowShape_vertical"))
@@ -483,11 +484,11 @@ def test_rested_colour_dims_with_rested_tint(m):
 def test_glow_shape_does_not_dim_with_show_glow(m):
     # v0.14: the shape describes the target frame, so only the glow intensity dims (see test_v014.py)
     show(m)
-    row, desc = m.opt.rows["glowShape"], m.opt.rows["glowShapeDesc"]
+    row = m.opt.rows["glowShape"]
     rb = [ctl(m, "glowShape_bar"), ctl(m, "glowShape_round")]
     m.stub.click(ctl(m, "glow"))
     assert m.db.glow is False
-    assert row.alpha in (None, 1) and desc.alpha in (None, 1)
+    assert row.alpha in (None, 1)
     assert all(r.IsEnabled(r) for r in rb)
 
 

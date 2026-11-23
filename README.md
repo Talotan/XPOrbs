@@ -83,10 +83,10 @@ back with `/xporbs minimap on` or the "Show minimap button" option).
 
 The panel has these sections, most-used first:
 
-- **General:** enable, kill orbs at max level, quest bursts, exploration bursts and the minimap button.
+- **General:** enable, orbs at max level, quest bursts, exploration bursts and the minimap button.
 - **Look:** orb quantity, maximum orbs per burst, orb size, flight time (1 s by default), trail, orb colour (or your
   class colour), rested tint and rested colour.
-- **Style:** the Flight Style dropdown, the kill style and the zoom-scaled spread.
+- **Style:** the Flight style dropdown, the kill style and the zoom-scaled spread.
 - **Arrival:** the XP bar frame and its picker, the shape of the target frame, a landing offset, and the arrival glow
   with its intensity.
 - **Sound:** the arrival chime with its sound (Coin or Glass) and volume.
@@ -100,7 +100,7 @@ and times you changed yourself are left alone.
 
 ### Max level
 
-The game gives no XP at the level cap, so nothing is drawn there unless "Kill orbs at max level" is on. With it on,
+The game gives no XP at the level cap, so nothing is drawn there unless "Orbs at max level" is on. With it on,
 each kill of a mob you were fighting (your target, or a mob that had you on its threat list in the last 10 seconds)
 sends a small burst of 6 orbs to your portrait, ending in a round glow. If you picked a frame with `/xporbs pick`, the
 orbs go to that frame instead.
@@ -108,7 +108,7 @@ orbs go to that frame instead.
 ### Chime
 
 With "Chime when orbs arrive" on, orbs make a quiet sound as they land: up to six per burst, at most one every 70 ms,
-each a slightly different pitch picked at random. Pick the sound in the options panel ("Sound") or with
+each a slightly different pitch picked at random. Pick the sound in the options panel ("Voice", with a play button for a sample) or with
 `/xporbs sound glass` or `/xporbs sound coin`: **Glass** (the default) is a glassy tink, **Coin** is a soft coin clink.
 Choosing one in the panel plays a sample.
 
@@ -182,7 +182,7 @@ whether the pop needs the mob's nameplate.
   nameplate; the estimated position sets the direction the orbs leave in. Without a nameplate it is a plain stream.
 - **Direct Stream** (`stream`): no pop, just the stream from the estimated position. Never uses the nameplate.
 
-**Flight Style** (the dropdown in Options, or `/xporbs path`): how the orbs fly to the bar, for every style. The pops and
+**Flight style** (the dropdown in Options, or `/xporbs path`): how the orbs fly to the bar, for every style. The pops and
 the arrival glow don't change. Hover an option in the dropdown for a short description.
 
 - **Smooth** (default): a clean curved arc.
@@ -222,7 +222,7 @@ frame, including bars that ignore the mouse (the picker
 scans the frames under the cursor and takes the smallest named one, skipping nameplates and screen-sized
 containers). If the click finds nothing, type the name instead: `/xporbs pick FrameName`. If the target frame shape is set to
 circular, they land on the centre of the frame instead, which suits a round frame such as a portrait. At max level,
-with "Kill orbs at max level" on and no frame picked, the destination is your player portrait. The landing
+with "Orbs at max level" on and no frame picked, the destination is your player portrait. The landing
 point can be shifted by up to 100 px on each axis. If no frame is visible, the orbs land at the bottom centre of the
 screen. The arrival glow is drawn at the landing point.
 

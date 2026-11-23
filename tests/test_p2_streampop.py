@@ -11,7 +11,8 @@ from test_migration import load
 from test_p2_unknown import LCG, ORIGIN, RX, RY, fire, live_recs, settle
 from test_v09 import chat_lines, make, pop_frames, restricted_plate, stream_textures
 
-BORN, BLOOM, LAUNCH_SPAN = 0.03, 0.16, 0.20
+BORN, BLOOM, LAUNCH0, LAUNCH_SPAN, RESTED_PAUSE = 0.03, 0.16, 0.112, 0.10, 0.06
+MAX_HOLD = 0.26  # the last orb has left about 0.25 s after the kill (a rested one trails by RESTED_PAUSE more)
 
 
 def dest_of(g):
@@ -124,10 +125,10 @@ def test_births_within_30_ms_at_the_start_point_and_ring_radius(env):
     )
     g.stub.tick(BORN)  # everyone has been born
     assert len(orb_textures(g)) == 40
-    g.stub.tick(0.12)  # t = 0.151: the pop has nearly formed and nobody has launched yet (the first is at 0.16)
+    g.stub.tick(0.08)  # t = 0.111: the pop is mostly formed and nobody has launched yet (the first is at 0.112)
     shown = orb_textures(g)
     assert all(
-        10 <= math.hypot(pos(t)[0] - ORIGIN[0], pos(t)[1] - ORIGIN[1]) <= 36
+        8 <= math.hypot(pos(t)[0] - ORIGIN[0], pos(t)[1] - ORIGIN[1]) <= 36
         for t in shown
     )
     settle(g)
@@ -147,7 +148,7 @@ def test_the_pop_size_eases_from_1_5_to_1_and_fades_in(env):
     settle(g)
 
 
-def test_launches_are_nearest_to_the_bar_first_over_0_2_s(env):
+def test_launches_are_nearest_to_the_bar_first_over_0_1_s(env):
     env.lua.execute(LCG)
     g = make(env, fixed_random=False)
     fire(g, "streampop", n=12)
@@ -157,9 +158,36 @@ def test_launches_are_nearest_to_the_bar_first_over_0_2_s(env):
     dist = [math.hypot(dx - o.ringX, dy - o.ringY) for o in ordered]
     assert dist == sorted(dist)  # nearest ring point launches first
     holds = [o.hold for o in ordered]
-    assert holds[0] == pytest.approx(BLOOM) and holds[-1] - holds[0] == pytest.approx(
+    assert holds[0] == pytest.approx(LAUNCH0) and holds[-1] - holds[0] == pytest.approx(
         LAUNCH_SPAN
     )
+    assert LAUNCH0 < BLOOM  # the stream follows straight on: the first orb leaves as the ring forms
+    settle(g)
+
+
+def test_no_orb_lingers_before_its_launch(env):
+    env.lua.execute(LCG)
+    g = make(env, fixed_random=False)
+    fire(g, "streampop", n=30, nPurple=10)
+    recs = live_recs(g)
+    assert all(o.hold <= MAX_HOLD + (RESTED_PAUSE if o.rested else 0) + 1e-9 for o in recs)
+    assert all(o.hold <= MAX_HOLD for o in recs if not o.rested)
+    assert any(o.rested for o in recs)
+    settle(g)
+
+
+def test_an_orb_launching_mid_bloom_starts_where_the_bloom_put_it(env):
+    env.lua.execute(LCG)
+    g = make(env, fixed_random=False)
+    fire(g, "streampop", n=12)
+    early = [o for o in live_recs(g) if o.hold < BLOOM]
+    assert early
+    for o in early:
+        eased = 1 - (1 - o.hold / BLOOM) ** 3
+        assert (o.x0, o.y0) == pytest.approx(
+            (o.px + (o.ringX - o.px) * eased, o.py + (o.ringY - o.py) * eased), abs=1e-6
+        )  # short of the ring, and no drift yet
+        assert math.hypot(o.x0 - o.px, o.y0 - o.py) < math.hypot(o.ringX - o.px, o.ringY - o.py) + 1e-6
     settle(g)
 
 
@@ -171,7 +199,7 @@ def test_rested_orbs_launch_later_by_the_rested_delay(env):
     assert max(o.hold for o in recs if o.rested) > max(
         o.hold for o in recs if not o.rested
     )
-    assert all(o.hold >= BLOOM for o in recs)
+    assert all(o.hold >= LAUNCH0 for o in recs)
     settle(g)
 
 

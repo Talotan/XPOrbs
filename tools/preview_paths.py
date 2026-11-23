@@ -50,6 +50,7 @@ START_RADIUS = 6
 UIPARENT = (1707, 960)  # a 2560x1440 screen at UI scale 2/3: the units Burst works in
 UNKNOWN_RX, UNKNOWN_RY = 0.064, 0.04  # Orbs.lua UNKNOWN: the unknown-origin ellipse, fractions of the screen
 HELIX_LINE, HELIX_LINE_UNKNOWN, POP_WIDEN, HELIX_RING_WIDEN = 8, 18, 1.6, 1.4
+SP_BLOOM, SP_LAUNCH0, SP_LAUNCH_SPAN = 0.16, 0.112, 0.10  # Orbs.lua SP_PROFILE: bloom, first launch (70% of it), span
 MARGIN = 110  # px around a flight's bounding box (the Chaos amplitude reaches about 90)
 FPS = 30
 
@@ -426,14 +427,24 @@ def streampop_panel(om, kind, start, end, label, seed, scale, origin):
     side = om.BowSide(start[0], start[1], end[0], end[1], width, height)
     control_scale = om.PathShape(kind)[0]
     handedness = -1 if kind == "helix" and rng.random() < 0.5 else 1
-    orbs = []
+    rings = []
     for index in range(1, count + 1):
         ring_angle = om.RingAngle(index, count, rng.random)
         radius = (18 + rng.random() * 12) * ring_scale
         ring = (start[0] + math.cos(ring_angle) * radius * widen, start[1] + math.sin(ring_angle) * radius)
-        drift = 0.1  # s of drift before the launch (hold - bloom)
-        x0 = ring[0] + math.cos(ring_angle) * 8 * drift
-        y0 = ring[1] + (15 + math.sin(ring_angle) * 8) * drift
+        rings.append((ring_angle, ring))
+    # launch holds: nearest ring point to the bar first, from 0.7 x the bloom over a 0.10 s span (SP_PROFILE)
+    by_distance = sorted(range(count), key=lambda i: math.hypot(end[0] - rings[i][1][0], end[1] - rings[i][1][1]))
+    holds = {i: SP_LAUNCH0 + SP_LAUNCH_SPAN * rank / (count - 1) for rank, i in enumerate(by_distance)}
+    orbs = []
+    for index in range(1, count + 1):
+        ring_angle, ring = rings[index - 1]
+        # where the bloom (ease-out cubic over SP_BLOOM s) and then the drift have put the orb at its launch
+        hold = holds[index - 1]
+        eased = 1 - (1 - min(hold / SP_BLOOM, 1)) ** 3
+        drift = max(hold - SP_BLOOM, 0)
+        x0 = start[0] + (ring[0] - start[0]) * eased + math.cos(ring_angle) * 8 * drift
+        y0 = start[1] + (ring[1] - start[1]) * eased + (15 + math.sin(ring_angle) * 8) * drift
         vx, vy = end[0] - x0, end[1] - y0
         length = math.hypot(vx, vy)
         vx, vy = vx / length, vy / length

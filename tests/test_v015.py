@@ -23,7 +23,6 @@ def y_of(m, key):
 def test_arrival_rows_are_in_the_requested_order(m):
     order = [
         "glowShape",
-        "glowShapeDesc",
         "glowOffsetX",
         "glowOffsetY",
         "glow",
@@ -31,10 +30,7 @@ def test_arrival_rows_are_in_the_requested_order(m):
     ]
     ys = [y_of(m, k) for k in order]
     assert ys == sorted(ys) and len(set(ys)) == len(ys)
-    desc_y = -m.opt.offsetDesc.points[1][5]
-    assert (
-        y_of(m, "glowOffsetY") < desc_y < y_of(m, "glow")
-    )  # the offsets' description sits between them
+    assert y_of(m, "glowOffsetX") == y_of(m, "glowShape") + 32  # no description block between shape and offsets
     assert y_of(m, "glowIntensity") == y_of(m, "glow") + 28
 
 

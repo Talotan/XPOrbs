@@ -28,7 +28,7 @@ local HILITE = "Interface\\Buttons\\ButtonHilight-Square"
 -- Kill styles (schema 6): three archetypes; Popstream has a Nameplate / Direct sub-choice (db.popMode). Each line says
 -- whether the style uses the nameplate, the estimated mob position or both, and whether it has a pop.
 local STYLES = { "popstream", "crossfade", "stream" }
-local STYLE_NAME = { popstream = "Popstream (default)", crossfade = "Crossfade", stream = "Direct Stream" }
+local STYLE_NAME = { popstream = "Popstream", crossfade = "Crossfade", stream = "Direct Stream" }
 local STYLE_DESC = {
     popstream = "A pop of orbs at the mob, then a stream to the bar. Pick where it pops:",
     crossfade = "Pop on the nameplate (if shown); the orbs reappear just above the bar.",
@@ -41,7 +41,7 @@ local STYLE_TIP = {
     stream = "No pop. Nameplate: not used. Estimated position: where the stream starts.",
 }
 local POPMODES = { "nameplate", "direct" }
-local POPMODE_NAME = { nameplate = "Nameplate (default)", direct = "Direct" }
+local POPMODE_NAME = { nameplate = "Nameplate", direct = "Direct" }
 local POPMODE_DESC = {
     nameplate = "Pop on the nameplate (if shown), stream from the estimated position.",
     direct = "Pop and stream from the estimated position. No nameplate needed.",
@@ -52,8 +52,7 @@ local POPMODE_TIP = {
     direct = "The pop opens at the estimated position and flows straight into the stream, nearest to the bar first. "
         .. "Never uses the nameplate, so it looks the same with nameplates off.",
 }
-local SPREAD_DESC = "Pops and stream starts spread wider when zoomed in and tighter when zoomed out. Off: always the "
-    .. "same spread."
+local SPREAD_DESC = "Wider when zoomed in, tighter when zoomed out."
 local SPREAD_TIP = "Applies to all three styles: the nameplate pop, the pop or stream start at the estimated position. "
     .. "At the default camera zoom nothing changes. A mob you didn't mouse over always starts over a wide area that "
     .. "scales with zoom, whatever this says."
@@ -61,9 +60,11 @@ local DESC_DIM = 0.55 -- dimmed descriptions stay readable (rows and controls us
 local SHAPES = { "bar", "vertical", "round" }
 local SHAPE_NAME = { bar = "Horizontal", vertical = "Vertical", round = "Circular" }
 local SHAPE_SPACING = 100 -- px between the shape radios
-local SHAPE_DESC = "Horizontal: orbs land on the bar's fill edge (a vertical bar the addon recognises gets the "
-    .. "vertical glow automatically). Vertical: a bar that fills bottom to top. Circular: the centre of a round frame "
-    .. "such as a portrait."
+local SHAPE_TIP = {
+    bar = "Orbs land on the bar's fill edge. A vertical bar the addon recognises gets the vertical glow automatically.",
+    vertical = "A bar that fills bottom to top.",
+    round = "The centre of a round frame, such as a portrait.",
+}
 local QUEST_TIP = "Orbs for quest turn-ins and other XP that is not a kill or exploration."
 local EXPLORE_TIP = "Orbs for the XP you get from discovering a new area."
 local FLIGHT_STYLE_DESC = {
@@ -74,11 +75,14 @@ local FLIGHT_STYLE_DESC = {
 local MAX_TIP = "At max level, each kill sends a small burst of orbs to your portrait."
 local SOUND_TIP = "Coin: a soft coin clink. Glass: a glassy tink. One per arriving orb (up to six per burst). "
     .. "Off by default."
+local PLAY_X = 156 -- px right of CTRL_X: just past the 150 px voice dropdown
+local PLAY_ATLAS = "voicechat-icon-speaker"
+local PLAY_FALLBACK = "Interface\\Common\\VoiceChat-Speaker"
+local PLAY_TIP = "Play a sample: a handful of orbs arriving"
 local VOICES = { "glass", "coin" }
 local VOICE_NAME = { coin = "Coin", glass = "Glass" }
-local OFFSET_DESC = "Moves where orbs land and the glow appears (pixels)."
-local PICK_HINT = "Use this if another addon replaces the default XP bar, or to send the orbs somewhere else, such as "
-    .. "your portrait with the Circular shape."
+local OFFSET_TIP = "Moves where orbs land and the glow appears (pixels)."
+local PICK_HINT = "For a replaced XP bar, or to target your portrait (Circular)."
 
 local refreshers, postRefresh, resets = {}, {}, {}
 local refreshing = false
@@ -627,7 +631,7 @@ end
 local function soundVoiceRow(y)
     local row = newRow(y, 28)
     Options.rows.soundVoice = row
-    label(row, "Sound", 48)
+    label(row, "Voice", LABEL_X + 24)
     local function pick(v)
         settings().soundVoice = v
         if ns.Orbs and ns.Orbs.PreviewSound then
@@ -677,6 +681,39 @@ local function soundVoiceRow(y)
                 radioBtns[i]:SetChecked(settings().soundVoice == v)
             end
         end
+    end
+    -- Play button right of the voice control: a sample of about six orbs arriving, through the real chime path. Dimmed
+    -- and disabled with the chime off (the voice and volume stay usable so they can still be auditioned).
+    local play = CreateFrame("Button", nil, row)
+    play:SetSize(22, 22)
+    play:SetPoint("LEFT", row, "LEFT", CTRL_X + PLAY_X, 0)
+    local playTex = play:CreateTexture(nil, "ARTWORK")
+    playTex:SetAllPoints(play)
+    local okPlayAtlas = false
+    if C_Texture and C_Texture.GetAtlasInfo then
+        local okInfo, info = pcall(C_Texture.GetAtlasInfo, PLAY_ATLAS)
+        if okInfo and info then
+            okPlayAtlas = pcall(playTex.SetAtlas, playTex, PLAY_ATLAS)
+        end
+    end
+    if not okPlayAtlas then
+        playTex:SetTexture(PLAY_FALLBACK)
+    end
+    pcall(play.SetHighlightTexture, play, HILITE, "ADD")
+    play:SetScript("OnClick", function()
+        if ns.Orbs and ns.Orbs.PlayChimeSample then
+            pcall(ns.Orbs.PlayChimeSample, ns.Orbs)
+        end
+    end)
+    play:SetScript("OnEnter", function(self)
+        showTip(self, PLAY_TIP)
+    end)
+    play:SetScript("OnLeave", hideTip)
+    Options.controls.chimeSample = play
+    postRefresh[#postRefresh + 1] = function()
+        local on = settings().sound == true
+        play:SetAlpha(on and 1 or DIM)
+        enable(play, on)
     end
     addReset(row, "soundVoice", { "soundVoice" }, function()
         return VOICE_NAME[ns.defaults.soundVoice] or tostring(ns.defaults.soundVoice)
@@ -751,7 +788,7 @@ local function buildGeneral(y)
     y = header("General", y)
     for _, c in ipairs({
         { "enabled", "Enabled" },
-        { "showAtMax", "Kill orbs at max level", { tip = MAX_TIP } },
+        { "showAtMax", "Orbs at max level", { tip = MAX_TIP } },
         { "questBursts", "Quest bursts", { tip = QUEST_TIP } },
         { "exploreBursts", "Exploration bursts", { tip = EXPLORE_TIP } },
     }) do
@@ -819,7 +856,7 @@ local function buildLook(y)
     y = y + 28
     local restedRow = newRow(y, 28)
     Options.rows.restedColor = restedRow
-    local restedLabel = label(restedRow, "Rested colour", 48)
+    local restedLabel = label(restedRow, "Rested colour", LABEL_X + 24)
     local restedSwatch = swatch(restedRow, "restedColor", CTRL_X)
     addReset(restedRow, "restedColor", { "restedColor" }, function()
         return hex(ns.defaults.restedColor)
@@ -833,11 +870,12 @@ local function buildLook(y)
     return y + 28
 end
 
--- The "Flight Style" dropdown (db.flightPath, /xporbs path): applies to every kill style, so it never dims. Built like
+-- The "Flight style" dropdown (db.flightPath, /xporbs path): applies to every kill style, so it never dims. Built like
 -- the Sound voice dropdown. Each option explains itself in its own menu tooltip and the button's tooltip explains the
 -- current one, so no description takes page space. Radios replace the dropdown on a client without the template.
-local function flightStyleName(kind) -- "Smooth (default)", "Chaos", "Helix"
-    return ns.PATH_LABEL[kind] .. (kind == ns.defaults.flightPath and " (default)" or "")
+-- "Smooth (default)" inside the dropdown menu only; everywhere else (button text, tooltips, radios) the plain name.
+local function flightStyleName(kind, withDefault)
+    return ns.PATH_LABEL[kind] .. (withDefault and kind == ns.defaults.flightPath and " (default)" or "")
 end
 
 -- Fills a menu tooltip (Blizzard's GameTooltip_* helpers when they exist, plain tooltip calls otherwise).
@@ -856,7 +894,7 @@ end
 local function flightStyleRow(y)
     local row = newRow(y, 28)
     Options.rows.flightPath = row
-    label(row, "Flight Style", LABEL_X)
+    label(row, "Flight style", LABEL_X)
     local function pick(kind)
         settings().flightPath = kind
         Options:Refresh()
@@ -868,7 +906,7 @@ local function flightStyleRow(y)
         dropdown:SetSize(150, 26)
         dropdown:SetupMenu(function(_, root)
             for _, kind in ipairs(ns.PATH_ORDER) do
-                local name = flightStyleName(kind)
+                local name = flightStyleName(kind, true)
                 local element = root:CreateRadio(name, function()
                     return settings().flightPath == kind
                 end, function()
@@ -896,6 +934,10 @@ local function flightStyleRow(y)
         refreshers[#refreshers + 1] = function()
             if dropdown.GenerateMenu then
                 dropdown:GenerateMenu()
+            end
+            -- the button shows the plain name; only the menu items carry "(default)"
+            if dropdown.OverrideText then
+                pcall(dropdown.OverrideText, dropdown, flightStyleName(settings().flightPath))
             end
         end
     else
@@ -934,6 +976,10 @@ end
 local function buildStyle(y)
     y = header("Style", y + 14)
     y = flightStyleRow(y)
+    -- the three kill styles are their own group: a label so they don't read as options of the dropdown above
+    text(child, "GameFontHighlight", "Kill style", LABEL_X, -y)
+    Options.killStyleLabelY = y
+    y = y + 22
     local radios, subs = {}, {}
     local function tipOn(w, title, body)
         w:SetScript("OnEnter", function(self)
@@ -989,7 +1035,7 @@ local function buildStyle(y)
     end
     -- Zoom-scaled spread (db.zoomSpread, /xporbs wide): applies to every style, so it never dims. The unknown-position
     -- oval (db.unknownOrigin) is separate and has no control here.
-    y = y + 238
+    y = y + 236
     local _, scb = checkbox(y, "zoomSpread", "Zoom-scaled spread")
     tipOn(scb, "Zoom-scaled spread", SPREAD_TIP)
     local spreadDescText = text(child, "GameFontHighlight", SPREAD_DESC, LABEL_X, -(y + 28), 490)
@@ -1004,7 +1050,7 @@ local function buildStyle(y)
             Options.descs[pm]:SetAlpha(on and 1 or DESC_DIM)
         end
     end
-    return y + 72
+    return y + 44
 end
 
 -- Arrival: where the orbs land. The XP bar row (what was found, plus the picker) comes first, then the target frame's
@@ -1034,7 +1080,7 @@ local function buildArrival(y)
     pickHintText:SetWordWrap(true)
     pickHintText:SetTextColor(GREY, GREY, GREY)
     Options.pickHint = pickHintText
-    y = y + 34 + 28 + 10
+    y = y + 34 + 8 + 22 -- one hint line, then the gap between groups
 
     local shapeRow = newRow(y, 24)
     Options.rows.glowShape = shapeRow
@@ -1046,6 +1092,10 @@ local function buildArrival(y)
         radio:SetScript("OnClick", function()
             radioClick("glowShape", sh)
         end)
+        radio:SetScript("OnEnter", function(self)
+            showTip2(self, SHAPE_NAME[sh], SHAPE_TIP[sh])
+        end)
+        radio:SetScript("OnLeave", hideTip)
         shapeBtns[#shapeBtns + 1] = radio
         Options.controls["glowShape_" .. sh] = radio
     end
@@ -1058,28 +1108,18 @@ local function buildArrival(y)
     addReset(shapeRow, "glowShape", { "glowShape" }, function()
         return SHAPE_NAME[ns.defaults.glowShape] or tostring(ns.defaults.glowShape)
     end)
-    y = y + 26
-    local shapeDescRow = newRow(y, 84)
-    Options.rows.glowShapeDesc = shapeDescRow
-    local shapeDescText = shapeDescRow:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
-    shapeDescText:SetPoint("TOPLEFT", shapeDescRow, "TOPLEFT", CTRL_X, 0)
-    shapeDescText:SetWidth(280)
-    pcall(shapeDescText.SetSpacing, shapeDescText, 2)
-    shapeDescText:SetJustifyH("LEFT")
-    shapeDescText:SetWordWrap(true)
-    shapeDescText:SetTextColor(GREY, GREY, GREY)
-    shapeDescText:SetText(SHAPE_DESC)
-    Options.shapeDesc = shapeDescText
-
-    y = y + 90
+    y = y + 32
     slider(y, "glowOffsetX", "Target offset X", "%d px", " px")
     y = y + 32
     slider(y, "glowOffsetY", "Target offset Y", "%d px", " px")
+    for _, key in ipairs({ "glowOffsetX", "glowOffsetY" }) do
+        local offsetSlider = Options.controls[key]
+        offsetSlider:SetScript("OnEnter", function(self)
+            showTip(self, OFFSET_TIP)
+        end)
+        offsetSlider:SetScript("OnLeave", hideTip)
+    end
     y = y + 36
-    local offsetDescText = text(child, "GameFontHighlight", OFFSET_DESC, LABEL_X, -y, 490)
-    offsetDescText:SetTextColor(GREY, GREY, GREY)
-    Options.offsetDesc = offsetDescText
-    y = y + 22
     checkbox(y, "glow", "Show glow")
     y = y + 28
     slider(y, "glowIntensity", "Glow intensity", "%d%%", "%")
@@ -1165,6 +1205,15 @@ local function build()
 
     panel:SetScript("OnShow", function()
         Options:Refresh()
+        -- the "Test target" stand-in window follows this panel (Preview.lua); never let it break the panel
+        if ns.Preview then
+            pcall(ns.Preview.Sync, ns.Preview, true)
+        end
+    end)
+    panel:SetScript("OnHide", function()
+        if ns.Preview then
+            pcall(ns.Preview.Sync, ns.Preview, false)
+        end
     end)
     return panel
 end

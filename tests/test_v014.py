@@ -2,6 +2,7 @@
 Driven through stubs_m5.lua (same harness as test_v013)."""
 
 import pytest
+from conftest import lua_list
 from test_m5 import build, ctl, panel_texts, show
 from test_v013 import flash_tex, reset_shown, right_click, run_until_flash
 
@@ -192,7 +193,7 @@ def test_shape_rows_stay_live_with_the_glow_off_but_intensity_dims(m):
     show(m)
     m.stub.click(ctl(m, "glow"))
     assert m.db.glow is False
-    for k in ("glowShape", "glowShapeDesc", "glowOffsetX", "glowOffsetY"):
+    for k in ("glowShape", "glowOffsetX", "glowOffsetY"):
         assert m.opt.rows[k].alpha in (None, 1), k
     for k in ("glowShape_bar", "glowShape_round", "glowOffsetX", "glowOffsetY"):
         c = ctl(m, k)
@@ -267,12 +268,11 @@ def test_round_flash_lands_on_the_centre_plus_offset(m):
 @pytest.mark.parametrize(
     "key,y,h",
     [
-        ("glowShape", 972, 24),
-        ("glowShapeDesc", 998, 84),
-        ("glowOffsetX", 1088, 32),
-        ("glowOffsetY", 1120, 32),
-        ("glow", 1178, 28),
-        ("glowIntensity", 1206, 32),
+        ("glowShape", 956, 24),
+        ("glowOffsetX", 988, 32),
+        ("glowOffsetY", 1020, 32),
+        ("glow", 1056, 28),
+        ("glowIntensity", 1084, 32),
     ],
 )
 def test_new_rows_follow_the_grid(m, key, y, h):
@@ -296,19 +296,19 @@ def test_new_sliders_use_the_slider_columns_and_ranges(m):
         assert t in labels
 
 
-def test_offset_description_line(m):
-    d = m.opt.offsetDesc
-    assert d.text == "Moves where orbs land and the glow appears (pixels)."
-    assert (d.points[1][4], d.points[1][5]) == (32, -1156)
-    assert [d.textColor[i] for i in (1, 2, 3)] == pytest.approx([0.7, 0.7, 0.7])
+def test_offset_description_is_a_tooltip_on_both_sliders(m):
+    for key in ("glowOffsetX", "glowOffsetY"):
+        m.stub.hover(ctl(m, key))
+        assert str(m.stub.tooltip.text) == "Moves where orbs land and the glow appears (pixels)."
+        m.stub.unhover(ctl(m, key))
+    assert not hasattr(m.opt, "offsetDesc") or m.opt.offsetDesc is None
 
 
-def test_shape_description_text(m):
-    assert m.opt.shapeDesc.text == (
-        "Horizontal: orbs land on the bar's fill edge (a vertical bar the addon recognises gets the vertical glow "
-        "automatically). Vertical: a bar that fills bottom to top. Circular: the centre of a round frame "
-        "such as a portrait."
-    )
+def test_shape_descriptions_are_tooltips_on_the_radios(m):
+    for shape, word in (("bar", "fill edge"), ("vertical", "bottom to top"), ("round", "portrait")):
+        m.stub.hover(ctl(m, "glowShape_" + shape))
+        assert word in " ".join(str(x) for x in lua_list(m.stub.tooltip.lines))
+    assert "glowShapeDesc" not in m.opt.rows
 
 
 def test_sliders_drive_the_db_and_show_units(m):
@@ -387,23 +387,19 @@ def test_reset_all_covers_the_new_keys(m):
 def test_picker_hint_fontstring(m):
     h = m.opt.pickHint
     assert h.kind == "FontString"
-    assert h.text == (
-        "Use this if another addon replaces the default XP bar, or to send the orbs somewhere else, such as "
-        "your portrait with the Circular shape."
-    )
+    assert h.text == "For a replaced XP bar, or to target your portrait (Circular)."
     assert [h.textColor[i] for i in (1, 2, 3)] == pytest.approx([0.7, 0.7, 0.7])
     assert h.width == 520 and h.calls["SetWordWrap"][1] is True
-    assert (h.points[1][4], h.points[1][5]) == (32, -934)
+    assert (h.points[1][4], h.points[1][5]) == (32, -926)
     assert h.text in panel_texts(m)
 
 
 def test_content_height_grew_and_rows_below_moved(m):
-    assert m.opt.CONTENT_H == 1450 and m.opt.child.height == 1450
-    assert m.opt.rows["debug"].points[1][5] == -1406
-    assert 1406 + 28 + 16 == m.opt.CONTENT_H
-    # the blocks above stack without overlap: the picker hint (2 lines) clears the shape row, the offset caption
-    # clears the glow checkbox
-    assert 934 + 30 <= 972 and 1156 + 16 <= 1178
+    assert m.opt.CONTENT_H == 1328 and m.opt.child.height == 1328
+    assert m.opt.rows["debug"].points[1][5] == -1284
+    assert 1284 + 28 + 16 == m.opt.CONTENT_H
+    # the picker hint (one line) clears the shape row
+    assert 926 + 30 <= 956
 
 
 # ---------------------------------------------------------------- design-review fixes (docs/review-v013)
@@ -458,11 +454,6 @@ def test_radio_without_hit_rect_support_still_builds(env):
     env.lua.execute("local fm = getmetatable(UIParent).__index; fm.SetHitRectInsets = nil")
     m = build(env)
     assert m.opt.category is not None
-
-
-def test_shape_description_width_and_spacing(m):
-    sd = m.opt.shapeDesc
-    assert sd.width == 280 and sd.calls["SetSpacing"][1] == 2
 
 
 def test_section_is_named_arrival(m):

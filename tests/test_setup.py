@@ -386,4 +386,4 @@ def test_a_junk_dismissed_value_loads_as_false(env):
 def test_setup_is_in_the_toc_after_options():
     toc = (ROOT / "XPOrbs.toc").read_text(encoding="utf-8").splitlines()
     names = [line.strip() for line in toc]
-    assert names.index("Setup.lua") == names.index("Options.lua") + 1
+    assert names.index("Setup.lua") > names.index("Options.lua")  # Preview.lua sits between them
