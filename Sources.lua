@@ -108,7 +108,8 @@ local function clickPoint()
 end
 
 -- Quest window centre, remembered at QUEST_COMPLETE / QUEST_PROGRESS / QUEST_FINISHED (the window is gone by the time
--- the turn-in is paid). A known replacement window wins over Blizzard's QuestFrame, which such addons park out of sight.
+-- the turn-in is paid). A known replacement window wins over Blizzard's QuestFrame, which such addons park out of
+-- sight.
 local dialogX, dialogY, dialogTime
 
 local function readDialogCentre()
