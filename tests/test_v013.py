@@ -257,8 +257,8 @@ def test_scroll_frame_exists_with_the_specified_anchors_and_content_height(m):
     assert pts[0][0] == "TOPLEFT" and (pts[0][3], pts[0][4]) == (0, -40)
     assert pts[1][0] == "BOTTOMRIGHT" and (pts[1][3], pts[1][4]) == (-28, 44)
     assert o.child.width == 584 and o.child.height == pytest.approx(
-        1324, abs=2
-    )  # v0.14: 894 + 176; +28 chime checkbox, +28 Sound row, +28 minimap checkbox, +46 Stream pop radio; schema 6:
+        1356, abs=2
+    )  # v0.14: 894 + 176; +28 chime checkbox, +28 Sound row, +28 minimap checkbox, +32 Chime volume slider, +46 Stream pop radio; schema 6:
     # 3 styles + 2 Popstream sub-radios + the Wide checkbox and its description (+72)
 
 
@@ -289,24 +289,24 @@ def test_scroll_frame_without_any_template_still_scrolls(env):
         ("showAtMax", 118),
         ("sound", 146),
         ("soundVoice", 174),
-        ("minimap", 202),
-        ("density", 270),
-        ("cap", 302),
-        ("size", 334),
-        ("flightTime", 366),
-        ("color", 398),
-        ("restedTint", 426),
-        ("restedColor", 454),
-        ("glow", 700),
-        ("glowShape", 522),
-        ("style_popstream", 800),
-        ("popMode_nameplate", 842),
-        ("popMode_direct", 884),
-        ("style_crossfade", 936),
-        ("style_stream", 982),
-        ("zoomSpread", 1038),
-        ("targetFrame", 1142),
-        ("debug", 1280),
+        ("minimap", 234),
+        ("density", 302),
+        ("cap", 334),
+        ("size", 366),
+        ("flightTime", 398),
+        ("color", 430),
+        ("restedTint", 458),
+        ("restedColor", 486),
+        ("glow", 732),
+        ("glowShape", 554),
+        ("style_popstream", 832),
+        ("popMode_nameplate", 874),
+        ("popMode_direct", 916),
+        ("style_crossfade", 968),
+        ("style_stream", 1014),
+        ("zoomSpread", 1070),
+        ("targetFrame", 1174),
+        ("debug", 1312),
     ],
 )
 def test_row_positions_follow_the_spec(m, key, y):
@@ -421,9 +421,9 @@ def test_style_radios_use_the_radio_template_and_each_has_a_description(m):
 def test_style_description_positions(m):
     d = m.opt.descs
     for st, y in (
-        ("popstream", 800 + 24),
-        ("crossfade", 936 + 24),
-        ("stream", 982 + 24),
+        ("popstream", 832 + 24),
+        ("crossfade", 968 + 24),
+        ("stream", 1014 + 24),
     ):
         pt = d[st].points[1]
         assert (pt[4], pt[5]) == (56, -y) and d[

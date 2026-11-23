@@ -1,4 +1,4 @@
-"""Generate the XPOrbs chime sounds: media/coin1..6.ogg and media/glass1..6.ogg.
+"""Generate the XPOrbs chime sounds: media/chime/<level>/coin1..6.ogg and glass1..6.ogg, for every volume level.
 
 The sounds are original: two voices synthesised by this script, released under the repo's GPL-3.0-or-later like the
 rest of the addon. Each voice is six files, the same sound at six slightly different pitches (a cluster of base
@@ -13,8 +13,13 @@ glass: a glassy, icy "tink" within about 150 cents of 3 kHz. Four inharmonic par
 higher ones fading much faster), the same short noise click, no second strike, and a copy of the fundamental
 detuned by 3.5 Hz for a faint shimmer. Fundamental decay time constant 0.09 s, 0.25 s long.
 
-Both are mono, 44.1 kHz, end in true silence and peak at about -26 dBFS. The noise uses a fixed seed, so regenerating
-gives identical files. Running the script also deletes the old media/chime1..6.ogg.
+Both are mono, 44.1 kHz, end in true silence and peak at about -26 dBFS at 100 %. The noise uses a fixed seed, so
+regenerating gives identical files.
+
+Volume: PlaySoundFile has no volume argument on this client, so every sound is pre-rendered at each level in LEVELS
+(percent of the 100 % sound, 25..250 in steps of 25) by scaling the samples before encoding, one folder per level:
+media/chime/150/glass3.ogg. 250 % peaks at about -18 dBFS, so nothing clips. Running the script also deletes the older
+flat media/coin1..6.ogg, media/glass1..6.ogg and media/chime1..6.ogg.
 
 Needs ffmpeg with libvorbis on PATH (WAVs are written to a temp dir, then encoded with `-c:a libvorbis -q:a 3`).
 
@@ -37,7 +42,14 @@ RATE = 44100
 FADE = 0.03  # raised-cosine fade to zero over the last 30 ms
 ATTACK = 0.001
 SEED = 20261118
-OLD_PREFIX = "chime"  # the pre-voices file names, deleted on every run
+LEVELS = range(
+    25, 251, 25
+)  # volume levels in percent; Core.lua ns.ranges.soundVolume must match
+OLD_PATTERNS = (
+    "chime[1-6].ogg",
+    "coin[1-6].ogg",
+    "glass[1-6].ogg",
+)  # older layouts, deleted on every run
 
 # Each voice: centre pitch, the six offsets from it (cents), length, decay time constant of the fundamental,
 # (ratio, amp, decay speed-up) partials, the detuned copy of the fundamental, the second strike (BOUNCE_AMP 0 = none),
@@ -108,8 +120,8 @@ def _strike(freq: float, t: float, v: dict) -> float:
     return out * env
 
 
-def synth(freq: float, voice: str = "coin") -> list[int]:
-    """One sound of a voice as 16-bit samples (deterministic)."""
+def synth(freq: float, voice: str = "coin", level: int = 100) -> list[int]:
+    """One sound of a voice as 16-bit samples (deterministic), level percent of the 100 % amplitude."""
     v = VOICES[voice]
     rng = random.Random(SEED)
     n = int(RATE * v["LENGTH"])
@@ -140,7 +152,7 @@ def synth(freq: float, voice: str = "coin") -> list[int]:
             x *= 0.5 * (1 + math.cos(math.pi * (i - (n - fade_n)) / fade_n))
         raw.append(x)
     raw[-1] = 0.0  # true silence on the last sample
-    scale = 10 ** (v["PEAK_DBFS"] / 20) / max(abs(x) for x in raw)
+    scale = 10 ** (v["PEAK_DBFS"] / 20) / max(abs(x) for x in raw) * (level / 100)
     return [round(x * scale * 32767) for x in raw]
 
 
@@ -177,40 +189,47 @@ def main() -> int:
         )
         return 1
     args.out.mkdir(parents=True, exist_ok=True)
-    for old in args.out.glob(f"{OLD_PREFIX}[1-6].ogg"):
-        old.unlink()
-        print(f"removed old {old.name}")
+    for pattern in OLD_PATTERNS:
+        for old in args.out.glob(pattern):
+            old.unlink()
+            print(f"removed old {old.name}")
     with tempfile.TemporaryDirectory() as tmp:
-        for voice in VOICES:
-            for i, freq in enumerate(notes(voice), start=1):
-                wav = Path(tmp) / f"{voice}{i}.wav"
-                ogg = args.out / f"{voice}{i}.ogg"
-                samples = synth(freq, voice)
-                write_wav(wav, samples)
-                cmd = [
-                    ffmpeg,
-                    "-y",
-                    "-loglevel",
-                    "error",
-                    "-i",
-                    str(wav),
-                    "-c:a",
-                    "libvorbis",
-                    "-q:a",
-                    "3",
-                    str(ogg),
-                ]
-                res = subprocess.run(cmd, capture_output=True, text=True, check=False)
-                if res.returncode != 0:
-                    print(
-                        f"error: ffmpeg failed for {ogg.name} (is libvorbis available?):\n{res.stderr}",
-                        file=sys.stderr,
+        for level in LEVELS:
+            level_dir = args.out / "chime" / str(level)
+            level_dir.mkdir(parents=True, exist_ok=True)
+            for voice in VOICES:
+                for i, freq in enumerate(notes(voice), start=1):
+                    wav = Path(tmp) / f"{level}-{voice}{i}.wav"
+                    ogg = level_dir / f"{voice}{i}.ogg"
+                    samples = synth(freq, voice, level)
+                    write_wav(wav, samples)
+                    cmd = [
+                        ffmpeg,
+                        "-y",
+                        "-loglevel",
+                        "error",
+                        "-i",
+                        str(wav),
+                        "-c:a",
+                        "libvorbis",
+                        "-q:a",
+                        "3",
+                        str(ogg),
+                    ]
+                    res = subprocess.run(
+                        cmd, capture_output=True, text=True, check=False
                     )
-                    return 1
-                peak, rms = stats(samples)
-                print(
-                    f"{ogg.name}: {freq:.1f} Hz, peak {peak:.1f} dBFS, rms {rms:.1f} dBFS, {ogg.stat().st_size} bytes"
-                )
+                    if res.returncode != 0:
+                        print(
+                            f"error: ffmpeg failed for {ogg} (is libvorbis available?):\n{res.stderr}",
+                            file=sys.stderr,
+                        )
+                        return 1
+                    peak, rms = stats(samples)
+                    print(
+                        f"{level}/{ogg.name}: {freq:.1f} Hz, peak {peak:.1f} dBFS, rms {rms:.1f} dBFS, "
+                        f"{ogg.stat().st_size} bytes"
+                    )
     return 0
 
 

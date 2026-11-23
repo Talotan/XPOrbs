@@ -15,7 +15,7 @@ local floor = math.floor
 local HEADER_X, LABEL_X, CTRL_X, VALUE_X, RESET_X = 16, 32, 260, 472, 548
 local SLIDER_W = 200
 local RULE_W = 552
-local CONTENT_W, CONTENT_H = 584, 1070 -- |last y| + 16
+local CONTENT_W, CONTENT_H = 584, 1102 -- |last y| + 16
 local DIM = 0.4
 local SWATCH_OFF_ALPHA = 0.35
 local GREY = 0.70
@@ -473,7 +473,8 @@ local function attachValueEdit(row, key, val, lo, hi, step, unit)
 end
 
 -- The range (min, max, step) comes from ns.ranges (Core.lua), the same table InitDB clamps saved values with.
-local function slider(y, key, labelStr, fmt, unit)
+-- onChange(v), if given, runs after a drag (or a click on the bar) stores a new value, not on Refresh.
+local function slider(y, key, labelStr, fmt, unit, onChange)
     local lo, hi, step = ns.ranges[key][1], ns.ranges[key][2], ns.ranges[key][3]
     local row = newRow(y, 32)
     label(row, labelStr, LABEL_X)
@@ -497,6 +498,9 @@ local function slider(y, key, labelStr, fmt, unit)
         if not refreshing then
             D()[key] = v
             changed()
+            if onChange then
+                onChange(v)
+            end
         end
     end)
     refreshers[#refreshers + 1] = function()
@@ -670,6 +674,21 @@ local function soundVoiceRow(y)
     end)
 end
 
+-- The sample played while dragging the Chime volume slider: one note at the new volume, at most one per
+-- VOLUME_SAMPLE_GAP seconds so a drag across the whole bar isn't a machine gun.
+local VOLUME_SAMPLE_GAP = 0.15
+local lastVolumeSample = -math.huge
+local function previewVolume()
+    local now = GetTime and GetTime() or 0
+    if now - lastVolumeSample < VOLUME_SAMPLE_GAP then
+        return
+    end
+    lastVolumeSample = now
+    if ns.Orbs and ns.Orbs.PreviewSound then
+        pcall(ns.Orbs.PreviewSound, ns.Orbs, D().soundVoice)
+    end
+end
+
 local function registerPopup()
     if type(StaticPopupDialogs) ~= "table" then
         return false
@@ -749,6 +768,12 @@ local function build()
     end
     soundVoiceRow(y)
     y = y + 28
+    slider(y, "soundVolume", "Chime volume", "%d%%", "%", previewVolume)
+    -- dimmed with the chime off but left enabled (no controls passed), so a volume can still be auditioned and set
+    postRefresh[#postRefresh + 1] = function()
+        setDim(Options.rows.soundVolume, {}, D().sound == true)
+    end
+    y = y + 32
     checkbox(y, "minimap", "Show minimap button", {
         get = function()
             return not D().minimap.hide

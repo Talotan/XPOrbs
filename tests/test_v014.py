@@ -267,12 +267,12 @@ def test_round_flash_lands_on_the_centre_plus_offset(m):
 @pytest.mark.parametrize(
     "key,y,h",
     [
-        ("glowShape", 522, 24),
-        ("glowShapeDesc", 548, 56),
-        ("glowOffsetX", 610, 32),
-        ("glowOffsetY", 642, 32),
-        ("glow", 700, 28),
-        ("glowIntensity", 728, 32),
+        ("glowShape", 554, 24),
+        ("glowShapeDesc", 580, 56),
+        ("glowOffsetX", 642, 32),
+        ("glowOffsetY", 674, 32),
+        ("glow", 732, 28),
+        ("glowIntensity", 760, 32),
     ],
 )
 def test_new_rows_follow_the_grid(m, key, y, h):
@@ -299,7 +299,7 @@ def test_new_sliders_use_the_slider_columns_and_ranges(m):
 def test_offset_description_line(m):
     d = m.opt.offsetDesc
     assert d.text == "Moves where orbs land and the glow appears (pixels)."
-    assert (d.points[1][4], d.points[1][5]) == (32, -678)
+    assert (d.points[1][4], d.points[1][5]) == (32, -710)
     assert [d.textColor[i] for i in (1, 2, 3)] == pytest.approx([0.7, 0.7, 0.7])
 
 
@@ -392,14 +392,14 @@ def test_picker_hint_fontstring(m):
     )
     assert [h.textColor[i] for i in (1, 2, 3)] == pytest.approx([0.7, 0.7, 0.7])
     assert h.width == 520 and h.calls["SetWordWrap"][1] is True
-    assert (h.points[1][4], h.points[1][5]) == (32, -1212)
+    assert (h.points[1][4], h.points[1][5]) == (32, -1244)
     assert h.text in panel_texts(m)
 
 
 def test_content_height_grew_and_rows_below_moved(m):
-    assert m.opt.CONTENT_H == 1324 and m.opt.child.height == 1324
-    assert m.opt.rows["debug"].points[1][5] == -1280
-    assert 1280 + 28 + 16 == m.opt.CONTENT_H
+    assert m.opt.CONTENT_H == 1356 and m.opt.child.height == 1356
+    assert m.opt.rows["debug"].points[1][5] == -1312
+    assert 1312 + 28 + 16 == m.opt.CONTENT_H
     # the blocks above stack without overlap
     assert 678 + 16 <= 700 and 1106 + 30 <= 1140 and 1140 + 28 <= 1182
 

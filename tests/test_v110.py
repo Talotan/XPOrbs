@@ -15,7 +15,9 @@ BLUE = (0.15, 0.38, 1.00)  # default rested orb
 UNDER_PURPLE = tuple(round(0.25 * c, 4) for c in PURPLE)
 UNDER_BLUE = tuple(round(0.25 * c, 4) for c in BLUE)
 SOUNDS = ROOT / "media"
-CHIME_PATH = re.compile(r"Interface\\AddOns\\XPOrbs\\media\\(coin|glass)([1-6])\.ogg")
+CHIME_PATH = re.compile(
+    r"Interface\\AddOns\\XPOrbs\\media\\chime\\\d+\\(coin|glass)([1-6])\.ogg"
+)
 
 
 def rgb(c):
@@ -639,7 +641,9 @@ def test_chime_plays_wobbling_notes_on_the_sfx_channel(env):
         assert m and m.group(1) == "glass", path  # the default voice
         idx.append(int(m.group(2)))
     assert all(1 <= i <= 6 for i in idx)
-    assert all(a != b for a, b in zip(idx, idx[1:]))  # never the same note twice running
+    assert all(
+        a != b for a, b in zip(idx, idx[1:])
+    )  # never the same note twice running
 
 
 def test_at_most_six_notes_per_burst(env):
@@ -737,7 +741,7 @@ def test_sound_command_toggles_and_clears_a_shutdown(env):
     g.slash("sound on")
     assert g.db.sound is True and g.orbs.SoundDisabled(g.orbs) is False
     g.slash("sound loud")
-    assert "use on, off, coin or glass" in last_chat(g)
+    assert "use on, off, coin, glass or volume N" in last_chat(g)
     n = len(sounds(g))
     play(g)
     assert len(sounds(g)) > n
@@ -759,9 +763,9 @@ def test_driver_goes_idle_with_sound_on(env):
 def test_the_chime_path_is_built_once_at_load():
     src = (ROOT / "Orbs.lua").read_text(encoding="utf-8")
     assert (
-        src.count('media\\\\" .. voice') == 1
+        src.count('media\\\\chime\\\\" .. volume') == 1
     )  # one concatenation, in the load-time table, none in the driver
-    assert not re.search(r"media\\\\chime", src)
+    assert 'media\\\\" .. voice' not in src
 
 
 # ---- the sound files and the generator
@@ -770,15 +774,17 @@ def test_the_chime_path_is_built_once_at_load():
 @pytest.mark.parametrize("voice", ["coin", "glass"])
 @pytest.mark.parametrize("i", range(1, 7))
 def test_chime_files_exist_and_are_small(voice, i):
-    p = SOUNDS / f"{voice}{i}.ogg"
+    p = SOUNDS / "chime" / "100" / f"{voice}{i}.ogg"
     assert p.is_file()
     data = p.read_bytes()
     assert data[:4] == b"OggS" and 1000 < len(data) < 15 * 1024
 
 
 def test_old_chime_files_are_gone():
-    assert not list(SOUNDS.glob("chime*.ogg"))
-    assert len(list(SOUNDS.glob("*.ogg"))) == 12
+    assert not list(
+        SOUNDS.glob("*.ogg")
+    )  # every sound lives under media/chime/<level>/
+    assert len(list((SOUNDS / "chime").glob("*/*.ogg"))) == 10 * 12
 
 
 def load_generator():
@@ -864,8 +870,8 @@ def test_packaged_zip_includes_the_chimes_and_new_modules_but_no_tools(tmp_path)
         names = z.namelist()
     for voice in ("coin", "glass"):
         for i in range(1, 7):
-            assert f"XPOrbs/media/{voice}{i}.ogg" in names
-    assert not any("/chime" in n for n in names)
+            assert f"XPOrbs/media/chime/100/{voice}{i}.ogg" in names
+    assert not any(n.startswith("XPOrbs/media/chime") and "/chime/" not in n for n in names)  # no old flat files
     for rel in ("logic/Engaged.lua", "logic/Chime.lua"):
         assert f"XPOrbs/{rel}" in names
     assert not any("/tools/" in n or "make_sounds" in n for n in names)
@@ -906,7 +912,12 @@ def test_options_has_the_new_checkboxes_with_tooltips(env):
 
 def test_docs_mention_the_new_features():
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
-    for needle in ("/xporbs sound", r"coin\|glass", "/xporbs debug maxlevel", "portrait"):
+    for needle in (
+        "/xporbs sound",
+        r"coin\|glass",
+        "/xporbs debug maxlevel",
+        "portrait",
+    ):
         assert needle in readme, needle
     log = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     assert "## 1.1.0 (" in log and "## 1.0.2 (unreleased)" not in log
@@ -1043,9 +1054,7 @@ def test_dropdown_row_sits_under_the_chime_checkbox_inside_the_panel(env):
     dd = m.opt.soundDropdown
     assert dd.points[1][4] == 260 and dd.width == 150
     assert dd.points[1][4] + dd.width < 548  # clear of the reset button column
-    assert "Sound" in {
-        f.text for f in m.stub.frames.values() if f.kind == "FontString"
-    }
+    assert "Sound" in {f.text for f in m.stub.frames.values() if f.kind == "FontString"}
 
 
 def test_picking_from_the_dropdown_sets_the_voice_and_previews_one_note(env):
@@ -1113,7 +1122,9 @@ def test_dropdown_stays_enabled_with_the_chime_off(env):
     row, dd = m.opt.rows["soundVoice"], m.opt.soundDropdown
     show(m)
     assert m.db.sound is False
-    assert row.alpha in (None, 1) and dd.IsEnabled(dd)  # never dimmed: the player can preview the voices before turning the chime on
+    assert row.alpha in (None, 1) and dd.IsEnabled(
+        dd
+    )  # never dimmed: the player can preview the voices before turning the chime on
 
 
 def test_sound_tooltip_describes_both_voices(env):

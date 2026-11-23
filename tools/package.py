@@ -28,7 +28,9 @@ def toc_files(toc: Path) -> list[str]:
 def collect() -> list[str]:
     toc = ROOT / f"{NAME}.toc"
     listed = toc_files(toc)
-    files = [toc.name, *listed, *sorted(f"media/{p.name}" for p in (ROOT / "media").iterdir() if p.is_file()), *EXTRA]
+    media = ROOT / "media"
+    shipped_media = sorted(f"media/{p.relative_to(media).as_posix()}" for p in media.rglob("*") if p.is_file())
+    files = [toc.name, *listed, *shipped_media, *EXTRA]
     missing = [f for f in files if not (ROOT / f).is_file()]
     if missing:
         raise SystemExit(f"missing files: {', '.join(missing)}")
