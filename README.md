@@ -11,6 +11,12 @@ kill the burst starts at the mob. The orbs match the game's XP bar: purple norma
 The number of orbs grows with the share of the current level that the gain gave, so a big kill looks bigger than a
 trivial one.
 
+## Focus
+
+XP Orbs does one thing and tries to do it as well as possible: the best, most efficient and most beautiful XP orbs it
+can draw. They should feel like part of the default UI and work alongside as many other addons as possible. Features
+unrelated to XP orbs stay out, so the addon stays light. What's planned is in the [roadmap](ROADMAP.md).
+
 ## Compatibility
 
 - WoW Forever only (`## Interface: 16001`). It has not been tested on Retail or any Classic client.
@@ -226,8 +232,8 @@ Open an issue on [GitHub](https://github.com/Talotan/XPOrbs/issues) and include:
 
 ## Roadmap
 
-- Per-source origins for non-kill XP: quest turn-ins start at the quest window, exploration and so on.
-- Auto-detect common XP bar replacement addons.
+See [ROADMAP.md](ROADMAP.md). It is a rough plan and subject to change. Requests, enhancements and bug reports are
+welcome as [GitHub issues](https://github.com/Talotan/XPOrbs/issues).
 
 ## Development
 
