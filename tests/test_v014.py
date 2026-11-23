@@ -267,12 +267,12 @@ def test_round_flash_lands_on_the_centre_plus_offset(m):
 @pytest.mark.parametrize(
     "key,y,h",
     [
-        ("glowShape", 554, 24),
-        ("glowShapeDesc", 580, 84),
-        ("glowOffsetX", 670, 32),
-        ("glowOffsetY", 702, 32),
-        ("glow", 760, 28),
-        ("glowIntensity", 788, 32),
+        ("glowShape", 972, 24),
+        ("glowShapeDesc", 998, 84),
+        ("glowOffsetX", 1088, 32),
+        ("glowOffsetY", 1120, 32),
+        ("glow", 1178, 28),
+        ("glowIntensity", 1206, 32),
     ],
 )
 def test_new_rows_follow_the_grid(m, key, y, h):
@@ -299,7 +299,7 @@ def test_new_sliders_use_the_slider_columns_and_ranges(m):
 def test_offset_description_line(m):
     d = m.opt.offsetDesc
     assert d.text == "Moves where orbs land and the glow appears (pixels)."
-    assert (d.points[1][4], d.points[1][5]) == (32, -738)
+    assert (d.points[1][4], d.points[1][5]) == (32, -1156)
     assert [d.textColor[i] for i in (1, 2, 3)] == pytest.approx([0.7, 0.7, 0.7])
 
 
@@ -393,16 +393,17 @@ def test_picker_hint_fontstring(m):
     )
     assert [h.textColor[i] for i in (1, 2, 3)] == pytest.approx([0.7, 0.7, 0.7])
     assert h.width == 520 and h.calls["SetWordWrap"][1] is True
-    assert (h.points[1][4], h.points[1][5]) == (32, -1336)
+    assert (h.points[1][4], h.points[1][5]) == (32, -934)
     assert h.text in panel_texts(m)
 
 
 def test_content_height_grew_and_rows_below_moved(m):
-    assert m.opt.CONTENT_H == 1448 and m.opt.child.height == 1448
-    assert m.opt.rows["debug"].points[1][5] == -1404
-    assert 1404 + 28 + 16 == m.opt.CONTENT_H
-    # the blocks above stack without overlap
-    assert 678 + 16 <= 700 and 1106 + 30 <= 1140 and 1140 + 28 <= 1182
+    assert m.opt.CONTENT_H == 1450 and m.opt.child.height == 1450
+    assert m.opt.rows["debug"].points[1][5] == -1406
+    assert 1406 + 28 + 16 == m.opt.CONTENT_H
+    # the blocks above stack without overlap: the picker hint (2 lines) clears the shape row, the offset caption
+    # clears the glow checkbox
+    assert 934 + 30 <= 972 and 1156 + 16 <= 1178
 
 
 # ---------------------------------------------------------------- design-review fixes (docs/review-v013)

@@ -232,8 +232,15 @@ local function emitBurst(burst)
     if not db.enabled or x == nil then
         return
     end
-    if burst.kind ~= "kill" and not db.questBursts then
-        return
+    if burst.kind ~= "kill" then
+        -- exploration has its own switch; quests and any other non-kill XP share the quest one
+        local switchedOn = db.questBursts
+        if burst.source == "explore" then
+            switchedOn = db.exploreBursts
+        end
+        if not switchedOn then
+            return
+        end
     end
     local orbs = ns.Orbs
     if not (orbs and orbs.Burst) then

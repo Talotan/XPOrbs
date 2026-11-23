@@ -15,7 +15,7 @@ local floor = math.floor
 local HEADER_X, LABEL_X, CTRL_X, VALUE_X, RESET_X = 16, 32, 260, 472, 548
 local SLIDER_W = 200
 local RULE_W = 552
-local CONTENT_W, CONTENT_H = 584, 1130 -- |last y| + 16
+local CONTENT_W, CONTENT_H = 584, 1450 -- |last y| + 16 (build recomputes it from the sections)
 local DIM = 0.4
 local SWATCH_OFF_ALPHA = 0.35
 local GREY = 0.70
@@ -64,6 +64,13 @@ local SHAPE_SPACING = 100 -- px between the shape radios
 local SHAPE_DESC = "Horizontal: orbs land on the bar's fill edge (a vertical bar the addon recognises gets the "
     .. "vertical glow automatically). Vertical: a bar that fills bottom to top. Circular: the centre of a round frame "
     .. "such as a portrait."
+local QUEST_TIP = "Orbs for quest turn-ins and other XP that is not a kill or exploration."
+local EXPLORE_TIP = "Orbs for the XP you get from discovering a new area."
+local FLIGHT_STYLE_DESC = {
+    smooth = "A clean arc from the mob to your XP bar.",
+    chaos = "Orbs dart and weave like fireflies on the way.",
+    helix = "Orbs spiral around each other in pairs.",
+}
 local MAX_TIP = "At max level, each kill sends a small burst of orbs to your portrait."
 local SOUND_TIP = "Coin: a soft coin clink. Glass: a glassy tink. One per arriving orb (up to six per burst). "
     .. "Off by default."
@@ -736,46 +743,21 @@ local function newScroll(panel)
     return sf, nil
 end
 
--- ---------------------------------------------------------------- the panel
+-- ---------------------------------------------------------------- the sections
+-- Each builder draws one section starting at y (the header's y for most of them) and returns the y after it. Splitting
+-- them keeps every function well under Lua 5.1's 60-upvalue limit.
 
-local function build()
-    local panel = CreateFrame("Frame")
-    Options.panel = panel
-    text(panel, "GameFontNormalLarge", "XP Orbs", 16, -16)
-    local top = panel:CreateTexture(nil, "ARTWORK")
-    top:SetPoint("TOPLEFT", panel, "TOPLEFT", HEADER_X, -38)
-    top:SetSize(RULE_W, 1)
-    top:SetColorTexture(1, 1, 1, 0.15)
-    Options.topRule = top
-
-    local scroll, tpl = newScroll(panel)
-    Options.scroll, Options.scrollTemplate = scroll, tpl
-    scroll:SetPoint("TOPLEFT", panel, "TOPLEFT", 0, -40)
-    scroll:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -28, 44)
-    child = CreateFrame("Frame", nil, scroll)
-    child:SetSize(CONTENT_W, CONTENT_H)
-    scroll:SetScrollChild(child)
-    Options.child = child
-
-    local y = header("General", 8)
+local function buildGeneral(y)
+    y = header("General", y)
     for _, c in ipairs({
         { "enabled", "Enabled" },
-        { "trail", "Trail" },
-        { "questBursts", "Quest bursts" },
         { "showAtMax", "Kill orbs at max level", { tip = MAX_TIP } },
-        { "sound", "Chime when orbs arrive", { tip = SOUND_TIP } },
+        { "questBursts", "Quest bursts", { tip = QUEST_TIP } },
+        { "exploreBursts", "Exploration bursts", { tip = EXPLORE_TIP } },
     }) do
         checkbox(y, c[1], c[2], c[3])
         y = y + 28
     end
-    soundVoiceRow(y)
-    y = y + 28
-    slider(y, "soundVolume", "Chime volume", "%d%%", "%", previewVolume)
-    -- dimmed with the chime off but left enabled (no controls passed), so a volume can still be auditioned and set
-    postRefresh[#postRefresh + 1] = function()
-        setDim(Options.rows.soundVolume, {}, settings().sound == true)
-    end
-    y = y + 32
     checkbox(y, "minimap", "Show minimap button", {
         get = function()
             return not settings().minimap.hide
@@ -788,8 +770,10 @@ local function build()
             end
         end,
     })
-    y = y + 28
+    return y + 28
+end
 
+local function buildLook(y)
     y = header("Look", y + 14)
     for _, c in ipairs({
         { "density", "Orb quantity multiplier", "%d%%", "%" },
@@ -800,6 +784,8 @@ local function build()
         slider(y, c[1], c[2], c[3], c[4])
         y = y + 32
     end
+    checkbox(y, "trail", "Trail")
+    y = y + 28
 
     -- Orb colour: swatch + "Class colour" checkbox; one reset button resets both
     local colourRow = newRow(y, 28)
@@ -844,67 +830,110 @@ local function build()
     postRefresh[#postRefresh + 1] = function()
         setDim(restedRow, { restedSwatch }, settings().restedTint)
     end
+    return y + 28
+end
 
-    y = y + 28
-    -- "Arrival": the shape and offsets decide where orbs land even with the glow off
-    y = header("Arrival", y + 14)
-    local shapeRow = newRow(y, 24)
-    Options.rows.glowShape = shapeRow
-    label(shapeRow, "Target frame shape", LABEL_X)
-    local shapeBtns = {}
-    for i, sh in ipairs(SHAPES) do
-        local x = CTRL_X + (i - 1) * SHAPE_SPACING
-        local radio = newRadio(shapeRow, x, SHAPE_NAME[sh])
-        radio:SetScript("OnClick", function()
-            radioClick("glowShape", sh)
-        end)
-        shapeBtns[#shapeBtns + 1] = radio
-        Options.controls["glowShape_" .. sh] = radio
+-- The "Flight Style" dropdown (db.flightPath, /xporbs path): applies to every kill style, so it never dims. Built like
+-- the Sound voice dropdown. Each option explains itself in its own menu tooltip and the button's tooltip explains the
+-- current one, so no description takes page space. Radios replace the dropdown on a client without the template.
+local function flightStyleName(kind) -- "Smooth (default)", "Chaos", "Helix"
+    return ns.PATH_LABEL[kind] .. (kind == ns.defaults.flightPath and " (default)" or "")
+end
+
+-- Fills a menu tooltip (Blizzard's GameTooltip_* helpers when they exist, plain tooltip calls otherwise).
+local function fillMenuTooltip(tooltip, title, body)
+    pcall(function()
+        if GameTooltip_SetTitle and GameTooltip_AddNormalLine then
+            GameTooltip_SetTitle(tooltip, title)
+            GameTooltip_AddNormalLine(tooltip, body)
+        else
+            tooltip:SetText(title)
+            tooltip:AddLine(body, 1, 1, 1, true)
+        end
+    end)
+end
+
+local function flightStyleRow(y)
+    local row = newRow(y, 28)
+    Options.rows.flightPath = row
+    label(row, "Flight Style", LABEL_X)
+    local function pick(kind)
+        settings().flightPath = kind
+        Options:Refresh()
     end
-    refreshers[#refreshers + 1] = function()
-        local cur = settings().glowShape
-        for i, sh in ipairs(SHAPES) do
-            shapeBtns[i]:SetChecked(cur == sh)
+    local dropdown
+    local okMenu = pcall(function()
+        dropdown = CreateFrame("DropdownButton", nil, row, "WowStyle1DropdownTemplate")
+        dropdown:SetPoint("LEFT", row, "LEFT", CTRL_X, 0)
+        dropdown:SetSize(150, 26)
+        dropdown:SetupMenu(function(_, root)
+            for _, kind in ipairs(ns.PATH_ORDER) do
+                local name = flightStyleName(kind)
+                local element = root:CreateRadio(name, function()
+                    return settings().flightPath == kind
+                end, function()
+                    pick(kind)
+                end)
+                if element and element.SetTooltip then
+                    pcall(element.SetTooltip, element, function(tooltip)
+                        fillMenuTooltip(tooltip, name, FLIGHT_STYLE_DESC[kind])
+                    end)
+                end
+            end
+        end)
+    end)
+    if okMenu and dropdown then
+        Options.flightDropdown = dropdown
+        Options.controls.flightPath = dropdown
+        local function showCurrent(self)
+            local kind = settings().flightPath
+            showTip2(self, flightStyleName(kind), FLIGHT_STYLE_DESC[kind] or "")
+        end
+        -- HookScript keeps whatever highlight the template's own OnEnter does
+        local setHandler = dropdown.HookScript or dropdown.SetScript
+        pcall(setHandler, dropdown, "OnEnter", showCurrent)
+        pcall(setHandler, dropdown, "OnLeave", hideTip)
+        refreshers[#refreshers + 1] = function()
+            if dropdown.GenerateMenu then
+                dropdown:GenerateMenu()
+            end
+        end
+    else
+        if dropdown then
+            pcall(dropdown.Hide, dropdown) -- a half-built dropdown must not sit over the radios
+        end
+        Options.flightDropdown = nil
+        local radioBtns, radioX = {}, { 0, 140, 230 } -- px right of CTRL_X (the first label is the long one)
+        for i, kind in ipairs(ns.PATH_ORDER) do
+            local radio = newRadio(row, CTRL_X + radioX[i], flightStyleName(kind))
+            radio:SetScript("OnClick", function()
+                pick(kind)
+            end)
+            radio:SetScript("OnEnter", function(self)
+                showTip2(self, flightStyleName(kind), FLIGHT_STYLE_DESC[kind])
+            end)
+            radio:SetScript("OnLeave", hideTip)
+            radioBtns[i] = radio
+            Options.controls["flightPath_" .. kind] = radio
+        end
+        refreshers[#refreshers + 1] = function()
+            for i, kind in ipairs(ns.PATH_ORDER) do
+                radioBtns[i]:SetChecked(settings().flightPath == kind)
+            end
         end
     end
-    addReset(shapeRow, "glowShape", { "glowShape" }, function()
-        return SHAPE_NAME[ns.defaults.glowShape] or tostring(ns.defaults.glowShape)
+    addReset(row, "flightPath", { "flightPath" }, function()
+        return flightStyleName(ns.defaults.flightPath)
     end)
-    y = y + 26
-    local shapeDescRow = newRow(y, 84)
-    Options.rows.glowShapeDesc = shapeDescRow
-    local shapeDescText = shapeDescRow:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
-    shapeDescText:SetPoint("TOPLEFT", shapeDescRow, "TOPLEFT", CTRL_X, 0)
-    shapeDescText:SetWidth(280)
-    pcall(shapeDescText.SetSpacing, shapeDescText, 2)
-    shapeDescText:SetJustifyH("LEFT")
-    shapeDescText:SetWordWrap(true)
-    shapeDescText:SetTextColor(GREY, GREY, GREY)
-    shapeDescText:SetText(SHAPE_DESC)
-    Options.shapeDesc = shapeDescText
+    return y + 34
+end
 
-    -- the shape and offsets describe the target frame, so they stay live with Show glow off; only the intensity dims
-    y = y + 90
-    slider(y, "glowOffsetX", "Target offset X", "%d px", " px")
-    y = y + 32
-    slider(y, "glowOffsetY", "Target offset Y", "%d px", " px")
-    y = y + 36
-    local offsetDescText = text(child, "GameFontHighlight", OFFSET_DESC, LABEL_X, -y, 490)
-    offsetDescText:SetTextColor(GREY, GREY, GREY)
-    Options.offsetDesc = offsetDescText
-    y = y + 22
-    checkbox(y, "glow", "Show glow")
-    y = y + 28
-    slider(y, "glowIntensity", "Glow intensity", "%d%%", "%")
-    postRefresh[#postRefresh + 1] = function()
-        setDim(Options.rows.glowIntensity, { Options.controls.glowIntensity }, settings().glow ~= false)
-    end
-    y = y + 32
-
-    -- Style: three radios (row 24 + its description), Popstream's two sub-radios indented under it at a tighter 42 px
-    -- pitch with a wider gap after the group (dimmed unless Popstream is picked; clicking one also picks Popstream),
-    -- then the Wide checkbox and its description.
+-- Style: the Flight Style dropdown, then three radios (row 24 + its description), Popstream's two sub-radios indented
+-- under it at a tighter 42 px pitch with a wider gap after the group (dimmed unless Popstream is picked; clicking one
+-- also picks Popstream), then the Zoom-scaled spread checkbox and its description.
+local function buildStyle(y)
     y = header("Style", y + 14)
+    y = flightStyleRow(y)
     local radios, subs = {}, {}
     local function tipOn(w, title, body)
         w:SetScript("OnEnter", function(self)
@@ -975,40 +1004,13 @@ local function build()
             Options.descs[pm]:SetAlpha(on and 1 or DESC_DIM)
         end
     end
+    return y + 72
+end
 
-    -- Flight path (db.flightPath, /xporbs path): applies to every style, so it never dims
-    y = y + 76
-    local pathRow = newRow(y, 24)
-    Options.rows.flightPath = pathRow
-    label(pathRow, "Flight path", LABEL_X)
-    local pathBtns = {}
-    local pathX = { 0, 140, 230 } -- px right of CTRL_X for each radio (the first label is the long one)
-    local function pathName(kind) -- "Smooth (default)", "Chaos", "Helix"
-        return ns.PATH_LABEL[kind] .. (kind == ns.defaults.flightPath and " (default)" or "")
-    end
-    for i, kind in ipairs(ns.PATH_ORDER) do
-        local radio = newRadio(pathRow, CTRL_X + pathX[i], pathName(kind))
-        radio:SetScript("OnClick", function()
-            radioClick("flightPath", kind)
-        end)
-        pathBtns[i] = radio
-        Options.controls["flightPath_" .. kind] = radio
-    end
-    refreshers[#refreshers + 1] = function()
-        for i, kind in ipairs(ns.PATH_ORDER) do
-            pathBtns[i]:SetChecked(settings().flightPath == kind)
-        end
-    end
-    addReset(pathRow, "flightPath", { "flightPath" }, function()
-        return pathName(ns.defaults.flightPath)
-    end)
-    local pathDescText = text(child, "GameFontHighlight",
-        "How orbs fly to the bar: Smooth is a clean arc, Chaos darts like fireflies, Helix spirals.", LABEL_X,
-        -(y + 28), 490)
-    pathDescText:SetTextColor(GREY, GREY, GREY)
-    Options.descs.flightPath = pathDescText
-
-    y = header("XP bar", y + 66)
+-- Arrival: where the orbs land. The XP bar row (what was found, plus the picker) comes first, then the target frame's
+-- shape and offsets and the glow. The shape and offsets stay live with Show glow off; only the intensity dims.
+local function buildArrival(y)
+    y = header("Arrival", y)
     local destRow = newRow(y, 36)
     Options.rows.targetFrame = destRow
     label(destRow, "XP bar frame", LABEL_X)
@@ -1028,15 +1030,113 @@ local function build()
     button(pickRow, "Pick XP bar frame", CTRL_X, 150, function()
         ns.commands.pick("")
     end)
-
     local pickHintText = text(child, "GameFontHighlight", PICK_HINT, LABEL_X, -(y + 34), 520)
     pickHintText:SetWordWrap(true)
     pickHintText:SetTextColor(GREY, GREY, GREY)
     Options.pickHint = pickHintText
+    y = y + 34 + 28 + 10
 
-    y = header("Advanced", y + 34 + 28 + 14)
-    checkbox(y, "debug", "Debug log")
+    local shapeRow = newRow(y, 24)
+    Options.rows.glowShape = shapeRow
+    label(shapeRow, "Target frame shape", LABEL_X)
+    local shapeBtns = {}
+    for i, sh in ipairs(SHAPES) do
+        local x = CTRL_X + (i - 1) * SHAPE_SPACING
+        local radio = newRadio(shapeRow, x, SHAPE_NAME[sh])
+        radio:SetScript("OnClick", function()
+            radioClick("glowShape", sh)
+        end)
+        shapeBtns[#shapeBtns + 1] = radio
+        Options.controls["glowShape_" .. sh] = radio
+    end
+    refreshers[#refreshers + 1] = function()
+        local cur = settings().glowShape
+        for i, sh in ipairs(SHAPES) do
+            shapeBtns[i]:SetChecked(cur == sh)
+        end
+    end
+    addReset(shapeRow, "glowShape", { "glowShape" }, function()
+        return SHAPE_NAME[ns.defaults.glowShape] or tostring(ns.defaults.glowShape)
+    end)
+    y = y + 26
+    local shapeDescRow = newRow(y, 84)
+    Options.rows.glowShapeDesc = shapeDescRow
+    local shapeDescText = shapeDescRow:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+    shapeDescText:SetPoint("TOPLEFT", shapeDescRow, "TOPLEFT", CTRL_X, 0)
+    shapeDescText:SetWidth(280)
+    pcall(shapeDescText.SetSpacing, shapeDescText, 2)
+    shapeDescText:SetJustifyH("LEFT")
+    shapeDescText:SetWordWrap(true)
+    shapeDescText:SetTextColor(GREY, GREY, GREY)
+    shapeDescText:SetText(SHAPE_DESC)
+    Options.shapeDesc = shapeDescText
+
+    y = y + 90
+    slider(y, "glowOffsetX", "Target offset X", "%d px", " px")
+    y = y + 32
+    slider(y, "glowOffsetY", "Target offset Y", "%d px", " px")
+    y = y + 36
+    local offsetDescText = text(child, "GameFontHighlight", OFFSET_DESC, LABEL_X, -y, 490)
+    offsetDescText:SetTextColor(GREY, GREY, GREY)
+    Options.offsetDesc = offsetDescText
+    y = y + 22
+    checkbox(y, "glow", "Show glow")
     y = y + 28
+    slider(y, "glowIntensity", "Glow intensity", "%d%%", "%")
+    postRefresh[#postRefresh + 1] = function()
+        setDim(Options.rows.glowIntensity, { Options.controls.glowIntensity }, settings().glow ~= false)
+    end
+    return y + 32
+end
+
+local function buildSound(y)
+    y = header("Sound", y + 14)
+    checkbox(y, "sound", "Chime when orbs arrive", { tip = SOUND_TIP })
+    y = y + 28
+    soundVoiceRow(y)
+    y = y + 28
+    slider(y, "soundVolume", "Chime volume", "%d%%", "%", previewVolume)
+    -- dimmed with the chime off but left enabled (no controls passed), so a volume can still be auditioned and set
+    postRefresh[#postRefresh + 1] = function()
+        setDim(Options.rows.soundVolume, {}, settings().sound == true)
+    end
+    return y + 32
+end
+
+local function buildAdvanced(y)
+    y = header("Advanced", y + 14)
+    checkbox(y, "debug", "Debug log")
+    return y + 28
+end
+
+-- ---------------------------------------------------------------- the panel
+
+local function build()
+    local panel = CreateFrame("Frame")
+    Options.panel = panel
+    text(panel, "GameFontNormalLarge", "XP Orbs", 16, -16)
+    local top = panel:CreateTexture(nil, "ARTWORK")
+    top:SetPoint("TOPLEFT", panel, "TOPLEFT", HEADER_X, -38)
+    top:SetSize(RULE_W, 1)
+    top:SetColorTexture(1, 1, 1, 0.15)
+    Options.topRule = top
+
+    local scroll, tpl = newScroll(panel)
+    Options.scroll, Options.scrollTemplate = scroll, tpl
+    scroll:SetPoint("TOPLEFT", panel, "TOPLEFT", 0, -40)
+    scroll:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -28, 44)
+    child = CreateFrame("Frame", nil, scroll)
+    child:SetSize(CONTENT_W, CONTENT_H)
+    scroll:SetScrollChild(child)
+    Options.child = child
+
+    -- most-used first
+    local y = buildGeneral(8)
+    y = buildLook(y)
+    y = buildStyle(y)
+    y = buildArrival(y)
+    y = buildSound(y)
+    y = buildAdvanced(y)
     CONTENT_H = y + 16
     Options.CONTENT_H = CONTENT_H
     child:SetSize(CONTENT_W, CONTENT_H)

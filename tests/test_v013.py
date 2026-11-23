@@ -256,10 +256,8 @@ def test_scroll_frame_exists_with_the_specified_anchors_and_content_height(m):
     ]
     assert pts[0][0] == "TOPLEFT" and (pts[0][3], pts[0][4]) == (0, -40)
     assert pts[1][0] == "BOTTOMRIGHT" and (pts[1][3], pts[1][4]) == (-28, 44)
-    assert o.child.width == 584 and o.child.height == pytest.approx(
-        1448, abs=2
-    )  # v0.14: 894 + 176; +28 chime checkbox, +28 Sound row, +28 minimap checkbox, +32 Chime volume slider, +46 Stream pop radio; schema 6:
-    # 3 styles + 2 Popstream sub-radios + the Wide checkbox and its description (+72)
+    # the last row (Debug log, y 1406) is 28 tall, plus the 16 px bottom margin
+    assert o.child.width == 584 and o.child.height == 1406 + 28 + 16 == o.CONTENT_H == 1450
 
 
 def test_scroll_template_falls_back(env):
@@ -284,29 +282,32 @@ def test_scroll_frame_without_any_template_still_scrolls(env):
     "key,y",
     [
         ("enabled", 34),
-        ("trail", 62),
+        ("showAtMax", 62),
         ("questBursts", 90),
-        ("showAtMax", 118),
-        ("sound", 146),
-        ("soundVoice", 174),
-        ("minimap", 234),
-        ("density", 302),
-        ("cap", 334),
-        ("size", 366),
-        ("flightTime", 398),
-        ("color", 430),
-        ("restedTint", 458),
-        ("restedColor", 486),
-        ("glow", 760),
-        ("glowShape", 554),
-        ("style_popstream", 860),
-        ("popMode_nameplate", 902),
-        ("popMode_direct", 944),
-        ("style_crossfade", 996),
-        ("style_stream", 1042),
-        ("zoomSpread", 1098),
-        ("targetFrame", 1266),
-        ("debug", 1404),
+        ("exploreBursts", 118),
+        ("minimap", 146),
+        ("density", 214),
+        ("cap", 246),
+        ("size", 278),
+        ("flightTime", 310),
+        ("trail", 342),
+        ("color", 370),
+        ("restedTint", 398),
+        ("restedColor", 426),
+        ("flightPath", 494),
+        ("style_popstream", 528),
+        ("popMode_nameplate", 570),
+        ("popMode_direct", 612),
+        ("style_crossfade", 664),
+        ("style_stream", 710),
+        ("zoomSpread", 766),
+        ("targetFrame", 864),
+        ("glowShape", 972),
+        ("glow", 1178),
+        ("sound", 1278),
+        ("soundVoice", 1306),
+        ("soundVolume", 1334),
+        ("debug", 1406),
     ],
 )
 def test_row_positions_follow_the_spec(m, key, y):
@@ -421,9 +422,9 @@ def test_style_radios_use_the_radio_template_and_each_has_a_description(m):
 def test_style_description_positions(m):
     d = m.opt.descs
     for st, y in (
-        ("popstream", 860 + 24),
-        ("crossfade", 996 + 24),
-        ("stream", 1042 + 24),
+        ("popstream", 528 + 24),
+        ("crossfade", 664 + 24),
+        ("stream", 710 + 24),
     ):
         pt = d[st].points[1]
         assert (pt[4], pt[5]) == (56, -y) and d[

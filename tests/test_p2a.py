@@ -132,6 +132,7 @@ def test_tooltip_lines(m):
         "orbs on",
         "Left-click: options",
         "Right-click: turn orbs on/off",
+        "Shift + right-click: hide this button",
     ]
     assert lines[1].r == lines[1].g == lines[1].b < 1  # grey hints
     m.db.enabled = False

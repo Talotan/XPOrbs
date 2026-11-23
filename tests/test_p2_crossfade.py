@@ -123,13 +123,28 @@ def test_unknown_origin_does_not_apply_to_crossfade(env, setting):
     settle(g)
 
 
-def test_without_a_plate_it_is_a_plain_stream_from_p_hat(env):
+def test_without_a_plate_copy_a_blooms_at_p_hat_on_a_screen_anchored_group(env):
+    """Test burst / unlocated kill: the group hangs off UIParent at P-hat instead of off a nameplate."""
     g = make(env)
     g.db.unknownOrigin = "off"
-    opts = g.env.lua.table_from(dict(n=3, x=300, y=300, kind="kill", style="crossfade"))
-    assert g.orbs.Burst(g.orbs, opts) == "stream"
-    assert pop_frames(g) == []
+    opts = g.env.lua.table_from(dict(n=3, x=300, y=300, ex=700, ey=500, kind="kill", style="crossfade"))
+    assert g.orbs.Burst(g.orbs, opts) == "crossfade"
+    (frame,) = pop_frames(g)
+    assert len(frame.points) == 1 and frame.points[1][1] == "CENTER" and frame.points[1][3] == "BOTTOMLEFT"
+    assert (frame.points[1][4], frame.points[1][5]) == (700, 500) and frame.shown
+    assert g.orbs.PoolInfo(g.orbs)[3] == 1
+    g.stub.tick(0.1)
+    shown = [t for t in pop_textures(g) if t.shown]
+    assert len(shown) == 3 * 3  # copy A: three textures per orb
+    xs = [t.points[1][4] for t in shown]
+    assert all(abs(x) < 80 for x in xs)  # offsets relative to the frame, i.e. around P-hat
+    assert all(t.points[1][2] is frame or g.env.lua.eval("rawequal")(t.points[1][2], frame) for t in shown)
+    g.stub.tick(0.2 + 0.5)  # B appears after the leave and the gap
+    assert b_orbs(g)
     settle(g)
+    free, created, alive, xf = g.orbs.PoolInfo(g.orbs)
+    assert alive == 0 and xf == 0 and free == created  # the group went back to the pool
+    assert g.stub.restrictedHits == 0
 
 
 def test_idle_afterwards_and_pools_are_back(env):

@@ -60,16 +60,30 @@ local function closeOptions()
     end
 end
 
--- Left-click (or anything but right-click): toggle the settings panel. Right-click: orbs on/off.
+local function shiftHeld()
+    return IsShiftKeyDown ~= nil and IsShiftKeyDown() and true or false
+end
+
+local function refreshOpenOptions()
+    local panel = ns.Options and ns.Options.panel
+    if panel and panel:IsShown() then
+        ns.Options:Refresh()
+    end
+end
+
+-- Left-click (or anything but right-click): toggle the settings panel. Right-click: orbs on/off. Shift + right-click:
+-- hide this button (the same as /xporbs minimap off) and say how to bring it back.
 local function click(button)
-    if button == "RightButton" then
+    if button == "RightButton" and shiftHeld() then
+        Btn.SetShown(false)
+        refreshOpenOptions()
+        ns.Print("minimap button hidden. Bring it back with /xporbs minimap on, or tick \"Show minimap button\" in "
+            .. "the General options.")
+    elseif button == "RightButton" then
         local saved = settings()
         saved.enabled = not saved.enabled
         ns.Print(stateText())
-        local panel = ns.Options and ns.Options.panel
-        if panel and panel:IsShown() then
-            ns.Options:Refresh()
-        end
+        refreshOpenOptions()
     elseif optionsOpen() then
         closeOptions()
     else
@@ -82,6 +96,7 @@ local function fillTooltip(tt)
     tt:AddLine(stateText())
     tt:AddLine("Left-click: options", GREY, GREY, GREY)
     tt:AddLine("Right-click: turn orbs on/off", GREY, GREY, GREY)
+    tt:AddLine("Shift + right-click: hide this button", GREY, GREY, GREY)
 end
 
 -- Applies db.minimap.hide to the button (a no-op when LibDBIcon isn't registered).

@@ -283,9 +283,9 @@ def test_style_section_rows_and_sub_radios(env):
         o.rows[k].points[1][5]
         for k in ("style_popstream", "popMode_nameplate", "popMode_direct")
     ] == [
-        -860,
-        -902,
-        -944,
+        -528,
+        -570,
+        -612,
     ]
     for pm, x in (("nameplate", 54), ("direct", 54)):
         rb = ctl(m5, "popMode_" + pm)
@@ -335,8 +335,8 @@ def test_spread_checkbox_label_position_and_reset(env):
     assert "Zoom-scaled spread" in texts and "Wide start" not in texts
     assert m5.opt.descs["zoomSpread"].text.startswith("Pops and stream starts spread wider when zoomed in")
     cb = ctl(m5, "zoomSpread")
-    assert cb.checked is True and m5.opt.rows["zoomSpread"].points[1][5] == -1098
-    assert m5.opt.descs["zoomSpread"].points[1][5] == -(1098 + 28)
+    assert cb.checked is True and m5.opt.rows["zoomSpread"].points[1][5] == -766
+    assert m5.opt.descs["zoomSpread"].points[1][5] == -(766 + 28)
     m5.stub.click(cb)
     assert m5.db.zoomSpread is False and cb.checked is False
     btn = m5.opt.resets["zoomSpread"]
@@ -524,13 +524,14 @@ def test_crossfade_orbs_have_no_drift_and_narrow_jitter(env):
         )
 
 
-@pytest.mark.parametrize("kw", [{"plate": None}, {"kind": "other"}])
-def test_no_plate_or_other_kind_is_a_plain_stream(env, kw):
+def test_other_kind_is_a_plain_stream(env):
     g = make(env)
     opts = dict(
-        n=3, x=300, y=300, kind="kill", style="crossfade", plate=restricted_plate(g)
+        n=3, x=300, y=300, kind="other", style="crossfade", plate=restricted_plate(g)
     )
-    opts.update(kw)
-    if opts["plate"] is None:
-        del opts["plate"]
     assert burst(g, **opts) == "stream"
+
+
+def test_no_plate_is_a_screen_anchored_crossfade(env):
+    g = make(env)
+    assert burst(g, n=3, x=300, y=300, kind="kill", style="crossfade") == "crossfade"

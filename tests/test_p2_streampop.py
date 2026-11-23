@@ -205,17 +205,16 @@ def test_nothing_flies_back_through_the_centre(env):
 # ---------------------------------------------------------------- unknown origin
 
 
-def test_unknown_origin_wide_shares_one_ellipse_centre_and_off_does_not(env):
+def test_unknown_origin_wide_keeps_the_pop_fixed_and_widens_the_ring_horizontally(env):
     env.lua.execute(LCG)
     g = make(env, fixed_random=False)
     fire(g, "streampop", "wide", n=30, est="default")
     recs = live_recs(g)
-    c0 = (recs[0].px, recs[0].py)
-    assert all((o.px, o.py) == pytest.approx(c0) for o in recs)  # one shared pop centre, concentric rings
-    ex, ey = (c0[0] - ORIGIN[0]) / RX, (c0[1] - ORIGIN[1]) / RY
-    assert ex**2 + ey**2 <= 1 + 1e-6  # inside the ellipse
+    # the pop stays at the estimate (no jumping about the ellipse); only the ring's x radius is stretched by 1.6
+    assert all((o.px, o.py) == pytest.approx(ORIGIN) for o in recs)
     for o in recs:
-        assert 18 - 1e-6 <= math.hypot(o.ringX - o.px, o.ringY - o.py) <= 30 + 1e-6  # each ring around the shared centre
+        assert 18 - 1e-6 <= math.hypot((o.ringX - o.px) / 1.6, o.ringY - o.py) <= 30 + 1e-6
+    assert max(abs(o.ringX - o.px) for o in recs) > 30  # wider than the plain ring could ever reach
     assert g.orbs.lastUnknown == "wide"
     settle(g)
     fire(g, "streampop", "off", n=30, est="default")

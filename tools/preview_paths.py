@@ -9,6 +9,12 @@ a bar point at (60 %, 4 %):
   row 2: a short 200 px flight in the same direction;
   row 3: the long flight as the stream after a Popstream (Nameplate) pop (tighter control points, stagger 0.08);
   row 4: three single orbs as thick lines (no start spread), so the shape of the path itself is visible.
+Scenario mode (`--scenarios [dir]`, default dist/): paths-scenarios.png, a grid of bar positions (bottom-centre default
+UI, top-right DaylightUI-like, top-centre FlareUI-like, top edge EllesmereUI-like) by mob positions (centre-left,
+centre, centre-right, unknown) with one column per path, on a 2560x1440 screen shown in UIParent units (1707x960),
+the screen
+border drawn so leaving it is obvious; and paths-starts.png comparing Popstream (Direct) at a detected vs an unknown
+origin and the Helix start spread. These mirror the bow direction, control-point clamp and start shapes of Burst.
 GIF (default dist/paths-preview.gif): the three paths side by side, animated over the real flight time at 30 fps with
 12 orbs each, trails, a dark background.
 A dot's size and alpha follow the helix depth. The maths is the real OrbMath and mirrors Burst (the control-point
@@ -41,6 +47,9 @@ PATH_TITLE = {"smooth": "Smooth", "chaos": "Chaos", "helix": "Helix"}
 FLIGHT_TIME = 1.0  # s, the default flightTime
 STAGGER = 0.15  # s, Orbs.lua STAGGER
 START_RADIUS = 6
+UIPARENT = (1707, 960)  # a 2560x1440 screen at UI scale 2/3: the units Burst works in
+UNKNOWN_RX, UNKNOWN_RY = 0.064, 0.04  # Orbs.lua UNKNOWN: the unknown-origin ellipse, fractions of the screen
+HELIX_LINE, HELIX_LINE_UNKNOWN, POP_WIDEN, HELIX_RING_WIDEN = 8, 18, 1.6, 1.4
 MARGIN = 110  # px around a flight's bounding box (the Chaos amplitude reaches about 90)
 FPS = 30
 
@@ -56,9 +65,11 @@ def load_orbmath():
     return ns["OrbMath"]
 
 
-def make_orbs(om, kind, start, end, count, rng, spread=True, popstream=False):
+def make_orbs(om, kind, start, end, count, rng, spread=True, popstream=False, screen=None, origin="point"):
     """The orbs of one burst, spawned like Burst does: start disc, control point, path parameters, delay, duration.
-    popstream mirrors the stream after a nameplate pop (control spread 0.45, lift 0.10, stagger 0.08, +0.30 s)."""
+    popstream mirrors the stream after a nameplate pop (control spread 0.45, lift 0.10, stagger 0.08, +0.30 s).
+    screen=(w, h) switches on what Burst does for the screen edge (bow direction, control-point clamp, the helix's
+    start line); origin is "point" (detected) or "unknown" (the ellipse; a short line for the helix)."""
     control_scale, stagger_scale, duration_low, duration_span, _ring = om.PathShape(
         kind
     )
@@ -70,6 +81,7 @@ def make_orbs(om, kind, start, end, count, rng, spread=True, popstream=False):
     )
     handedness = -1 if kind == "helix" and rng.random() < 0.5 else 1
     orbs = []
+    side = om.BowSide(start[0], start[1], end[0], end[1], *screen) if screen else 1
     for index in range(1, count + 1):
         angle, radius = (
             rng.random() * math.tau,
@@ -79,9 +91,24 @@ def make_orbs(om, kind, start, end, count, rng, spread=True, popstream=False):
             start[0] + math.cos(angle) * radius,
             start[1] + math.sin(angle) * radius,
         )
-        c1x, c1y, _ = om.PopControl(index, count, x0, y0, rng.random, pop_spread, lift)
+        if screen and kind == "helix":
+            half = HELIX_LINE_UNKNOWN if origin == "unknown" else HELIX_LINE
+            ax, ay = end[0] - start[0], end[1] - start[1]
+            norm = math.hypot(ax, ay) or 1
+            ax, ay = ax / norm, ay / norm
+            across, along = (rng.random() * 2 - 1) * half, (rng.random() * 2 - 1) * 2
+            x0, y0 = start[0] - ay * across + ax * along, start[1] + ax * across + ay * along
+        elif origin == "unknown":
+            angle, radius = rng.random() * math.tau, math.sqrt(rng.random())
+            x0 = start[0] + math.cos(angle) * radius * UNKNOWN_RX * UIPARENT[0]
+            y0 = start[1] + math.sin(angle) * radius * UNKNOWN_RY * UIPARENT[1]
+        bow = tuple(om.BowVector(x0, y0, end[0], end[1], *screen, side)) if screen else (0, 1)
+        c1x, c1y, _ = om.PopControl(index, count, x0, y0, rng.random, pop_spread, lift, *bow)
         distance = math.dist((x0, y0), end)
         params = tuple(om.PathParams(kind, index, distance, rng.random, handedness))
+        margin = (0.04 * screen[1] + abs(params[0])) if screen else 0
+        if screen:
+            c1x, c1y = om.ClampToScreen(c1x, c1y, screen[0], screen[1], margin, end[0], end[1])
         order = rng.random()
         if stagger_scale != 1:
             order = (math.floor((index - 1) / 2) + order * 0.2) / math.floor(
@@ -94,6 +121,9 @@ def make_orbs(om, kind, start, end, count, rng, spread=True, popstream=False):
                 "start": (x0, y0),
                 "end": end,
                 "control": (c1x, c1y),
+                "bow": bow,
+                "screen": screen,
+                "margin": margin,
                 "params": params,
                 "delay": order * stagger * stagger_scale + extra,
                 "duration": FLIGHT_TIME * (low + span * rng.random()),
@@ -107,7 +137,10 @@ def flight_point(om, orb, t):
     x0, y0 = orb["start"]
     dx, dy = orb["end"]
     c1x, c1y = orb["control"]
-    c2x, c2y = om.HomeControl(c1x, c1y, dx, dy, math.dist((x0, y0), (dx, dy)))
+    c2x, c2y = om.HomeControl(c1x, c1y, dx, dy, math.dist((x0, y0), (dx, dy)), *orb["bow"])
+    screen = orb["screen"]
+    if screen:
+        c2x, c2y = om.ClampToScreen(c2x, c2y, screen[0], screen[1], orb["margin"], dx, dy)
     perp, warp, size_mul, alpha_mul = om.PathOffset(orb["kind"], t, *orb["params"])
     x, y = om.Cubic(om.PopEase(t + warp, 0.5), x0, y0, c1x, c1y, c2x, c2y, dx, dy)
     line_x, line_y = dx - x0, dy - y0
@@ -115,6 +148,8 @@ def flight_point(om, orb, t):
     if length > 1e-6:
         x -= line_y / length * perp
         y += line_x / length * perp
+    if screen:  # Burst's last resort: the drawn point stays on screen
+        x, y = om.ClampToScreen(x, y, screen[0], screen[1], 0)
     return x, y, size_mul, alpha_mul
 
 
@@ -340,12 +375,141 @@ def gif(om, output, count=12):
     print(output, f"{output.stat().st_size / 1e6:.2f} MB", f"{len(frames)} frames")
 
 
+
+BARS = (
+    ("bottom-centre (default UI)", (0.5, 0.03)),
+    ("top-right (DaylightUI-like)", (0.86, 0.965)),
+    ("top-centre (FlareUI-like)", (0.5, 0.985)),
+    ("top edge (EllesmereUI-like)", (0.35, 1 - 3 / 960)),
+)
+MOBS = (
+    ("mob centre-left", (0.35, 0.55)),
+    ("mob centre", (0.5, 0.55)),
+    ("mob centre-right", (0.65, 0.55)),
+    ("mob unknown", (0.5, 0.65)),
+)
+
+
+def draw_flights(panel, om, orbs):
+    """Faint flight lines plus the t = 0.55 snapshot with its trail ghosts."""
+    for orb in orbs:
+        points = [flight_point(om, orb, i / 100) for i in range(101)]
+        for a, b in pairwise(points):
+            panel.draw.line([panel.px(a[0], a[1]), panel.px(b[0], b[1])], fill=ORB_COLOUR + (60,), width=1)
+        for step, size_k, alpha_k in ((2, 0.70, 0.30), (1, 0.85, 0.55), (0, 1.0, 1.0)):
+            panel.dot(flight_point(om, orb, 0.55 - step * GHOST_STEP), size_k, alpha_k)
+
+
+def screen_panel(om, kind, start, end, label, seed, scale, origin="point", count=10):
+    """The whole screen at `scale`, the border in red so leaving it is obvious."""
+    width, height = UIPARENT
+    panel = Panel((round(width * scale), round(height * scale)), (0, 0), scale)
+    panel.marker(start, (120, 220, 140))
+    panel.marker(end, (240, 200, 90))
+    draw_flights(panel, om, make_orbs(om, kind, start, end, count, random.Random(seed), screen=UIPARENT, origin=origin))
+    panel.draw.rectangle([0, 0, panel.size[0] - 1, panel.size[1] - 1], outline=(230, 60, 60, 255), width=2)
+    panel.label(label)
+    return panel.image
+
+
+def streampop_panel(om, kind, start, end, label, seed, scale, origin):
+    """Popstream (Direct): a fixed pop at `start`, a ring (stretched horizontally when unknown; for a helix halved, and
+    stretched 1.4x when detected), the drift, then the stream. Mirrors SP_PROFILE.plan and the Burst blend."""
+    width, height = UIPARENT
+    panel = Panel((round(width * scale), round(height * scale)), (0, 0), scale)
+    panel.marker(start, (120, 220, 140))
+    panel.marker(end, (240, 200, 90))
+    rng = random.Random(seed)
+    count = 12
+    ring_scale = 0.5 if kind == "helix" else 1
+    widen = POP_WIDEN if origin == "unknown" else (HELIX_RING_WIDEN if kind == "helix" else 1)
+    side = om.BowSide(start[0], start[1], end[0], end[1], width, height)
+    control_scale = om.PathShape(kind)[0]
+    handedness = -1 if kind == "helix" and rng.random() < 0.5 else 1
+    orbs = []
+    for index in range(1, count + 1):
+        ring_angle = om.RingAngle(index, count, rng.random)
+        radius = (18 + rng.random() * 12) * ring_scale
+        ring = (start[0] + math.cos(ring_angle) * radius * widen, start[1] + math.sin(ring_angle) * radius)
+        drift = 0.1  # s of drift before the launch (hold - bloom)
+        x0 = ring[0] + math.cos(ring_angle) * 8 * drift
+        y0 = ring[1] + (15 + math.sin(ring_angle) * 8) * drift
+        vx, vy = end[0] - x0, end[1] - y0
+        length = math.hypot(vx, vy)
+        vx, vy = vx / length, vy / length
+        reach = (45 + rng.random() * 55) * 0.45 * 2.2 * control_scale
+        c1 = (
+            x0 + (math.cos(ring_angle) * 0.6 + vx * 0.4) * reach,
+            y0 + (math.sin(ring_angle) * 0.6 + vy * 0.4) * reach,
+        )
+        bow = tuple(om.BowVector(x0, y0, end[0], end[1], width, height, side))
+        params = tuple(om.PathParams(kind, index, length, rng.random, handedness))
+        margin = 0.04 * height + abs(params[0])
+        c1 = tuple(om.ClampToScreen(c1[0], c1[1], width, height, margin, end[0], end[1]))
+        orbs.append({"kind": kind, "start": (x0, y0), "end": end, "control": c1, "bow": bow, "screen": UIPARENT,
+                     "margin": margin, "params": params})
+        panel.dot((ring[0], ring[1], 1, 1), 0.5, 0.6, (110, 210, 255))
+    draw_flights(panel, om, orbs)
+    panel.draw.rectangle([0, 0, panel.size[0] - 1, panel.size[1] - 1], outline=(230, 60, 60, 255), width=2)
+    panel.label(label)
+    return panel.image
+
+
+def sheet_of(rows, output):
+    """Paste rows of equally sized images into one PNG."""
+    cell_w, cell_h = rows[0][0].size
+    sheet = Image.new("RGB", (len(rows[0]) * (cell_w + 8) + 8, len(rows) * (cell_h + 8) + 8), (40, 42, 54))
+    for row, images in enumerate(rows):
+        for column, image in enumerate(images):
+            sheet.paste(image, (8 + column * (cell_w + 8), 8 + row * (cell_h + 8)))
+    output.parent.mkdir(parents=True, exist_ok=True)
+    sheet.save(output)
+    print(output)
+
+
+def scenarios(om, directory):
+    width, height = UIPARENT
+    rows = []
+    for bar_name, bar in BARS:
+        end = (bar[0] * width, bar[1] * height)
+        for mob_name, mob in MOBS:
+            start = (mob[0] * width, mob[1] * height)
+            origin = "unknown" if mob_name.endswith("unknown") else "point"
+            rows.append(
+                [
+                    screen_panel(om, kind, start, end, f"{PATH_TITLE[kind]}: {bar_name}, {mob_name}", 5, 0.22, origin)
+                    for kind in PATHS
+                ]
+            )
+    sheet_of(rows, directory / "paths-scenarios.png")
+
+    # Popstream (Direct), detected vs unknown origin, then the Direct Stream's start spread (smooth vs helix)
+    end, start, scale = (0.86 * width, 0.965 * height), (0.4 * width, 0.5 * height), 0.35
+    rows = [
+        [
+            streampop_panel(om, kind, start, end, f"Popstream (Direct), {PATH_TITLE[kind]}, {name} origin", 7, scale, o)
+            for name, o in (("detected", "point"), ("unknown", "unknown"))
+        ]
+        for kind in PATHS
+    ]
+    for kind in ("smooth", "helix"):
+        rows.append(
+            [
+                screen_panel(om, kind, start, end, f"Direct Stream, {PATH_TITLE[kind]}, {name} origin", 8, scale, o, 20)
+                for name, o in (("detected", "point"), ("unknown", "unknown"))
+            ]
+        )
+    sheet_of(rows, directory / "paths-starts.png")
+
+
 def main():
     args = sys.argv[1:]
     make_gif = "--gif" in args
-    paths = [Path(a) for a in args if a != "--gif"]
+    paths = [Path(a) for a in args if not a.startswith("--")]
     om = load_orbmath()
-    if make_gif:
+    if "--scenarios" in args:
+        scenarios(om, paths[0] if paths else ROOT / "dist")
+    elif make_gif:
         gif(om, paths[0] if paths else ROOT / "dist" / "paths-preview.gif")
     else:
         png(om, paths[0] if paths else ROOT / "dist" / "paths-preview.png")

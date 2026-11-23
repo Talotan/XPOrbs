@@ -7,7 +7,6 @@ from types import SimpleNamespace
 
 import pytest
 from conftest import TESTS, make_runtime
-from test_m5 import build, ctl, show
 from test_v09 import burst, chat_lines, make, restricted_plate, stream_textures
 from test_v102 import load_db
 
@@ -154,7 +153,7 @@ def test_path_shape(om):
     assert tuple(om.PathShape("smooth")) == (1, 1, None, None, 1)
     assert tuple(om.PathShape("bogus")) == (1, 1, None, None, 1)
     assert tuple(om.PathShape("chaos")) == (0.6, 1, None, None, 1)
-    assert tuple(om.PathShape("helix")) == (0.10, 2, 0.97, 0.06, 0.5)
+    assert tuple(om.PathShape("helix")) == (0.10, 2.5, 1.2125, 0.075, 0.5)
 
 
 def test_helix_depth_size_and_alpha_ranges(om):
@@ -273,9 +272,8 @@ def test_orbs_start_at_the_origin_and_land_on_the_destination(env, path, style):
     smooth_first, smooth_last = end_points(env, "smooth", style)
     first, last = end_points(env, path, style)
     assert first and last and smooth_first and smooth_last
-    assert (
-        math.dist(first, smooth_first) < 3
-    )  # 1 ms after the start the offset is still tiny
+    # 1 ms after the start the offset is still tiny (a helix starts from its own line, not the disc: up to ~6 px apart)
+    assert math.dist(first, smooth_first) < (3 + 6 if path == "helix" else 3)
     assert math.dist(last, smooth_last) < 3  # ... and 1 ms before the landing too
 
 
@@ -285,10 +283,11 @@ def test_ghosts_trace_the_same_path_a_step_earlier(env, path):
     g.db.flightTime = 1.0
     g.db.flightPath = path
     burst(g, n=1, x=300, y=200, kind="kill", style="stream")
-    # fixed random: dur = 1 s, so a tick of 0.015 s is exactly one GHOST_STEP of progress
+    # fixed random: dur = 1 s (a helix 1.25 s), so a tick of 0.015 s (0.015 * 1.25) is one GHOST_STEP of progress
+    step = 0.015 * (1.25 if path == "helix" else 1)
     bodies, ghost1s, ghost2s = [], [], []
     for _ in range(50):
-        g.tick(0.015)
+        g.tick(step)
         texs = stream_textures(g)
         if len(texs) == 5:
             bodies.append((texs[1].points[1][4], texs[1].points[1][5]))
@@ -363,6 +362,68 @@ def test_driver_allocates_nothing_per_frame(env, path):
     assert grown < 4.0, grown
 
 
+@pytest.mark.parametrize("hold", [0.1, 0.5])  # copy A blooming / copy B flying
+def test_screen_anchored_crossfade_allocates_nothing_per_frame(env, hold):
+    g = make(env, fixed_random=False, trail=True)
+    g.db.flightTime = 1.5
+    assert burst(g, n=10, ex=700, ey=500, kind="kill", style="crossfade", est="default") == "crossfade"
+    g.tick(0.05, int(hold / 0.05))
+    grown = g.env.lua.eval(
+        """function(driver, frames, dt)
+            local fm = getmetatable(UIParent).__index
+            local noop = function() end
+            for _, n in ipairs({ "SetPoint", "ClearAllPoints", "SetSize", "SetRotation", "SetVertexColor", "SetTexture",
+                "SetBlendMode", "SetDrawLayer" }) do
+                fm[n] = noop
+            end
+            local fn = driver.scripts.OnUpdate
+            fn(driver, dt)
+            collectgarbage("collect")
+            collectgarbage("stop")
+            local c0 = collectgarbage("count")
+            for _ = 1, frames do
+                fn(driver, dt)
+            end
+            local c1 = collectgarbage("count")
+            collectgarbage("restart")
+            return c1 - c0
+        end"""
+    )(g.orbs.driver, 20, 0.002)
+    assert g.orbs.Info(g.orbs)[1] > 0
+    assert grown < 4.0, grown
+
+
+def burst_upvalue_counts(g):
+    """(upvalues of Burst, upvalues of the per-orb builder closure it creates), via a call hook (test-only)."""
+    run = g.env.lua.eval(
+        """function(burstFn, fire)
+        local inner = 0
+        local function count(f)
+            local i = 0
+            while debug.getupvalue(f, i + 1) do i = i + 1 end
+            return i
+        end
+        debug.sethook(function()
+            local info = debug.getinfo(2, "Sf")
+            if info.what == "Lua" and info.short_src:find("Orbs") and info.func ~= burstFn
+                and info.linedefined > 1000 and count(info.func) > inner then
+                inner = count(info.func)
+            end
+        end, "c")
+        fire()
+        debug.sethook()
+        return count(burstFn), inner
+        end"""
+    )
+    return run(g.orbs.Burst, lambda: burst(g, n=3, x=300, y=300, kind="kill", style="stream"))
+
+
+def test_burst_builder_closure_stays_under_the_lua_upvalue_limit(env):
+    g = make(env)
+    outer, inner = burst_upvalue_counts(g)
+    assert outer <= 60 and 0 < inner <= 60, (outer, inner)  # Lua 5.1 allows 60 per function
+
+
 def test_burst_upvalue_count_has_not_grown(env):
     g = make(env)
     count = env.lua.eval(
@@ -392,9 +453,9 @@ def test_junk_flight_path_resets_to_the_default(env, bad):
 def test_path_command(env):
     g = make(env)
     g.slash("path")
-    assert "flight path: Smooth" in chat_lines(g)[-1]
+    assert "flight style: Smooth" in chat_lines(g)[-1]
     g.slash("path chaos")
-    assert g.db.flightPath == "chaos" and "flight path: Chaos" in chat_lines(g)[-1]
+    assert g.db.flightPath == "chaos" and "flight style: Chaos" in chat_lines(g)[-1]
     g.slash("path helix")
     assert g.db.flightPath == "helix"
     g.slash("path bogus")
@@ -402,7 +463,7 @@ def test_path_command(env):
         g.db.flightPath == "helix" and "use smooth, chaos or helix" in chat_lines(g)[-1]
     )
     g.slash("path")
-    assert "flight path: Helix" in chat_lines(g)[-1]
+    assert "flight style: Helix" in chat_lines(g)[-1]
     g.slash("help")
     assert any("/xporbs path smooth|chaos|helix" in line for line in chat_lines(g))
 
@@ -435,49 +496,234 @@ def test_test_tokens_override_the_path_for_that_burst(env):
     assert "path=" not in chat_lines(g)[-1]
 
 
-# ---------------------------------------------------------------- options
+# ---------------------------------------------------------------- bow direction and screen clamp
+
+W, H = 1920, 1080  # the stub's UIParent
 
 
-@pytest.fixture
-def m(env):
-    return build(env)
+def old_pop_control(i, n, x0, y0, rand, spread=1, lift=0.35):
+    """PopControl as it was before the bow (the regression lock)."""
+    angle = ((i - 1) + rand() * 0.8) / n * 2 * math.pi
+    radius = (45 + rand() * 55) * spread
+    return x0 + math.cos(angle) * radius * 2.2, y0 + (0.8 * math.sin(angle) + lift) * radius * 2.2, radius
 
 
-def test_flight_path_radios(m):
-    show(m)
-    assert m.opt.rows["flightPath"] is not None
-    for kind in KINDS:
-        assert ctl(m, f"flightPath_{kind}").template == "UIRadioButtonTemplate"
-    assert (
-        ctl(m, "flightPath_smooth").checked and not ctl(m, "flightPath_chaos").checked
+def old_home_control(c1x, c1y, dx, dy, dist0):
+    return dx + (c1x - dx) * 0.15, dy + 0.30 * dist0
+
+
+def test_default_bow_leaves_pop_and_home_control_bit_identical(om):
+    for seed in range(40):
+        rng = random.Random(seed)
+        x0, y0, n, i = rng.uniform(0, W), rng.uniform(0, H), rng.randint(1, 20), 1
+        i = rng.randint(1, n)
+        spread, lift = rng.choice([(None, None), (0.45, 0.10), (1.5, 0.35)])
+        old = old_pop_control(i, n, x0, y0, random.Random(seed + 99).random, spread or 1, lift or 0.35)
+        for bow in ((), (0, 1)):
+            new = tuple(om.PopControl(i, n, x0, y0, random.Random(seed + 99).random, spread, lift, *bow))
+            assert new == old
+        c1x, c1y, dx = rng.uniform(0, W), rng.uniform(0, H), rng.uniform(0, W)
+        dy, dist0 = rng.uniform(0, 80), rng.uniform(50, 2000)
+        want = old_home_control(c1x, c1y, dx, dy, dist0)
+        assert tuple(om.HomeControl(c1x, c1y, dx, dy, dist0)) == want
+        assert tuple(om.HomeControl(c1x, c1y, dx, dy, dist0, 0, 1)) == want
+
+
+def test_bow_vector_is_up_for_level_and_downward_flights(om):
+    for dest_y in (500, 300, 0):  # the mob at (900, 500): level, then downward
+        assert tuple(om.BowVector(900, 500, 1500, dest_y, W, H)) == (0, 1)
+        assert tuple(om.BowVector(900, 500, 100, dest_y, W, H, -1)) == (0, 1)
+    assert tuple(om.BowVector(900, 500, 900, 500, W, H)) == (0, 1)  # no flight at all
+
+
+def test_bow_vector_turns_sideways_as_the_flight_climbs(om):
+    # straight up: the bow is horizontal, on the requested side
+    bx, by = om.BowVector(900, 100, 900, 1000, W, H, 1)
+    assert (bx, by) == pytest.approx((1, 0), abs=1e-9)
+    bx, by = om.BowVector(900, 100, 900, 1000, W, H, -1)
+    assert (bx, by) == pytest.approx((-1, 0), abs=1e-9)
+    for rise in (0.05, 0.1, 0.25, 0.5, 0.8):
+        for side in (1, -1):
+            bx, by = om.BowVector(500, 500, 500 + 1000, 500 + 1000 * rise / math.sqrt(1 - rise * rise), W, H, side)
+            assert math.hypot(bx, by) == pytest.approx(1)
+            assert bx * side > 0  # the bow always leans to the requested side
+    # a weak climb bows mostly up, a steep one mostly sideways
+    assert om.BowVector(500, 500, 1500, 560, W, H, 1)[1] > om.BowVector(500, 500, 1000, 1500, W, H, 1)[1]
+
+
+def test_bow_side_is_the_perpendicular_with_more_room(om):
+    # a climb to a top-right bar: the right-hand perpendicular points down-right (lots of room), the left one up-left
+    assert om.BowSide(960, 540, 1650, 930, W, H) == 1
+    # to a top-centre bar from the middle: both are level; the tie goes to the right
+    assert om.BowSide(960, 300, 960, 1060, W, H) == 1
+    # up the right-hand side of the screen: the room is to the left
+    assert om.BowSide(1700, 300, 1700, 1060, W, H) == -1
+    # a flight with no length
+    assert om.BowSide(500, 500, 500, 500, W, H) == 1
+    # no side given: BowVector picks the same one
+    args = (1700, 300, 1700, 1060, W, H)
+    assert tuple(om.BowVector(*args)) == tuple(om.BowVector(*args, -1))
+    assert om.BowVector(*args)[0] < 0
+
+
+def test_clamp_to_screen(om):
+    assert tuple(om.ClampToScreen(500, 400, W, H, 40)) == (500, 400)
+    assert tuple(om.ClampToScreen(-100, 2000, W, H, 40)) == (40, H - 40)
+    assert tuple(om.ClampToScreen(W + 10, -5, W, H, 40)) == (W - 40, 40)
+    # a destination inside the band widens it on that axis only: a bar flush with the bottom edge keeps y = 20
+    assert tuple(om.ClampToScreen(900, 25, W, H, 40, 900, 20)) == (900, 25)
+    assert tuple(om.ClampToScreen(900, 5, W, H, 40, 900, 20)) == (900, 20)
+    assert tuple(om.ClampToScreen(900, H + 50, W, H, 40, 900, H - 2)) == (900, H - 2)
+    assert tuple(om.ClampToScreen(5, 5, 60, 60, 40)) == (30, 30)  # a screen smaller than the margins: the middle
+    assert tuple(om.ClampToScreen(5, 5, None, None, 40)) == (5, 5)
+
+
+# ---- bursts on screen
+
+BARS = {"top-right": (0.85 * W, 0.97 * H), "top-centre": (0.5 * W, 0.99 * H), "top-edge": (0.3 * W, H - 2)}
+MOBS = [(0.5 * W, 0.5 * H), (0.35 * W, 0.55 * H), (0.7 * W, 0.45 * H), (0.1 * W, 0.12 * H), (0.9 * W, 0.2 * H),
+        (0.2 * W, 0.93 * H)]
+
+
+def pin_destination(g, x, y):
+    g.env.lua.eval("function(T, x, y) T.GetDestination = function() return x, y, true end end")(g.ns.Target, x, y)
+
+
+@pytest.mark.parametrize("bar", list(BARS))
+@pytest.mark.parametrize("style", ["stream", "popstream", "streampop", "crossfade"])
+def test_every_flight_stays_on_screen_for_bars_along_the_top(env, bar, style):
+    env.lua.execute(LCG_SOURCE)
+    g = make(env, fixed_random=False)
+    g.db.flightTime = 1.0
+    pin_destination(g, *BARS[bar])
+    for path in KINDS:
+        for mob in MOBS:
+            opts = dict(n=8, x=mob[0], y=mob[1], ex=mob[0], ey=mob[1], kind="kill", style=style, path=path)
+            if style == "popstream":
+                opts["plate"] = restricted_plate(g, cx=mob[0], cy=mob[1])
+            assert burst(g, **opts)
+            for _ in range(130):
+                g.tick(0.025)
+                for t in stream_textures(g):
+                    x, y = t.points[1][4], t.points[1][5]
+                    assert -4 <= x <= W + 4 and -4 <= y <= H + 4, (bar, style, path, mob, x, y)
+            assert g.orbs.Info(g.orbs)[1] == 0  # all landed
+
+
+def test_bottom_bar_flights_are_exactly_the_old_ones_for_smooth(env):
+    env.lua.execute(LCG_SOURCE)
+    g = make(env, fixed_random=False)
+    dx, dy = tuple(g.ns.Target.GetDestination(g.ns.Target))[:2]
+    assert dy < 60  # the default test bar is along the bottom
+    burst(g, n=6, x=0.5 * W, y=0.5 * H, kind="kill", style="stream", path="smooth")
+    recs = live_recs_of(g)
+    om = g.ns.OrbMath
+    for o in recs:
+        assert (o.bowX, o.bowY) == (0, 1)
+        assert o.pathAmp == 0 and o.clampMargin == pytest.approx(0.04 * H)
+        c2 = tuple(om.HomeControl(o.control1X, o.control1Y, dx, dy, o.flightDist, o.bowX, o.bowY))
+        assert c2 == old_home_control(o.control1X, o.control1Y, dx, dy, o.flightDist)
+        assert c2[1] > 0.04 * H  # not moved by the clamp
+        assert tuple(om.ClampToScreen(*c2, W, H, o.clampMargin, dx, dy)) == c2
+    # c1 is the old PopControl value for the orb's own start (the centre of the screen: no clamp involved)
+    n = len(recs)
+    assert n == 6
+    g.tick(0.05)
+
+
+def live_recs_of(g):
+    return list(
+        g.env.lua.eval(
+            """function(fn)
+                local function up(f, name)
+                    local i = 1
+                    while true do
+                        local n, v = debug.getupvalue(f, i)
+                        if not n then return nil end
+                        if n == name then return v end
+                        i = i + 1
+                    end
+                end
+                local drive = up(fn, "drive")
+                local live, n = up(drive, "live"), up(drive, "nLive")
+                local out = {}
+                for i = 1, n do out[i] = live[i] end
+                return out
+            end"""
+        )(g.orbs.driver.scripts.OnUpdate).values()
     )
-    m.stub.click(ctl(m, "flightPath_helix"))
-    assert m.db.flightPath == "helix"
-    assert (
-        ctl(m, "flightPath_helix").checked and not ctl(m, "flightPath_smooth").checked
-    )
-    m.stub.click(
-        ctl(m, "flightPath_helix")
-    )  # clicking the selected one keeps it selected
-    assert ctl(m, "flightPath_helix").checked
-    m.stub.click(ctl(m, "flightPath_chaos"))
-    assert m.db.flightPath == "chaos" and ctl(m, "flightPath_chaos").checked
-    assert m.opt.descs.flightPath.text.startswith("How orbs fly to the bar")
 
 
-def test_flight_path_reset(m):
-    show(m)
-    assert not bool(m.opt.resets["flightPath"].shown)
-    m.stub.click(ctl(m, "flightPath_chaos"))
-    assert bool(m.opt.resets["flightPath"].shown)
-    m.stub.click(m.opt.resets["flightPath"])
-    assert m.db.flightPath == "smooth" and ctl(m, "flightPath_smooth").checked
+LCG_SOURCE = """local s = 12345
+math.random = function(a, b)
+    s = (s * 16807) % 2147483647
+    local r = s / 2147483647
+    if a == nil then return r elseif b == nil then return math.floor(r * a) + 1 end
+    return a + math.floor(r * (b - a + 1))
+end"""
 
 
-def test_flight_path_row_sits_after_the_style_group_and_above_the_xp_bar_rows(m):
-    show(m)
-    flight = m.opt.rows["flightPath"].points[1][5]
-    assert (
-        m.opt.rows["style_stream"].points[1][5] > flight
-    )  # y grows downwards: more negative is lower
-    assert m.opt.rows["targetFrame"].points[1][5] < flight
+# ---------------------------------------------------------------- helix start and speed
+
+
+@pytest.mark.parametrize("style", ["stream", "popstream"])
+@pytest.mark.parametrize("setting, half", [("off", 8), ("wide", 18)])
+@pytest.mark.parametrize("bar", [None, (0.85 * W, 0.97 * H)])
+def test_helix_starts_on_a_short_line_across_the_flight(env, style, setting, half, bar):
+    env.lua.execute(LCG_SOURCE)
+    g = make(env, fixed_random=False)
+    if bar:
+        pin_destination(g, *bar)
+    dx, dy = tuple(g.ns.Target.GetDestination(g.ns.Target))[:2]
+    g.db.unknownOrigin = setting
+    opts = dict(n=30, x=900, y=500, ex=900, ey=500, est="default", kind="kill", style=style, path="helix")
+    if style == "popstream":
+        opts["plate"] = restricted_plate(g, cx=700, cy=400)
+    burst(g, **opts)
+    recs = live_recs_of(g)
+    assert len(recs) == 30
+    length = math.hypot(dx - 900, dy - 500)
+    ax, ay = (dx - 900) / length, (dy - 500) / length
+    across = [-(o.x0 - 900) * ay + (o.y0 - 500) * ax for o in recs]
+    along = [(o.x0 - 900) * ax + (o.y0 - 500) * ay for o in recs]
+    assert all(abs(v) <= half + 1e-6 for v in across) and all(abs(v) <= 2 + 1e-6 for v in along)
+    assert max(abs(v) for v in across) > half * 0.6  # it really uses the width
+
+
+def arrival_angle(g, o, om):
+    """Degrees from straight up of the heading over the last 4 % of the base curve (smooth path)."""
+    dx, dy = tuple(g.ns.Target.GetDestination(g.ns.Target))[:2]
+    c2 = tuple(om.HomeControl(o.control1X, o.control1Y, dx, dy, o.flightDist, o.bowX, o.bowY))
+    c2 = tuple(om.ClampToScreen(*c2, o.screenW, o.screenH, o.clampMargin, dx, dy))
+    ease = om.PopEase
+    a = tuple(om.Cubic(ease(0.96, 0.5), o.x0, o.y0, o.control1X, o.control1Y, *c2, dx, dy))
+    b = tuple(om.Cubic(ease(1.0, 0.5), o.x0, o.y0, o.control1X, o.control1Y, *c2, dx, dy))
+    return math.degrees(math.atan2(abs(b[0] - a[0]), b[1] - a[1]))
+
+
+@pytest.mark.parametrize("bar", [(0.85 * W, 0.97 * H), (0.3 * W, H - 2)], ids=["top-right", "top-edge"])
+def test_orbs_rise_into_a_top_bar_instead_of_sliding_in_along_the_edge(env, bar):
+    env.lua.execute(LCG_SOURCE)
+    g = make(env, fixed_random=False)
+    pin_destination(g, *bar)
+    burst(g, n=10, x=0.5 * W, y=0.5 * H, ex=0.5 * W, ey=0.5 * H, kind="kill", style="stream", path="smooth")
+    recs = live_recs_of(g)
+    angles = [arrival_angle(g, o, g.ns.OrbMath) for o in recs]
+    assert len(angles) == 10 and max(angles) < 30, angles
+
+
+def test_helix_pop_ring_is_widened_horizontally(env):
+    env.lua.execute(LCG_SOURCE)
+    g = make(env, fixed_random=False)
+    for setting, widen in (("off", 1.4), ("wide", 1.6)):
+        g.db.unknownOrigin = setting
+        burst(g, n=20, x=900, y=500, ex=900, ey=500, est="default", kind="kill", style="streampop", path="helix")
+        for o in live_recs_of(g):
+            ring = math.hypot((o.ringX - o.px) / widen, o.ringY - o.py)
+            assert 18 * 0.5 - 1e-6 <= ring <= 30 * 0.5 + 1e-6
+        g.tick(0.05, 80)
+
+
+def test_helix_flies_twenty_percent_slower(om):
+    low, span = tuple(om.PathShape("helix"))[2:4]
+    assert (low, span) == pytest.approx((0.97 * 1.25, 0.06 * 1.25))

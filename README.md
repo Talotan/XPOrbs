@@ -49,7 +49,8 @@ Open the Wago app, choose WoW Forever, and search for XP Orbs, or use the
 
 Settings are saved per account in `XPOrbsDB`. The options panel is under Esc > Options > AddOns > XP Orbs, or
 `/xporbs options`. The minimap button and the XP Orbs entry in the minimap's addon menu open it too (click again to
-close it); right-click either one to turn the orbs on or off.
+close it); right-click either one to turn the orbs on or off. Shift + right-click on the minimap button hides it (bring it
+back with `/xporbs minimap on` or the "Show minimap button" option).
 
 ![The XP Orbs options panel](docs/images/options.png)
 
@@ -58,12 +59,12 @@ close it); right-click either one to turn the orbs on or off.
 | `/xporbs help` | List the commands. |
 | `/xporbs options` | Open the options panel. |
 | `/xporbs status` | Print the version, the settings that matter, and the state of each part of the addon. |
-| `/xporbs test [pct] [rested] [popstream\|crossfade\|stream] [nameplate\|direct] [smooth\|chaos\|helix]` | Fire a test burst. `pct` is the percent of a level it represents (default 5, up to 1000). `rested` colours part of it as rested. A style name overrides the saved style for this burst, `nameplate` or `direct` picks Popstream's pop, and `smooth`, `chaos` or `helix` overrides the flight path. |
+| `/xporbs test [pct] [rested] [popstream\|crossfade\|stream] [nameplate\|direct] [smooth\|chaos\|helix]` | Fire a test burst. `pct` is the percent of a level it represents (default 5, up to 1000). `rested` colours part of it as rested. A style name overrides the saved style for this burst, `nameplate` or `direct` picks Popstream's pop, and `smooth`, `chaos` or `helix` overrides the flight style. |
 | `/xporbs test stress [n]` | Fire `n` test bursts (default 20, up to 100) spread over about 2 seconds, to see how a big pull looks and runs. |
 | `/xporbs perf [reset]` | Print the addon's memory use, the average and worst time of an orb frame, and how much of the orb pool is in use. `reset` zeroes the frame timings. |
 | `/xporbs style popstream [nameplate\|direct]` | Set the kill style to Popstream, optionally with its pop on the nameplate or direct. With no argument, print the current style. |
 | `/xporbs style crossfade\|stream` | Set the kill style to Crossfade or Direct Stream (`stream`). The older names still work: `streampop` is Popstream (Direct), and `wide` is Popstream (Nameplate) with zoom-scaled spread on. |
-| `/xporbs path smooth\|chaos\|helix` | Set how orbs fly: `smooth` (the default), `chaos` or `helix`. With no argument, print the current path. |
+| `/xporbs path smooth\|chaos\|helix` | Set the flight style (how orbs fly): `smooth` (the default), `chaos` or `helix`. With no argument, print the current style. |
 | `/xporbs wide on\|off` | Turn the zoom-scaled spread on or off (on by default). |
 | `/xporbs unknown wide\|off` | Where orbs start when the mob's position is unknown: `wide` (the default) spreads them over an area that scales with camera zoom, `off` starts them at one point. |
 | `/xporbs pop on\|off` | Shortcut: `on` sets Popstream, `off` sets Direct Stream. |
@@ -80,10 +81,18 @@ close it); right-click either one to turn the orbs on or off.
 | `/xporbs debug maxlevel on\|off` | Pretend to be at max level until you reload, to try the max-level orbs below the cap. Never saved. |
 | `/xporbs reset` | Restore every setting to its default. |
 
-The panel has these settings: enable, trail, quest bursts, kill orbs at max level, the arrival chime with its sound (Coin or Glass) and volume, and the minimap button; orb quantity,
-maximum orbs per burst, orb size and flight time (1 s by default); orb colour (or your class colour), rested tint and rested colour; the shape of the
-target frame, a landing offset, and the arrival glow with its intensity; the kill style and the zoom-scaled spread; the XP bar frame; and the
-debug log. The panel also has a test button and a reset button.
+The panel has these sections, most-used first:
+
+- **General:** enable, kill orbs at max level, quest bursts, exploration bursts and the minimap button.
+- **Look:** orb quantity, maximum orbs per burst, orb size, flight time (1 s by default), trail, orb colour (or your
+  class colour), rested tint and rested colour.
+- **Style:** the Flight Style dropdown, the kill style and the zoom-scaled spread.
+- **Arrival:** the XP bar frame and its picker, the shape of the target frame, a landing offset, and the arrival glow
+  with its intensity.
+- **Sound:** the arrival chime with its sound (Coin or Glass) and volume.
+- **Advanced:** the debug log.
+
+The panel also has a test button and a reset button.
 
 The default colours are a purple for normal orbs and a blue for rested ones, picked to match the Forever XP bar. If
 you had kept the old default colours or the old 0.75 s flight time, they update to the new ones automatically; colours
@@ -173,8 +182,8 @@ whether the pop needs the mob's nameplate.
   nameplate; the estimated position sets the direction the orbs leave in. Without a nameplate it is a plain stream.
 - **Direct Stream** (`stream`): no pop, just the stream from the estimated position. Never uses the nameplate.
 
-**Flight path** (Options, or `/xporbs path`): how the orbs fly to the bar, for every style. The pops and the arrival
-glow don't change.
+**Flight Style** (the dropdown in Options, or `/xporbs path`): how the orbs fly to the bar, for every style. The pops and
+the arrival glow don't change. Hover an option in the dropdown for a short description.
 
 - **Smooth** (default): a clean curved arc.
 - **Chaos**: the orbs dart about like fireflies, swerving side to side and surging and easing along the way. Every
@@ -227,7 +236,9 @@ the addon assumes the pool covered the gain, up to what was left in it.
 
 ### Non-kill XP
 
-XP that no kill claims gets a start point that says where it came from. "Quest bursts" turns all of it off.
+XP that no kill claims gets a start point that says where it came from. "Exploration bursts" turns off the
+exploration orbs; "Quest bursts" turns off the quest orbs and any other XP that is not a kill. Both are on by default,
+and a save from before the split starts with both matching its old "Quest bursts" choice.
 
 - **Quests:** the orbs start where you clicked Complete Quest. If the pointer was not over a window then, they start at
   the quest window (the default one, or DaylightUI's NPC window), or a little left of the centre of the screen when

@@ -601,25 +601,28 @@ def test_crossfade_plate_reused_fades_copy_a_only(env):
     assert not g.orbs.Info(g.orbs)[0]
 
 
-def test_crossfade_falls_back_to_stream_without_plate_or_frame(env):
+def test_crossfade_without_plate_is_anchored_to_the_screen_at_p_hat(env):
     g = make(env)
-    assert burst(g, n=3, x=300, y=300, kind="kill", style="crossfade") == "stream"
-    assert pop_frames(g) == []
-    g.stub.tick(0.2)
-    # plain stream from (300, 300), not from the estimated mob position at the centre
-    assert stream_textures(g) and all(t.points[1][4] < 700 for t in stream_textures(g))
+    assert burst(g, n=3, x=300, y=300, kind="kill", style="crossfade") == "crossfade"
+    (frame,) = pop_frames(g)
+    assert frame.points[1][3] == "BOTTOMLEFT" and frame.shown
+    g.stub.tick(0.1)
+    assert len([t for t in pop_textures(g) if t.shown]) == 3 * 3  # copy A blooms at P-hat (the default centre estimate)
     g.stub.tick(3)
     plates = [restricted_plate(g, f"nameplate{i}") for i in range(1, 10)]
     modes = [burst(g, plate=p, n=2, kind="kill", style="crossfade") for p in plates]
     assert modes[:8] == ["crossfade"] * 8 and modes[8] == "stream"
 
 
-def test_crossfade_kind_other_and_secret_plate_stream(env):
+def test_crossfade_kind_other_streams_and_a_secret_plate_falls_back_to_the_screen_anchor(env):
     g = make(env)
     plate = restricted_plate(g)
     assert burst(g, plate=plate, n=2, kind="other", style="crossfade") == "stream"
-    assert burst(g, plate=g.stub.SECRET, n=2, kind="kill", style="crossfade") == "stream"
     assert pop_frames(g) == []
+    assert burst(g, plate=g.stub.SECRET, n=2, kind="kill", style="crossfade") == "crossfade"
+    (frame,) = pop_frames(g)
+    assert frame.points[1][3] == "BOTTOMLEFT"  # no plate to hang off: anchored to the screen instead
+    assert g.stub.restrictedHits == 0
 
 
 def test_crossfade_style_from_db_and_kills_pass_plate(env):

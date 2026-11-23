@@ -54,8 +54,13 @@ function CreateFrame(kind, name, parent, template)
         function f:GenerateMenu()
             local root = { entries = {} }
             function root:CreateRadio(text, isSelected, setSelected, data)
-                self.entries[#self.entries + 1] =
-                    { text = text, selected = isSelected(), setSelected = setSelected, data = data }
+                local entry = { text = text, selected = isSelected(), setSelected = setSelected, data = data }
+                self.entries[#self.entries + 1] = entry
+                -- the menu element description: SetTooltip keeps the callback so a test can run it on a tooltip
+                function entry:SetTooltip(fn)
+                    self.tooltipFn = fn
+                end
+                return entry
             end
             self.menuRoot = root
             if self.menuGen then
@@ -86,6 +91,12 @@ function fm:CreateFontString()
     local fs = CreateFrame("FontString")
     fs.parentFrame = self
     return fs
+end
+-- HookScript: this stub keeps one handler per script, so a hook on an empty slot is the handler
+function fm:HookScript(name, fn)
+    if not self.scripts[name] then
+        self.scripts[name] = fn
+    end
 end
 function fm:SetText(t)
     self.text = t
@@ -246,7 +257,7 @@ end
 -- ---------------------------------------------------------------- v0.13 extensions
 -- scroll frames, enable/disable, edit boxes, tooltip, static popups, atlas, class colours.
 for _, name in ipairs({ "SetHighlightTexture", "EnableMouseWheel", "SetMovable", "RegisterForDrag", "SetClampedToScreen",
-    "StartMoving", "StopMovingAndSizing", "RegisterForClicks", "SetAutoFocus", "SetMaxLetters" }) do
+    "StartMoving", "StopMovingOrSizing", "RegisterForClicks", "SetAutoFocus", "SetMaxLetters" }) do
     fm[name] = function(self, ...)
         self.calls = self.calls or {}
         self.calls[name] = { ... }
@@ -348,6 +359,11 @@ GameTooltip = {
     end,
     SetText = function(_, t)
         stub.tooltip.text = t
+        stub.tooltip.lines = {}
+    end,
+    AddLine = function(_, t)
+        stub.tooltip.lines = stub.tooltip.lines or {}
+        stub.tooltip.lines[#stub.tooltip.lines + 1] = t
     end,
     Show = function()
         stub.tooltip.shown = true

@@ -123,21 +123,31 @@ local XF_EASE_OUT = 0.70 -- ease-out weight of copy B's launch (PopEase default 
 -- flies flightTime * flight * (jitterLow..jitterLow + jitterSpan); ctrlAhead / ctrlJitter put its first control
 -- point ctrlAhead * dist ahead along u, jittered sideways by +-ctrlJitter * dist (no lift); ghost1Gap / ghost2Gap are
 -- the px its trail ghosts sit behind it (along -u) during the fade-in.
--- ux, uy, bCentreX, bCentreY, leaveDistClamped are per-burst scratch (see XF_PROFILE.plan).
+-- ux, uy, bCentreX, bCentreY, leaveDistClamped are per-burst scratch (see XF_PROFILE.plan). The arcs of every style
+-- share more of it (Burst has no upvalue to spare, so it lives here): screenW, screenH, bowSide (1 or -1, the side the
+-- arcs bow to) and edgeMargin = edgeFraction * screen height, the base inset of the control points.
 local XF_PROFILE = { bloom = XF_HOLD, bsize = XF_BLOOM_SIZE, fadeIn = XF_FADE_IN,
     flight = 0.40, ease = XF_EASE_OUT, hold = XF_HOLD, rmin = XF_BLOOM_R, rmax = 36, drift = 8, born = 0.04,
     leave = true, leaveDist = 180, leaveTime = 0.26, leaveStagger = 0.15, gap = 0.10, bFade = 0.08, bSpread = 14,
     bDistMin = 80, bDistMax = 320, bScreenFrac = 0.30, bLengthFrac = 0.60, jitterLow = 0.94, jitterSpan = 0.12,
     ctrlAhead = 0.4, ctrlJitter = 0.1,
     ghost1Gap = 12, ghost2Gap = 24,
-    ux = 0, uy = 1, bCentreX = 0, bCentreY = 0 }
+    ux = 0, uy = 1, bCentreX = 0, bCentreY = 0,
+    edgeFraction = 0.04, screenW = 0, screenH = 0, bowSide = 1, edgeMargin = 0 }
 -- db.unknownOrigin for the "mob position unknown" case (est == "default"): "wide" (the default) starts the stream
 -- (Popstream (Nameplate), Direct Stream) or the pop (Popstream (Direct)) somewhere over an ellipse (semi-axes
 -- rx * screen width, ry * screen height at camera zoom zRef) instead of one point; "off" keeps the
 -- single point. The ellipse scales by clamp((zRef + zK) / (zoom + zK), fMin, fMax): wider zoomed in (the mob is
 -- bigger on screen), narrower zoomed out. One table keeps Burst's upvalues down.
 -- The same zoom factor scales the spawn spread of located orbs when db.zoomSpread is on (UNKNOWN.factor).
-local UNKNOWN = { rx = 0.064, ry = 0.04, zRef = 15, zK = 5, fMin = 0.5, fMax = 2, level = { off = 0, wide = 1 } }
+-- Popstream (Direct) does not move its pop around the ellipse: the pop stays at the estimate and its ring is stretched
+-- horizontally by popWiden (a wider ring reads as "somewhere about here" without the origin jumping).
+-- The Helix starts from a short horizontal line instead of a disc or the ellipse (all in px, UIParent units): helixLine
+-- is the half-width at a detected origin, helixLineUnknown at an unknown one, helixLineJitter the half-height of both;
+-- helixRingWiden stretches Popstream (Direct)'s (already halved) ring at a detected origin, popWiden does at an
+-- unknown one.
+local UNKNOWN = { rx = 0.064, ry = 0.04, zRef = 15, zK = 5, fMin = 0.5, fMax = 2, level = { off = 0, wide = 1 },
+    popWiden = 1.6, helixLine = 8, helixLineUnknown = 18, helixLineJitter = 2, helixRingWiden = 1.4 }
 
 -- clamp((zRef + zK) / (zoom + zK), fMin, fMax) for the current camera zoom: 1 at zoom 15, 2 zoomed in, 0.5 zoomed out;
 -- 1 when the zoom can't be read. A field of UNKNOWN, so Burst (near Lua 5.1's upvalue cap) needs no new upvalue.
@@ -173,26 +183,28 @@ local function byRingDist(a, b)
     return a < b
 end
 
--- Per-burst plan of n orbs around (x, y): the ring centre (unknownLevel > 0: one random point of the zoom-scaled
--- unknown-origin ellipse, scale zoomFactor, shared by every orb), ring points (radius x spreadFactor, the zoom-scaled
--- spread, times ringScale: a helix packs its ring tighter) and launch holds ordered by distance from the ring point to
--- (dx, dy); ranks[i] is orb i's place in that launch order.
-function SP_PROFILE.plan(n, x, y, dx, dy, unknownLevel, zoomFactor, spreadFactor, ringScale)
+-- Per-burst plan of n orbs around (x, y): the ring centre (always (x, y): the origin stays put), ring points (radius x
+-- spreadFactor, the zoom-scaled spread, times ringScale: a helix packs its ring tighter; the x radius also x
+-- UNKNOWN.popWiden when the origin is unknown (unknownLevel > 0), or x UNKNOWN.helixRingWiden for a helix at a detected
+-- one) and launch holds ordered by distance from the ring point to (dx, dy); ranks[i] is orb i's place in that launch
+-- order. isHelix: the burst's path is the helix.
+function SP_PROFILE.plan(n, x, y, dx, dy, unknownLevel, spreadFactor, ringScale, isHelix)
     local profile = SP_PROFILE
     local dist, idx = profile.dist, profile.idx
     for i = #idx, n + 1, -1 do -- table.sort sorts #idx slots: drop what a larger earlier burst left behind
         idx[i] = nil
     end
     local centreX, centreY = x, y
-    if unknownLevel > 0 then -- one random point of the ellipse is the shared pop centre: the pop keeps its ring shape
-        local angle, radiusFraction = random() * TWO_PI, sqrt(random())
-        centreX = x + cos(angle) * radiusFraction * UNKNOWN.rx * zoomFactor * UIParent:GetWidth()
-        centreY = y + sin(angle) * radiusFraction * UNKNOWN.ry * zoomFactor * UIParent:GetHeight()
+    local widen = 1
+    if unknownLevel > 0 then
+        widen = UNKNOWN.popWiden
+    elseif isHelix then
+        widen = UNKNOWN.helixRingWiden
     end
     for i = 1, n do
         local ringAngle = OrbMath.RingAngle(i, n, random)
         local ringRadius = (profile.rmin + random() * (profile.rmax - profile.rmin)) * spreadFactor * ringScale
-        local ringX, ringY = centreX + cos(ringAngle) * ringRadius, centreY + sin(ringAngle) * ringRadius
+        local ringX, ringY = centreX + cos(ringAngle) * ringRadius * widen, centreY + sin(ringAngle) * ringRadius
         profile.centreX[i], profile.centreY[i], profile.ringAngle[i] = centreX, centreY, ringAngle
         profile.ringX[i], profile.ringY[i] = ringX, ringY
         dist[i], idx[i] = (dx - ringX) * (dx - ringX) + (dy - ringY) * (dy - ringY), i
@@ -577,13 +589,20 @@ local function flightPoint(orb, progress, dx, dy, control2X, control2Y)
         pathX = pathX - lineY / lineLength * sideways
         pathY = pathY + lineX / lineLength * sideways
     end
+    -- last resort: a near-level flight along the screen edge has no room for its sideways swing (the control points
+    -- cannot help), so the drawn point itself is kept on screen
+    pathX, pathY = OrbMath.ClampToScreen(pathX, pathY, orb.screenW, orb.screenH, 0)
     return pathX, pathY, sizeMul, alphaMul
 end
 
 -- One flying orb at `progress` (0..1) of its flight towards the destination (dx, dy): position on its flight path,
 -- shrink near the end, fade-in, spark rotation and the two trail ghosts (the same path a little earlier in time).
 local function drawOrb(orb, progress, dx, dy)
-    local control2X, control2Y = OrbMath.HomeControl(orb.control1X, orb.control1Y, dx, dy, orb.flightDist)
+    local control2X, control2Y = OrbMath.HomeControl(orb.control1X, orb.control1Y, dx, dy, orb.flightDist, orb.bowX,
+        orb.bowY)
+    -- the destination can move, so the second control point is kept on screen every frame (arithmetic only)
+    control2X, control2Y = OrbMath.ClampToScreen(control2X, control2Y, orb.screenW, orb.screenH, orb.clampMargin, dx,
+        dy)
     local orbX, orbY, sizeMul, alphaMul = flightPoint(orb, progress, dx, dy, control2X, control2Y)
     local size = orb.size
     if progress > SHRINK_FROM then
@@ -758,9 +777,13 @@ local function startPop(plate, n, scale, nPurple, ux, uy, bodyAnchorY, spreadFac
     return true
 end
 
--- Crossfade: a pop frame anchored to the plate's BOTTOM that will carry copy A of every orb. Returns the frame or nil.
-local function startCrossfade(plate, bodyAnchorY)
-    if type(plate) ~= "table" or not readable(plate) then
+-- Crossfade: a pop frame that will carry copy A of every orb. With a readable plate it is anchored to the plate's
+-- BOTTOM (exact, whatever P-hat is). Without one (a Test burst, or a kill whose mob was not located) it is anchored to
+-- the screen at P-hat (screenX, screenY), so copy A blooms there instead; copy A's offsets are relative to P-hat either
+-- way. Returns the frame or nil.
+local function startCrossfade(plate, bodyAnchorY, screenX, screenY)
+    local plated = type(plate) == "table" and readable(plate)
+    if not plated and not (type(screenX) == "number" and type(screenY) == "number") then
         return nil
     end
     local group = takePopFrame()
@@ -770,8 +793,12 @@ local function startCrossfade(plate, bodyAnchorY)
     local frame = group.frame
     local ok, err = pcall(function()
         frame:ClearAllPoints()
-        local rel, y = plateAnchor(bodyAnchorY, "BOTTOM", 0)
-        frame:SetPoint("CENTER", plate, rel, 0, y)
+        if plated then
+            local rel, y = plateAnchor(bodyAnchorY, "BOTTOM", 0)
+            frame:SetPoint("CENTER", plate, rel, 0, y)
+        else
+            frame:SetPoint("CENTER", UIParent, "BOTTOMLEFT", screenX, screenY)
+        end
         frame:Show()
     end)
     if not ok then
@@ -782,7 +809,7 @@ local function startCrossfade(plate, bodyAnchorY)
         releasePop(group)
         return nil
     end
-    group.plate, group.isCrossfade, group.refs = plate, true, 0
+    group.plate, group.isCrossfade, group.refs = plated and plate or nil, true, 0
     group.fadeMultiplier, group.fading, group.fadeElapsed = 1, false, 0
     nCrossfade = nCrossfade + 1
     crossfadeGroups[nCrossfade] = group
@@ -1074,7 +1101,25 @@ end
 
 -- Wide start of one stream orb: orb.x0, orb.y0 moves to a random point of the unknown-origin ellipse around (x, y)
 -- (unknownLevel == 0: left alone). zoomFactor scales the ellipse (the camera-zoom factor, read once per burst).
-local function placeUnknown(orb, unknownLevel, x, y, zoomFactor)
+-- A helix (pathKind == "helix") starts from a short line across the flight instead (the perpendicular of the way from
+-- (x, y) to the destination (dx, dy), so it reads the same whichever way the bar lies): UNKNOWN.helixLine px either
+-- side of (x, y) at a detected origin, UNKNOWN.helixLineUnknown when the origin is unknown (the ellipse is too loose
+-- for its strands), and at most UNKNOWN.helixLineJitter px along the flight.
+local function placeUnknown(orb, unknownLevel, x, y, zoomFactor, pathKind, dx, dy)
+    if pathKind == "helix" then
+        local halfWidth = unknownLevel > 0 and UNKNOWN.helixLineUnknown or UNKNOWN.helixLine
+        local alongX, alongY = dx - x, dy - y
+        local length = sqrt(alongX * alongX + alongY * alongY)
+        if length > 1e-6 then
+            alongX, alongY = alongX / length, alongY / length
+        else
+            alongX, alongY = 0, 1
+        end
+        local across, along = (random() * 2 - 1) * halfWidth, (random() * 2 - 1) * UNKNOWN.helixLineJitter
+        orb.x0 = x - alongY * across + alongX * along
+        orb.y0 = y + alongX * across + alongY * along
+        return
+    end
     if unknownLevel == 0 then
         return
     end
@@ -1162,8 +1207,9 @@ function Orbs:Burst(params)
     if params.plate ~= nil and style == "popstream" then
         local ux, uy = OrbMath.ExitVector(x, y, px, py, dx, dy)
         popped = startPop(params.plate, n, scale, nPurple, ux, uy, bodyAnchorY, spreadFactor)
-    elseif params.plate ~= nil and style == "crossfade" then
-        crossfadeGroup = startCrossfade(params.plate, bodyAnchorY)
+    elseif style == "crossfade" then
+        -- no readable plate: the group is anchored to the screen at P-hat instead
+        crossfadeGroup = startCrossfade(params.plate, bodyAnchorY, px, py)
     end
     if crossfadeGroup then
         x, y = px, py
@@ -1207,6 +1253,13 @@ function Orbs:Burst(params)
     -- the flight path is the same for the whole burst (changing the setting mid-flight never bends an orb in the air)
     local burstPath = OrbMath.PathKind(params.path or config.flightPath)
     local ringScale = select(5, OrbMath.PathShape(burstPath))
+    -- per-burst screen facts for the arcs (scratch fields of XF_PROFILE, Burst has no upvalue to spare): the screen
+    -- size, which side every orb bows to (the side with more room, see OrbMath.BowVector) and the base margin that
+    -- keeps the control points off the screen edge (each orb adds its path amplitude)
+    XF_PROFILE.screenW, XF_PROFILE.screenH = UIParent:GetWidth(), UIParent:GetHeight()
+    XF_PROFILE.bowSide = OrbMath.BowSide(crossfadeGroup and px or x, crossfadeGroup and py or y, dx, dy,
+        XF_PROFILE.screenW, XF_PROFILE.screenH)
+    XF_PROFILE.edgeMargin = XF_PROFILE.edgeFraction * XF_PROFILE.screenH
     local spiralSign = 1 -- a helix turns one way or the other, chosen once per burst
     if burstPath == "helix" and random() < 0.5 then
         spiralSign = -1
@@ -1214,7 +1267,7 @@ function Orbs:Burst(params)
     if crossfadeGroup then
         XF_PROFILE.plan(px, py, dx, dy)
     elseif isStreamPop then
-        profile.plan(n, x, y, dx, dy, unknownLevel, unknownZoomFactor, spreadFactor, ringScale)
+        profile.plan(n, x, y, dx, dy, unknownLevel, spreadFactor, ringScale, burstPath == "helix")
     end
     local crossfadeCount = 0 -- orbs that got a plate-space copy A (each takes 3 texture slots on crossfadeGroup)
     local building, buildingLive = nil, false -- the orb being built, and whether it is in `live` yet
@@ -1272,7 +1325,12 @@ function Orbs:Burst(params)
                 orb.x0, orb.y0 = x + cos(ringAngle) * radius, y + sin(ringAngle) * radius
             end
             -- (Popstream (Direct) picked its shared ring centre in plan; unknownLevel is 0 for crossfade)
-            placeUnknown(orb, isStreamPop and 0 or unknownLevel, x, y, unknownZoomFactor)
+            placeUnknown(orb, isStreamPop and 0 or unknownLevel, x, y, unknownZoomFactor,
+                not (isStreamPop or orb.group) and burstPath or nil, dx, dy)
+            -- the arc bows along a direction that follows the flight (straight up for a bottom bar, see BowVector)
+            local bowX, bowY = OrbMath.BowVector(orb.x0, orb.y0, dx, dy, XF_PROFILE.screenW, XF_PROFILE.screenH,
+                XF_PROFILE.bowSide)
+            orb.bowX, orb.bowY = bowX, bowY
             if isStreamPop then
                 -- leave along the ring angle blended towards the bar (nobody flies back through the middle)
                 local ringAngle, blend = profile.ringAngle[i], profile.ctrlBlend
@@ -1297,7 +1355,8 @@ function Orbs:Burst(params)
             else
                 -- (a helix shrinks the control point's spread so its strands share one spine)
                 local pathSpread = controlScale ~= 1 and (spread or 1) * controlScale or spread
-                orb.control1X, orb.control1Y = OrbMath.PopControl(i, n, orb.x0, orb.y0, random, pathSpread, lift)
+                orb.control1X, orb.control1Y = OrbMath.PopControl(i, n, orb.x0, orb.y0, random, pathSpread, lift, bowX,
+                    bowY)
             end
             local ddx, ddy = dx - orb.x0, dy - orb.y0
             orb.flightDist = sqrt(ddx * ddx + ddy * ddy)
@@ -1305,6 +1364,12 @@ function Orbs:Burst(params)
             orb.pathAmp, orb.pathFreq1, orb.pathFreq2, orb.pathFreq3, orb.pathPhase1, orb.pathPhase2,
                 orb.pathPhase3 = OrbMath.PathParams(burstPath, isStreamPop and profile.ranks[i] or i, orb.flightDist,
                     random, spiralSign)
+            -- keep both control points on screen, inset by the margin plus this orb's sideways swing (the second
+            -- control point is clamped every frame, see drawOrb)
+            orb.screenW, orb.screenH = XF_PROFILE.screenW, XF_PROFILE.screenH
+            orb.clampMargin = XF_PROFILE.edgeMargin + math.abs(orb.pathAmp)
+            orb.control1X, orb.control1Y = OrbMath.ClampToScreen(orb.control1X, orb.control1Y, orb.screenW, orb.screenH,
+                orb.clampMargin, dx, dy)
             local launchOrder = random()
             if staggerScale ~= 1 then
                 -- a helix launches in pairs, in order, so the orbs follow each other along the two strands
@@ -1703,7 +1768,7 @@ function ns.commands.path(arg)
         settings().flightPath = word
         refreshPanel()
     end
-    ns.Print("flight path: " .. (ns.PATH_LABEL[settings().flightPath] or "Smooth"))
+    ns.Print("flight style: " .. (ns.PATH_LABEL[settings().flightPath] or "Smooth"))
 end
 
 local function spreadState()

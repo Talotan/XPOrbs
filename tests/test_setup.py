@@ -287,7 +287,7 @@ def test_the_window_is_unnamed_movable_and_draggable(m):
     win.scripts.OnDragStart(win)
     assert win.calls["StartMoving"] is not None
     win.scripts.OnDragStop(win)
-    assert win.calls["StopMovingAndSizing"] is not None
+    assert win.calls["StopMovingOrSizing"] is not None
 
 
 def test_a_plain_frame_stands_in_when_the_backdrop_template_is_missing(env):

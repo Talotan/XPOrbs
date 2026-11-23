@@ -17,7 +17,8 @@ ns.defaults = {
     restedTint = true,
     restedColor = { 0.15, 0.38, 1.00 },
     trail = true,
-    questBursts = true,
+    questBursts = true, -- bursts for quest and other non-kill XP
+    exploreBursts = true, -- bursts for exploration XP (a saved save without it copies questBursts, see InitDB)
     targetFrame = nil,
     showAtMax = false, -- at max level: a small burst of orbs flies to the portrait when an engaged hostile dies
     sound = false, -- chime as orbs arrive
@@ -209,8 +210,8 @@ local function migrate(db)
 end
 
 local BOOLEANS = {
-    "enabled", "classColor", "restedTint", "trail", "questBursts", "showAtMax", "debug", "glow", "sound", "zoomAnchor",
-    "zoomSpread", "setupDismissed",
+    "enabled", "classColor", "restedTint", "trail", "questBursts", "exploreBursts", "showAtMax", "debug", "glow",
+    "sound", "zoomAnchor", "zoomSpread", "setupDismissed",
 }
 local ZOOM_RANGES = { zoomA = { -100, 300 }, zoomB = { 0, 3000 }, zoomMin = { 0.5, 10 } }
 ns.ZOOM_POINTS_MAX = ZOOM_POINTS_MAX
@@ -325,6 +326,10 @@ function ns:InitDB()
         XPOrbsDB = {}
     end
     migrate(XPOrbsDB)
+    -- exploreBursts was split off questBursts: a save that predates it keeps what the player chose for both
+    if XPOrbsDB.exploreBursts == nil and type(XPOrbsDB.questBursts) == "boolean" then
+        XPOrbsDB.exploreBursts = XPOrbsDB.questBursts
+    end
     deepFill(XPOrbsDB, ns.defaults)
     sanitize(XPOrbsDB)
     -- a save from a newer addon version keeps its number (stamping it down would make the next upgrade re-migrate)
@@ -403,7 +408,7 @@ function commands.help()
     say("  Crossfade: a pop on the nameplate, the orbs reappear just above the bar (nameplate; estimate sets the "
         .. "direction)")
     say("  stream = Direct Stream: a plain stream from the estimated mob position (no pop, no nameplate)")
-    say("/xporbs path smooth|chaos|helix - how orbs fly: a clean arc, an erratic wobble or a spiral (no arg: show)")
+    say("/xporbs path smooth|chaos|helix - flight style: a clean arc, an erratic wobble or a spiral (no arg: show)")
     say("/xporbs wide on|off - zoom-scaled spread: pops and stream starts spread wider when zoomed in, tighter "
         .. "zoomed out (on by default)")
     say("/xporbs unknown wide|off - where orbs start when the mob's position is unknown")

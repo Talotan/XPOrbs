@@ -72,13 +72,18 @@ end
 -- Pop control point for orb i of n: stratified angle, radius 45..100, pushed out 2.2x and biased upward (y is up).
 -- (x0, y0) is the burst origin, rand() a random source in [0, 1). Optional spread scales the radius (default 1) and
 -- lift is the upward bias (default 0.35); the stream that follows a corpse pop uses a tight spread and little lift.
+-- bowX, bowY (default 0, 1: straight up) is the unit direction the lift bows along (see BowVector); the default gives
+-- the same numbers as before the bow existed.
 -- Returns c1x, c1y (the first Bezier control point) and the radius.
-function OrbMath.PopControl(i, n, x0, y0, rand, spread, lift)
+function OrbMath.PopControl(i, n, x0, y0, rand, spread, lift, bowX, bowY)
     spread = spread or 1
     lift = lift or 0.35
+    bowX, bowY = bowX or 0, bowY or 1
     local angle = ((i - 1) + rand() * 0.8) / n * 2 * math.pi
     local radius = (45 + rand() * 55) * spread
-    return x0 + math.cos(angle) * radius * 2.2, y0 + (0.8 * math.sin(angle) + lift) * radius * 2.2, radius
+    -- (the operation order is the old one, so a bow of 0, 1 gives bit-identical numbers)
+    return x0 + math.cos(angle) * radius * 2.2 + lift * bowX * radius * 2.2,
+        y0 + (0.8 * math.sin(angle) + lift * bowY) * radius * 2.2, radius
 end
 
 -- Unit direction the pop orbs exit along: from the estimated pop point (px, py) towards the stream origin (sx, sy).
@@ -99,10 +104,17 @@ function OrbMath.ExitVector(sx, sy, px, py, tx, ty, minDist)
     return 0, 1
 end
 
--- Second control point of the pop-then-home curve: hugs the destination's x, sits 0.30 * dist0 above it. (c1x, c1y) is
--- the first control point, (dx, dy) the destination, dist0 the pop-to-destination distance.
-function OrbMath.HomeControl(c1x, c1y, dx, dy, dist0)
-    return dx + (c1x - dx) * 0.15, dy + 0.30 * dist0
+-- Second control point of the pop-then-home curve: sits 0.30 * dist0 from the destination along the bow direction
+-- (bowX, bowY, default 0, 1: straight up, the layout of a bottom bar) and keeps 15 % of the first control point's
+-- offset across that direction. (c1x, c1y) is the first control point, (dx, dy) the destination, dist0 the
+-- pop-to-destination distance. With the default bow this is dx + (c1x - dx) * 0.15, dy + 0.30 * dist0.
+function OrbMath.HomeControl(c1x, c1y, dx, dy, dist0, bowX, bowY)
+    if bowX == nil or bowY == nil or (bowX == 0 and bowY == 1) then
+        return dx + (c1x - dx) * 0.15, dy + 0.30 * dist0
+    end
+    local acrossX, acrossY = bowY, -bowX -- the bow direction turned a quarter clockwise
+    local across = ((c1x - dx) * acrossX + (c1y - dy) * acrossY) * 0.15
+    return dx + acrossX * across + bowX * 0.30 * dist0, dy + acrossY * across + bowY * 0.30 * dist0
 end
 
 -- Pop ease: fast start (ease-out half, weight w) blended with a slow-in finish (ease-in half, weight 1 - w).
@@ -145,13 +157,14 @@ end
 -- How a path reshapes the burst around it: returns controlScale, staggerScale, durationLow, durationSpan, ringScale.
 --   controlScale: factor on the per-orb sideways spread of the base curve's control point (Smooth 1, Chaos 0.6,
 --                 Helix 0.10: the helix's strands share one spine).
---   staggerScale: factor on the launch stagger (Helix 2, launched in pairs so the two strands fill together).
---   durationLow, durationSpan: flight time multiplier range (Helix 0.97..1.03, so the strands keep their spacing);
---                 nil = the caller's own range.
+--   staggerScale: factor on the launch stagger (Helix 2.5, launched in pairs so the two strands fill together; 2 x
+--                 1.25 so that the 25 % longer flights leave the pairs the same gap in progress).
+--   durationLow, durationSpan: flight time multiplier range (Helix 1.2125..1.2875, 1.25 x the old 0.97..1.03: a helix
+--                 flies 20 % slower and its strands keep their spacing); nil = the caller's own range.
 --   ringScale: factor on Popstream (Direct)'s ring radius (Helix 0.5, so the strands start close together).
 function OrbMath.PathShape(kind)
     if kind == "helix" then
-        return 0.10, 2, 0.97, 0.06, 0.5
+        return 0.10, 2.5, 1.2125, 0.075, 0.5
     elseif kind == "chaos" then
         return 0.6, 1, nil, nil, 1
     end
@@ -191,10 +204,10 @@ end
 --          warp = w * env * sin(2 pi freq3 t + phase3), env = sin(pi t)^1.5 (zero slope at both ends, so there is no
 --          sideways or backward kick at launch). w is 0.08, shrunk where needed so that t + warp keeps a positive
 --          slope (the orb never moves backwards along the curve); size and alpha stay 1.
---   helix: perp = amp * env * sin(2 pi freq1 t + phase1), env = smoothstep up over the first 10 % and down over the
---          last 20 %; the fake depth d = env * cos(2 pi freq1 t + phase1) scales size by 1 + 0.40 d and alpha by
---          1 - 0.25 (env - d), which is 0.75 + 0.25 cos mid-flight (the orb is largest and brightest "in front")
---          and 1 at both ends; no warp.
+--   helix: perp = amp * env * sin(2 pi freq1 t + phase1), env = smoothstep up over the first 20 % (a gentle ramp, no
+--          corner at launch) and down over the last 20 %; the fake depth d = env * cos(2 pi freq1 t + phase1) scales
+--          size by 1 + 0.40 d and alpha by 1 - 0.25 (env - d), which is 0.75 + 0.25 cos mid-flight (the orb is largest
+--          and brightest "in front") and 1 at both ends; no warp.
 function OrbMath.PathOffset(kind, t, amp, freq1, freq2, freq3, phase1, phase2, phase3)
     if kind == "chaos" then
         t = clamp(t, 0, 1)
@@ -206,12 +219,98 @@ function OrbMath.PathOffset(kind, t, amp, freq1, freq2, freq3, phase1, phase2, p
         return amp * env * wobble, warpAmp * env * math.sin(TWO_PI * freq3 * t + phase3), 1, 1
     elseif kind == "helix" then
         t = clamp(t, 0, 1)
-        local env = smoothstep(0, 0.10, t) * smoothstep(1, 0.80, t)
+        local env = smoothstep(0, 0.20, t) * smoothstep(1, 0.80, t)
         local angle = TWO_PI * freq1 * t + phase1
         local depth = math.cos(angle) * env
         return amp * env * math.sin(angle), 0, 1 + HELIX_SIZE_SWING * depth, 1 - HELIX_ALPHA_SWING * (env - depth)
     end
     return 0, 0, 1, 1
+end
+
+-- Distance from (fromX, fromY) to the edge of a screenW x screenH rect along the direction (dirX, dirY).
+local function roomAlong(fromX, fromY, dirX, dirY, screenW, screenH)
+    local room = math.huge
+    if dirX > 1e-6 then
+        room = min(room, (screenW - fromX) / dirX)
+    elseif dirX < -1e-6 then
+        room = min(room, fromX / -dirX)
+    end
+    if dirY > 1e-6 then
+        room = min(room, (screenH - fromY) / dirY)
+    elseif dirY < -1e-6 then
+        room = min(room, fromY / -dirY)
+    end
+    return room
+end
+
+-- Which way a burst's arcs bow sideways: 1 (the right-hand perpendicular of the flight) or -1 (the left-hand one),
+-- whichever has more room from the flight's midpoint to the edge of a screenW x screenH screen, measured along that
+-- perpendicular itself (comparing horizontal room alone picks the side that points up into the top edge on a diagonal
+-- climb). One value per burst, so every orb of it bows the same way.
+function OrbMath.BowSide(startX, startY, destX, destY, screenW, screenH)
+    local vx, vy = destX - startX, destY - startY
+    local length = sqrt(vx * vx + vy * vy)
+    if length < 1e-6 then
+        return 1
+    end
+    vx, vy = vx / length, vy / length
+    local midX, midY = (startX + destX) / 2, (startY + destY) / 2
+    local right = roomAlong(midX, midY, vy, -vx, screenW, screenH)
+    local left = roomAlong(midX, midY, -vy, vx, screenW, screenH)
+    return right >= left and 1 or -1
+end
+
+-- Unit direction (bowX, bowY) a flight bows along. For a bottom bar that is straight up (0, 1), the layout the curve
+-- was designed for; a flight that climbs would bow off the top of the screen, so as it climbs the bow turns
+-- sideways, onto the perpendicular of the flight on side sideSign (1 right, -1 left; nil = the side with more room,
+-- see BowSide). w = smoothstep(0, 0.5, vy) of the flight's unit direction (vx, vy): level or downward
+-- flights give w = 0 and exactly (0, 1); the bow is normalise((1 - w) * (0, 1) + w * perpendicular).
+function OrbMath.BowVector(startX, startY, destX, destY, screenW, screenH, sideSign)
+    local vx, vy = destX - startX, destY - startY
+    local length = sqrt(vx * vx + vy * vy)
+    if length < 1e-6 then
+        return 0, 1
+    end
+    vx, vy = vx / length, vy / length
+    local weight = smoothstep(0, 0.5, vy)
+    if weight <= 0 then
+        return 0, 1
+    end
+    sideSign = sideSign or OrbMath.BowSide(startX, startY, destX, destY, screenW, screenH)
+    local perpX, perpY = vy, -vx -- the right-hand perpendicular: its x is positive for a climbing flight
+    if sideSign < 0 then
+        perpX, perpY = -vy, vx
+    end
+    local bowX, bowY = weight * perpX, (1 - weight) + weight * perpY
+    local bowLength = sqrt(bowX * bowX + bowY * bowY)
+    if bowLength < 1e-6 then
+        return 0, 1
+    end
+    return bowX / bowLength, bowY / bowLength
+end
+
+-- The point (x, y) pulled into the screen rect [margin, w - margin] x [margin, h - margin] (a screen of w x h). A
+-- control point the path gets drawn towards must not sit off screen. Optional (keepX, keepY) is a point (the
+-- destination) that is allowed to sit inside the margin band: on an axis where it does, the band is widened to it, so a
+-- bar flush with the screen edge still gets the full curve. Allocates nothing.
+function OrbMath.ClampToScreen(x, y, w, h, margin, keepX, keepY)
+    if not (w and h) then
+        return x, y
+    end
+    local lowX, highX, lowY, highY = margin, w - margin, margin, h - margin
+    if keepX then
+        lowX, highX = min(lowX, keepX), max(highX, keepX)
+    end
+    if keepY then
+        lowY, highY = min(lowY, keepY), max(highY, keepY)
+    end
+    if lowX > highX then -- a screen narrower than twice the margin: the middle
+        lowX, highX = w / 2, w / 2
+    end
+    if lowY > highY then
+        lowY, highY = h / 2, h / 2
+    end
+    return clamp(x, lowX, highX), clamp(y, lowY, highY)
 end
 
 -- Screen-space point (frame effective scale) -> UIParent space.

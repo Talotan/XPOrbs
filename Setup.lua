@@ -343,7 +343,7 @@ local function buildWindow()
         pcall(self.StartMoving, self)
     end)
     frame:SetScript("OnDragStop", function(self)
-        pcall(self.StopMovingAndSizing, self)
+        pcall(self.StopMovingOrSizing, self)
     end)
     addBackground(frame)
 
