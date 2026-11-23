@@ -720,7 +720,7 @@ def test_helix_pop_ring_is_widened_horizontally(env):
         burst(g, n=20, x=900, y=500, ex=900, ey=500, est="default", kind="kill", style="streampop", path="helix")
         for o in live_recs_of(g):
             ring = math.hypot((o.ringX - o.px) / widen, o.ringY - o.py)
-            assert 18 * 0.5 - 1e-6 <= ring <= 30 * 0.5 + 1e-6
+            assert 25 * 0.5 - 1e-6 <= ring <= 46 * 0.5 + 1e-6
         g.tick(0.05, 80)
 
 

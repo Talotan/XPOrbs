@@ -160,38 +160,41 @@ function UNKNOWN.factor()
 end
 
 -- Popstream (Direct) (render style "streampop": db.style "popstream", popMode "direct"): screen space only, no plate
--- frame. Every orb is born at the start point
--- within `born` s, pops out to a ring of rmin..rmax px (RingAngle, ease-out cubic over `bloom` s, size bsize -> 1,
--- alpha fade-in over fadeIn s), then flies the normal stream path straight on from the pop: no pause. Launches are
--- ordered nearest-to-the-bar first, spread over launchSpan s from launch0 (70% of the bloom, so the first orb leaves
--- as the ring forms and the last has left ~0.25 s after the kill). An orb that launches mid-bloom starts where the
--- bloom has put it (bloomPoint); one that launches later (a rested orb, restedDelay later) has drifted on a little
--- (driftUp / driftOut px/s along its ring angle after the bloom). The first control point leaves along the ring angle
--- blended (ctrlBlend of it, the rest towards the bar) so nothing flies back through the middle. centreX/centreY (ring
--- centre: the start point, or the orb's own unknown-origin ellipse point), ringAngle, ringX/ringY (ring point), holds
--- (launch hold seconds), dist and idx (launch order) are per-burst scratch arrays (see plan).
-local SP_PROFILE = { born = 0.03, bloom = 0.16, bsize = 1.5, fadeIn = 0.05, rmin = 18, rmax = 30, launch0 = 0.112,
-    launchSpan = 0.10, restedDelay = 0.06, ranks = {}, jitterLow = 0.94, jitterSpan = 0.12, driftUp = 15, driftOut = 8,
-    ctrlBlend = 0.6, centreX = {}, centreY = {}, ringAngle = {}, ringX = {}, ringY = {}, holds = {}, dist = {},
-    idx = {} }
+-- frame. Every orb is born at the start point within `born` s and pops out to a ring point (RingAngle, size bsize -> 1,
+-- alpha fade-in over fadeIn s); the orb launches the moment ITS OWN bloom ends, flying the normal stream path straight
+-- on from the ring point, so the time between the kill and the launch is all pop, never a wait. Each orb has its own
+-- bloom duration (orb.bloom, bloomMin..bloomMin + bloomSpan s), shortest for the orb whose ring point is nearest to the
+-- bar, so the launches are staggered nearest-first; a rested orb's bloom lasts restedDelay longer (it trails slightly,
+-- still moving outward). The bloom eases out only partly (easeOut: 0 = linear, 1 = cubic ease-out) so it still has
+-- speed when the flight takes over; the first control point leaves along the ring angle blended (ctrlBlend of it, the
+-- rest towards the bar), so the outward bloom motion carries on into the flight.
+-- Size derived from the Popstream (Nameplate) pop (POP_R_MIN/MAX 30/55, POP_DRIFT 12, POP_SIZE 1.2, POP_EXIT_FROM
+-- 0.45): its pop frame is a child of UIParent anchored to the plate, so its offsets are already UIParent px (a plate's
+-- own scale only moves the anchor). The pop is on screen at radius * eased * gather, which peaks at about 0.84 of the
+-- final radius (p = 0.5: eased 0.875, gather 0.955) before the orbs launch. So rmin/rmax = 0.84 * 30/55 = 25 / 46 px.
+-- The upward drift (0..12 px, mean 6 * 0.84 = 5 px) is left out: the start point is the mob's estimated position, not
+-- the plate. bsize makes the mean size over the bloom equal POP_SIZE: mean(1 - eased) is 0.375 for easeOut = 0.5, so
+-- bsize = 1 + 0.2 / 0.375 = 1.55. widthCap bounds the horizontal ring radius when it is widened.
+-- centreX/centreY (ring centre: the start point), ringAngle, ringX/ringY (ring point), blooms (per-orb bloom seconds),
+-- dist and idx (launch order) are per-burst scratch arrays (see plan).
+local SP_PROFILE = { born = 0.03, bloomMin = 0.20, bloomSpan = 0.06, bsize = 1.55, fadeIn = 0.05, rmin = 25, rmax = 46,
+    easeOut = 0.5, restedDelay = 0.06, widthCap = 64, ranks = {}, jitterLow = 0.94, jitterSpan = 0.12, ctrlBlend = 0.6,
+    centreX = {}, centreY = {}, ringAngle = {}, ringX = {}, ringY = {}, blooms = {}, dist = {}, idx = {} }
 XF_PROFILE.sp = SP_PROFILE -- reached through XF_PROFILE from Burst, which cannot take another upvalue
 
--- Where the pop has put orb `age` seconds after its birth (screen space; allocates nothing): out from the ring centre
--- to the ring point (ease-out cubic over `bloom` s), then drifting. Returns x, y and the bloom's eased progress (0..1).
--- Shared by the hold drawing and by Burst (the flight starts here), so the hand-over has no seam.
+-- Where the pop has put the orb `age` seconds after its birth (screen space; allocates nothing): out from the ring
+-- centre to the ring point over orb.bloom s, on a partial ease-out (a blend of linear and cubic, so it ends with some
+-- speed). Returns x, y and the bloom's eased progress (0..1). Shared by the bloom drawing and by Burst (the flight
+-- starts at the bloom's end), so the hand-over has no seam.
 function SP_PROFILE.bloomPoint(orb, age)
     local profile = SP_PROFILE
-    local bloomProgress = age / profile.bloom
-    local driftTime = age - profile.bloom
-    if bloomProgress > 1 then
-        bloomProgress = 1
+    local progress = age / orb.bloom
+    if progress > 1 then
+        progress = 1
     end
-    if driftTime < 0 then
-        driftTime = 0
-    end
-    local eased = 1 - (1 - bloomProgress) * (1 - bloomProgress) * (1 - bloomProgress)
-    return orb.px + (orb.ringX - orb.px) * eased + orb.driftVx * driftTime,
-        orb.py + (orb.ringY - orb.py) * eased + orb.driftVy * driftTime, eased
+    local cubic = 1 - (1 - progress) * (1 - progress) * (1 - progress)
+    local eased = progress + (cubic - progress) * profile.easeOut
+    return orb.px + (orb.ringX - orb.px) * eased, orb.py + (orb.ringY - orb.py) * eased, eased
 end
 
 -- table.sort comparator over SP_PROFILE.idx: nearest ring point first (dist), ties by index. File-level so a burst
@@ -207,8 +210,9 @@ end
 -- Per-burst plan of n orbs around (x, y): the ring centre (always (x, y): the origin stays put), ring points (radius x
 -- spreadFactor, the zoom-scaled spread, times ringScale: a helix packs its ring tighter; the x radius also x
 -- UNKNOWN.popWiden when the origin is unknown (unknownLevel > 0), or x UNKNOWN.helixRingWiden for a helix at a detected
--- one) and launch holds ordered by distance from the ring point to (dx, dy); ranks[i] is orb i's place in that launch
--- order. isHelix: the burst's path is the helix.
+-- one, never wider than widthCap) and bloom durations ordered by distance from the ring point to (dx, dy): the
+-- nearest gets bloomMin, the farthest bloomMin + bloomSpan (the launch is the end of the bloom); ranks[i] is orb i's
+-- place in that launch order. isHelix: the burst's path is the helix.
 function SP_PROFILE.plan(n, x, y, dx, dy, unknownLevel, spreadFactor, ringScale, isHelix)
     local profile = SP_PROFILE
     local dist, idx = profile.dist, profile.idx
@@ -225,7 +229,8 @@ function SP_PROFILE.plan(n, x, y, dx, dy, unknownLevel, spreadFactor, ringScale,
     for i = 1, n do
         local ringAngle = OrbMath.RingAngle(i, n, random)
         local ringRadius = (profile.rmin + random() * (profile.rmax - profile.rmin)) * spreadFactor * ringScale
-        local ringX, ringY = centreX + cos(ringAngle) * ringRadius * widen, centreY + sin(ringAngle) * ringRadius
+        local ringWidth = min(ringRadius * widen, max(ringRadius, profile.widthCap * spreadFactor)) -- x radius, capped
+        local ringX, ringY = centreX + cos(ringAngle) * ringWidth, centreY + sin(ringAngle) * ringRadius
         profile.centreX[i], profile.centreY[i], profile.ringAngle[i] = centreX, centreY, ringAngle
         profile.ringX[i], profile.ringY[i] = ringX, ringY
         dist[i], idx[i] = (dx - ringX) * (dx - ringX) + (dy - ringY) * (dy - ringY), i
@@ -233,7 +238,7 @@ function SP_PROFILE.plan(n, x, y, dx, dy, unknownLevel, spreadFactor, ringScale,
     table.sort(idx, byRingDist)
     local span = max(n - 1, 1)
     for rank = 0, n - 1 do
-        profile.holds[idx[rank + 1]] = profile.launch0 + profile.launchSpan * rank / span
+        profile.blooms[idx[rank + 1]] = profile.bloomMin + profile.bloomSpan * rank / span
         profile.ranks[idx[rank + 1]] = rank + 1
     end
 end
@@ -566,7 +571,7 @@ local function drawHold(orb, age)
         orb.size * (1 + (profile.bsize - 1) * (1 - eased)), alpha * group.fadeMultiplier)
 end
 
--- Stream pop hold: `age` seconds after the orb's birth, before its launch. Screen space: SP_PROFILE.bloomPoint (size
+-- Stream pop bloom: `age` seconds after the orb's birth, before its launch. Screen space: SP_PROFILE.bloomPoint (size
 -- boost easing off, alpha fade-in). Allocates nothing.
 local function drawSpHold(orb, age)
     local profile = SP_PROFILE
@@ -951,10 +956,39 @@ local function playChime(burstKey)
     end
 end
 
--- Chime sample (the options panel's play button): the chime of a burst of SAMPLE_OFFSETS orbs arriving, spaced like a
--- real burst (seconds after the press), through playChime so the note progression and the per-note gap match real
--- arrivals. One short-lived OnUpdate that removes itself after the last note; a new press restarts it.
-local SAMPLE_OFFSETS = { 0, 0.12, 0.27, 0.39, 0.56, 0.70 }
+-- Chime sample (the options panel's play button): the chime of a burst of SAMPLE_COUNT orbs arriving, through
+-- playChime so the note progression and the per-note gap match real arrivals. A real burst's orbs land at slightly
+-- different times, so each press draws fresh arrival times (seconds after the press) into one reused scratch table:
+-- the first note at 0, the rest spread at random inside SAMPLE_SPAN, sorted, and never closer than SAMPLE_MIN_GAP
+-- (a hair over the chime's own 70 ms rate limit, logic/Chime.lua, so every note is heard). The room beyond the
+-- minimum gaps is SAMPLE_SPAN - (SAMPLE_COUNT - 1) * SAMPLE_MIN_GAP; sorted random draws share it out unevenly.
+-- One short-lived OnUpdate that removes itself after the last note; a new press restarts it.
+local SAMPLE_COUNT = 6
+local SAMPLE_SPAN = 0.42
+local SAMPLE_MIN_GAP = 0.072
+local SAMPLE_OFFSETS = {}
+for index = 1, SAMPLE_COUNT do
+    SAMPLE_OFFSETS[index] = 0
+end
+Orbs.sampleOffsets = SAMPLE_OFFSETS -- exposed for tests
+
+-- Fills SAMPLE_OFFSETS in place: insertion-sorted random shares of the spare time, plus the minimum gaps.
+local function drawSampleOffsets()
+    local spare = SAMPLE_SPAN - (SAMPLE_COUNT - 1) * SAMPLE_MIN_GAP
+    SAMPLE_OFFSETS[1] = 0
+    for index = 2, SAMPLE_COUNT do
+        local share = random() * spare
+        local slot = index
+        while slot > 2 and SAMPLE_OFFSETS[slot - 1] > share do
+            SAMPLE_OFFSETS[slot] = SAMPLE_OFFSETS[slot - 1]
+            slot = slot - 1
+        end
+        SAMPLE_OFFSETS[slot] = share
+    end
+    for index = 2, SAMPLE_COUNT do
+        SAMPLE_OFFSETS[index] = SAMPLE_OFFSETS[index] + (index - 1) * SAMPLE_MIN_GAP
+    end
+end
 local SAMPLE_KEY = "chime-sample" -- its own burst key, so it never eats a real burst's six-note allowance
 local sampleFrame
 local sampleNext, sampleElapsed = 1, 0
@@ -990,6 +1024,7 @@ function Orbs:PlayChimeSample()
         Orbs.sampleFrame = sampleFrame
     end
     chime:Done(SAMPLE_KEY)
+    drawSampleOffsets()
     sampleNext, sampleElapsed = 1, 0
     sampleFrame:SetScript("OnUpdate", sampleTick)
     return true
@@ -1341,7 +1376,6 @@ function Orbs:Burst(params)
             building, buildingLive = orb, false
             local controlScale, staggerScale, pathJitterLow, pathJitterSpan = OrbMath.PathShape(burstPath)
             orb.group, orb.hold, orb.easeWeight, orb.profile = nil, 0, nil, nil
-            orb.driftVx, orb.driftVy = 0, 0
             if crossfadeGroup then
                 local slotBase = crossfadeCount * 3 -- first of this orb's 3 texture slots on the group
                 if pcall(crossfadeTextures, crossfadeGroup, slotBase, red, green, blue) then
@@ -1352,14 +1386,12 @@ function Orbs:Burst(params)
                 end
             end
             if isStreamPop then
-                -- stream pop: the flight starts where the drift after the pop ends
-                local ringAngle = profile.ringAngle[i]
-                orb.hold = profile.holds[i] + (rested and profile.restedDelay or 0)
+                -- stream pop: the orb launches when its own bloom ends, from the ring point
+                orb.bloom = profile.blooms[i] + (rested and profile.restedDelay or 0)
+                orb.hold = orb.bloom
                 orb.px, orb.py = profile.centreX[i], profile.centreY[i]
                 orb.ringX, orb.ringY = profile.ringX[i], profile.ringY[i]
-                orb.driftVx = cos(ringAngle) * profile.driftOut
-                orb.driftVy = profile.driftUp + sin(ringAngle) * profile.driftOut
-                orb.x0, orb.y0 = profile.bloomPoint(orb, orb.hold) -- wherever the bloom (and drift) has put it by then
+                orb.x0, orb.y0 = profile.bloomPoint(orb, orb.hold) -- the ring point itself
             elseif orb.group then
                 -- crossfade: A blooms out to its ring point around P-hat and rests there; B starts near the bar, and
                 -- A has left before B's flight begins
@@ -1603,9 +1635,18 @@ local function fireTest(pct, rested, force, forceMode, path)
     end
     local ex, ey, est, estW = ns.Mouseover:Estimate(guid)
     -- the options window's "Test target" stand-in (Preview.lua): a located mob with a nameplate, whatever is targeted
+    -- Burst hangs the pop off the plate it is given at a style-dependent offset (the zoom anchor's body offset below
+    -- BOTTOM, else POP_Y from the CENTER for the Popstream pop, else the BOTTOM itself), so the stand-in is told that
+    -- offset and places its invisible anchor frame to cancel it: the pop lands on the model's chest whatever the
+    -- zoom-anchor setting (Preview.lua).
     local standInPlate
     if ns.Preview then
-        local okStandIn, plateFrame, bodyX, bodyY = pcall(ns.Preview.TestTarget, ns.Preview)
+        local popOffsetY = zoomAnchorY(config)
+        if not popOffsetY then
+            local renderStyle = ns.RenderStyle(force or config.style, forceMode or config.popMode)
+            popOffsetY = renderStyle == "popstream" and POP_Y + (ns.Preview.ANCHOR_SIZE or 0) / 2 or 0
+        end
+        local okStandIn, plateFrame, bodyX, bodyY = pcall(ns.Preview.TestTarget, ns.Preview, popOffsetY)
         if okStandIn and plateFrame then
             standInPlate = plateFrame
             ex, ey, est, estW = bodyX, bodyY, "mouseover", 1

@@ -355,10 +355,9 @@ def test_labels_are_in_the_label_column_controls_in_the_control_column(m):
 
 def test_the_title_is_fixed_and_the_footer_buttons_are_on_the_panel(m):
     b = buttons(m)
-    assert set(b) >= {"Test burst", "Reset all to default", "Pick XP bar frame"}
-    assert raw(m)(b["Test burst"].createdParent, m.opt.panel)
+    assert set(b) >= {"Reset all to default", "Pick XP bar frame"}
+    assert "Test burst" not in b  # it moved under the Test target window (Preview.lua) until the panel is shown
     assert raw(m)(b["Reset all to default"].createdParent, m.opt.panel)
-    assert (b["Test burst"].width, b["Test burst"].height) == (110, 22)
     assert (b["Reset all to default"].width, b["Reset all to default"].height) == (
         160,
         22,
@@ -809,12 +808,14 @@ def test_reset_all_without_the_popup_api_prints_a_hint_and_changes_nothing(env):
 
 def test_panel_test_burst_includes_rested_orbs_when_rested_tint_is_on(m):
     assert m.db.restedTint is True
+    show(m)
     m.stub.click(buttons(m)["Test burst"])
     assert purple_of_last_test(m) > 0
 
 
 def test_panel_test_burst_has_no_rested_orbs_when_rested_tint_is_off(m):
     m.db.restedTint = False
+    show(m)
     m.stub.click(buttons(m)["Test burst"])
     assert purple_of_last_test(m) == 0
 

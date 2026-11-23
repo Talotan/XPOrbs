@@ -1,7 +1,7 @@
 """Popstream (Direct), render style "streampop" (db.style "popstream" + popMode "direct" since schema 6; "streampop" stays
-an alias): screen space only (never a plate frame). Every orb is born at the start point, pops out to a small ring, then
-launches (nearest to the bar first) into the normal stream path from its ring point. The other styles must keep behaving
-as before."""
+an alias): screen space only (never a plate frame). Every orb is born at the start point, pops out to a ring, then
+launches the moment its own bloom ends (nearest to the bar first) into the normal stream path from its ring point.
+The other styles must keep behaving as before."""
 
 import math
 
@@ -11,8 +11,9 @@ from test_migration import load
 from test_p2_unknown import LCG, ORIGIN, RX, RY, fire, live_recs, settle
 from test_v09 import chat_lines, make, pop_frames, restricted_plate, stream_textures
 
-BORN, BLOOM, LAUNCH0, LAUNCH_SPAN, RESTED_PAUSE = 0.03, 0.16, 0.112, 0.10, 0.06
-MAX_HOLD = 0.26  # the last orb has left about 0.25 s after the kill (a rested one trails by RESTED_PAUSE more)
+BORN, BLOOM_MIN, BLOOM_SPAN, RESTED_PAUSE, EASE_OUT, BSIZE = 0.03, 0.20, 0.06, 0.06, 0.5, 1.55
+RING_MIN, RING_MAX, WIDTH_CAP = 25, 46, 64
+MAX_HOLD = 0.30  # every non-rested orb has left within 0.30 s of the kill, birth delay included
 
 
 def dest_of(g):
@@ -114,7 +115,7 @@ def test_births_within_30_ms_at_the_start_point_and_ring_radius(env):
         (o.px, o.py) == pytest.approx(ORIGIN) for o in recs
     )  # one centre without the unknown spread
     rad = [math.hypot(o.ringX - o.px, o.ringY - o.py) for o in recs]
-    assert min(rad) >= 18 - 1e-6 and max(rad) <= 30 + 1e-6 and max(rad) - min(rad) > 6
+    assert min(rad) >= RING_MIN - 1e-6 and max(rad) <= RING_MAX + 1e-6 and max(rad) - min(rad) > 10
     g.stub.tick(
         0.001
     )  # only the earliest-born orbs are alive, and they have not left the start point yet
@@ -125,30 +126,29 @@ def test_births_within_30_ms_at_the_start_point_and_ring_radius(env):
     )
     g.stub.tick(BORN)  # everyone has been born
     assert len(orb_textures(g)) == 40
-    g.stub.tick(0.08)  # t = 0.111: the pop is mostly formed and nobody has launched yet (the first is at 0.112)
+    g.stub.tick(0.1)  # t = 0.13: the pop is forming and nobody has launched yet (the first leaves at 0.20 + delay)
     shown = orb_textures(g)
     assert all(
-        8 <= math.hypot(pos(t)[0] - ORIGIN[0], pos(t)[1] - ORIGIN[1]) <= 36
+        8 <= math.hypot(pos(t)[0] - ORIGIN[0], pos(t)[1] - ORIGIN[1]) <= RING_MAX + 1
         for t in shown
     )
     settle(g)
 
 
-def test_the_pop_size_eases_from_1_5_to_1_and_fades_in(env):
+def test_the_pop_size_eases_from_the_boost_to_1_and_fades_in(env):
     g = make(env)
     fire(g, "streampop")
     g.stub.tick(0.5 * BORN + 0.025)  # t = 0.025: alpha 0.5 of the 0.05 s fade-in
     (orb,) = orb_textures(g)
     assert orb.alpha == pytest.approx(0.5, abs=0.02)
-    g.stub.tick(BLOOM)
+    (rec,) = live_recs(g)
+    g.stub.tick(rec.delay + rec.bloom - 0.001 - 0.025 - 0.5 * BORN)  # just before the bloom (and so the launch) ends
     (orb,) = orb_textures(g)
-    assert orb.alpha == pytest.approx(1) and orb.width == pytest.approx(
-        g.db.size * 2.0, rel=0.01
-    )
+    assert orb.alpha == pytest.approx(1) and orb.width == pytest.approx(g.db.size * 2.0, rel=0.02)
     settle(g)
 
 
-def test_launches_are_nearest_to_the_bar_first_over_0_1_s(env):
+def test_each_orb_launches_when_its_own_bloom_ends_nearest_to_the_bar_first(env):
     env.lua.execute(LCG)
     g = make(env, fixed_random=False)
     fire(g, "streampop", n=12)
@@ -156,12 +156,11 @@ def test_launches_are_nearest_to_the_bar_first_over_0_1_s(env):
     recs = live_recs(g)
     ordered = sorted(recs, key=lambda o: o.hold)
     dist = [math.hypot(dx - o.ringX, dy - o.ringY) for o in ordered]
-    assert dist == sorted(dist)  # nearest ring point launches first
+    assert dist == sorted(dist)  # nearest ring point has the shortest bloom, so it launches first
+    assert all(o.hold == pytest.approx(o.bloom) for o in recs)  # no hold after the bloom
     holds = [o.hold for o in ordered]
-    assert holds[0] == pytest.approx(LAUNCH0) and holds[-1] - holds[0] == pytest.approx(
-        LAUNCH_SPAN
-    )
-    assert LAUNCH0 < BLOOM  # the stream follows straight on: the first orb leaves as the ring forms
+    assert holds[0] == pytest.approx(BLOOM_MIN) and holds[-1] - holds[0] == pytest.approx(BLOOM_SPAN)
+    assert len(set(round(h, 6) for h in holds)) == 12  # staggered, not one volley
     settle(g)
 
 
@@ -170,36 +169,36 @@ def test_no_orb_lingers_before_its_launch(env):
     g = make(env, fixed_random=False)
     fire(g, "streampop", n=30, nPurple=10)
     recs = live_recs(g)
-    assert all(o.hold <= MAX_HOLD + (RESTED_PAUSE if o.rested else 0) + 1e-9 for o in recs)
-    assert all(o.hold <= MAX_HOLD for o in recs if not o.rested)
+    assert all(o.delay + o.hold <= MAX_HOLD + (RESTED_PAUSE if o.rested else 0) + 1e-9 for o in recs)
+    assert all(o.delay + o.hold <= MAX_HOLD for o in recs if not o.rested)
+    assert all(o.hold >= BLOOM_MIN - 1e-9 for o in recs)
     assert any(o.rested for o in recs)
     settle(g)
 
 
-def test_an_orb_launching_mid_bloom_starts_where_the_bloom_put_it(env):
+def test_the_launch_starts_exactly_at_the_bloom_end_point_and_still_moving(env):
     env.lua.execute(LCG)
     g = make(env, fixed_random=False)
-    fire(g, "streampop", n=12)
-    early = [o for o in live_recs(g) if o.hold < BLOOM]
-    assert early
-    for o in early:
-        eased = 1 - (1 - o.hold / BLOOM) ** 3
-        assert (o.x0, o.y0) == pytest.approx(
-            (o.px + (o.ringX - o.px) * eased, o.py + (o.ringY - o.py) * eased), abs=1e-6
-        )  # short of the ring, and no drift yet
-        assert math.hypot(o.x0 - o.px, o.y0 - o.py) < math.hypot(o.ringX - o.px, o.ringY - o.py) + 1e-6
+    fire(g, "streampop", n=12, nPurple=4)
+    for o in live_recs(g):
+        assert (o.x0, o.y0) == pytest.approx((o.ringX, o.ringY), abs=1e-6)  # the bloom ended on the ring point
+        # the partial ease-out leaves (1 - EASE_OUT) of the linear speed at the end: it is not parked
+        speed_end = (1 - EASE_OUT) * math.hypot(o.ringX - o.px, o.ringY - o.py) / o.bloom
+        assert speed_end > 30  # px/s
+        rx, ry = o.ringX - o.px, o.ringY - o.py
+        assert (o.control1X - o.x0) * rx + (o.control1Y - o.y0) * ry > 0  # the flight carries on outward
     settle(g)
 
 
-def test_rested_orbs_launch_later_by_the_rested_delay(env):
+def test_rested_orbs_bloom_longer_by_the_rested_delay(env):
     env.lua.execute(LCG)
     g = make(env, fixed_random=False)
     fire(g, "streampop", n=6, nPurple=3)
     recs = live_recs(g)
-    assert max(o.hold for o in recs if o.rested) > max(
-        o.hold for o in recs if not o.rested
-    )
-    assert all(o.hold >= LAUNCH0 for o in recs)
+    assert max(o.hold for o in recs if o.rested) > max(o.hold for o in recs if not o.rested)
+    for o in recs:
+        base = o.bloom - (RESTED_PAUSE if o.rested else 0)
+        assert BLOOM_MIN - 1e-9 <= base <= BLOOM_MIN + BLOOM_SPAN + 1e-9
     settle(g)
 
 
@@ -213,7 +212,7 @@ def test_no_jump_at_the_launch(env):
     before = pos(orb)
     assert before == pytest.approx(
         (o.x0, o.y0), abs=0.6
-    )  # the drift ended exactly where the flight starts
+    )  # the bloom ended exactly where the flight starts
     g.stub.tick(0.004)
     (orb,) = orb_textures(g)
     assert math.hypot(pos(orb)[0] - before[0], pos(orb)[1] - before[1]) < 3
@@ -241,8 +240,11 @@ def test_unknown_origin_wide_keeps_the_pop_fixed_and_widens_the_ring_horizontall
     # the pop stays at the estimate (no jumping about the ellipse); only the ring's x radius is stretched by 1.6
     assert all((o.px, o.py) == pytest.approx(ORIGIN) for o in recs)
     for o in recs:
-        assert 18 - 1e-6 <= math.hypot((o.ringX - o.px) / 1.6, o.ringY - o.py) <= 30 + 1e-6
-    assert max(abs(o.ringX - o.px) for o in recs) > 30  # wider than the plain ring could ever reach
+        width = o.ringX - o.px
+        radius = math.hypot(width / 1.6, o.ringY - o.py)
+        assert RING_MIN - 1e-6 <= radius <= RING_MAX + 1e-6 or abs(width) == pytest.approx(WIDTH_CAP)  # capped
+        assert abs(width) <= max(WIDTH_CAP, RING_MAX) + 1e-6
+    assert max(abs(o.ringX - o.px) for o in recs) > RING_MAX * 0.9  # wider than the plain ring
     assert g.orbs.lastUnknown == "wide"
     settle(g)
     fire(g, "streampop", "off", n=30, est="default")

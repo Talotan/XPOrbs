@@ -393,6 +393,7 @@ ns.commands = commands
 
 function commands.help()
     say("commands:")
+    say("/xporbs - open the settings panel (the same as /xporbs options)")
     say("/xporbs help - this list")
     say("/xporbs debug on|off - toggle debug logging")
     say("/xporbs debug maxlevel on|off - pretend to be at max level (this session only)")
@@ -510,7 +511,7 @@ SlashCmdList.XPORBS = function(input)
     local cmd, rest = string.match(input or "", "^%s*(%S*)%s*(.-)%s*$")
     cmd = string.lower(cmd or "")
     if cmd == "" then
-        cmd = "help"
+        cmd = "options" -- no argument: the same as the minimap button's left-click
     end
     local fn = commands[cmd]
     if fn then

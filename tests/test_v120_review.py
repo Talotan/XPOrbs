@@ -259,7 +259,7 @@ def test_streampop_plan_reuses_scratch_arrays_and_trims_stale_slots(env):
         len(idx) == 3
     )  # the 7 stale slots are gone, so table.sort only sees this burst
     assert sorted(idx[i] for i in (1, 2, 3)) == [1, 2, 3]
-    holds = sorted(sp.holds[i] for i in (1, 2, 3))
+    holds = sorted(sp.blooms[i] for i in (1, 2, 3))
     assert holds == [
-        pytest.approx(sp.launch0 + sp.launchSpan * r / 2) for r in range(3)
+        pytest.approx(sp.bloomMin + sp.bloomSpan * r / 2) for r in range(3)
     ]

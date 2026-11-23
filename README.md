@@ -56,6 +56,7 @@ back with `/xporbs minimap on` or the "Show minimap button" option).
 
 | Command | What it does |
 |---|---|
+| `/xporbs` | Open the options panel (the same as the minimap button's left-click). |
 | `/xporbs help` | List the commands. |
 | `/xporbs options` | Open the options panel. |
 | `/xporbs status` | Print the version, the settings that matter, and the state of each part of the addon. |

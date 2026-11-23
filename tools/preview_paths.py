@@ -50,7 +50,9 @@ START_RADIUS = 6
 UIPARENT = (1707, 960)  # a 2560x1440 screen at UI scale 2/3: the units Burst works in
 UNKNOWN_RX, UNKNOWN_RY = 0.064, 0.04  # Orbs.lua UNKNOWN: the unknown-origin ellipse, fractions of the screen
 HELIX_LINE, HELIX_LINE_UNKNOWN, POP_WIDEN, HELIX_RING_WIDEN = 8, 18, 1.6, 1.4
-SP_BLOOM, SP_LAUNCH0, SP_LAUNCH_SPAN = 0.16, 0.112, 0.10  # Orbs.lua SP_PROFILE: bloom, first launch (70% of it), span
+# Orbs.lua SP_PROFILE: per-orb bloom seconds (nearest to the bar shortest; the launch is its end), ring radii (0.84 x
+# the Nameplate pop's 30..55), partial ease-out weight, the widened ring's x-radius cap
+SP_BLOOM_MIN, SP_BLOOM_SPAN, SP_RING_MIN, SP_RING_MAX, SP_EASE_OUT, SP_WIDTH_CAP = 0.20, 0.06, 25, 46, 0.5, 64
 MARGIN = 110  # px around a flight's bounding box (the Chaos amplitude reaches about 90)
 FPS = 30
 
@@ -414,8 +416,8 @@ def screen_panel(om, kind, start, end, label, seed, scale, origin="point", count
 
 
 def streampop_panel(om, kind, start, end, label, seed, scale, origin):
-    """Popstream (Direct): a fixed pop at `start`, a ring (stretched horizontally when unknown; for a helix halved, and
-    stretched 1.4x when detected), the drift, then the stream. Mirrors SP_PROFILE.plan and the Burst blend."""
+    """Popstream (Direct): a fixed pop at `start`, a ring of 25..46 px (stretched horizontally, capped, when unknown; for a
+    helix halved, and stretched 1.4x when detected) that each orb leaves at the end of its own bloom, then the stream. Mirrors SP_PROFILE.plan and the Burst blend."""
     width, height = UIPARENT
     panel = Panel((round(width * scale), round(height * scale)), (0, 0), scale)
     panel.marker(start, (120, 220, 140))
@@ -430,21 +432,18 @@ def streampop_panel(om, kind, start, end, label, seed, scale, origin):
     rings = []
     for index in range(1, count + 1):
         ring_angle = om.RingAngle(index, count, rng.random)
-        radius = (18 + rng.random() * 12) * ring_scale
-        ring = (start[0] + math.cos(ring_angle) * radius * widen, start[1] + math.sin(ring_angle) * radius)
+        radius = (SP_RING_MIN + rng.random() * (SP_RING_MAX - SP_RING_MIN)) * ring_scale
+        ring_width = min(radius * widen, max(radius, SP_WIDTH_CAP))
+        ring = (start[0] + math.cos(ring_angle) * ring_width, start[1] + math.sin(ring_angle) * radius)
         rings.append((ring_angle, ring))
-    # launch holds: nearest ring point to the bar first, from 0.7 x the bloom over a 0.10 s span (SP_PROFILE)
+    # bloom durations: nearest ring point to the bar blooms shortest; each orb launches the moment its bloom ends, at
+    # its ring point
     by_distance = sorted(range(count), key=lambda i: math.hypot(end[0] - rings[i][1][0], end[1] - rings[i][1][1]))
-    holds = {i: SP_LAUNCH0 + SP_LAUNCH_SPAN * rank / (count - 1) for rank, i in enumerate(by_distance)}
+    blooms = {i: SP_BLOOM_MIN + SP_BLOOM_SPAN * rank / (count - 1) for rank, i in enumerate(by_distance)}
     orbs = []
     for index in range(1, count + 1):
         ring_angle, ring = rings[index - 1]
-        # where the bloom (ease-out cubic over SP_BLOOM s) and then the drift have put the orb at its launch
-        hold = holds[index - 1]
-        eased = 1 - (1 - min(hold / SP_BLOOM, 1)) ** 3
-        drift = max(hold - SP_BLOOM, 0)
-        x0 = start[0] + (ring[0] - start[0]) * eased + math.cos(ring_angle) * 8 * drift
-        y0 = start[1] + (ring[1] - start[1]) * eased + (15 + math.sin(ring_angle) * 8) * drift
+        x0, y0 = ring
         vx, vy = end[0] - x0, end[1] - y0
         length = math.hypot(vx, vy)
         vx, vy = vx / length, vy / length

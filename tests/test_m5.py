@@ -286,6 +286,7 @@ def buttons(m5):
 
 
 def test_test_burst_button_fires_a_burst(m5):
+    show(m5)  # the button lives under the Test target window, built when the panel is shown
     m5.stub.click(buttons(m5)["Test burst"])
     assert m5.say()[-1].startswith("|cff59a6ffXPOrbs|r: test: 5%")
     assert m5.orbs.Info(m5.orbs)[0]

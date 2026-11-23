@@ -1187,14 +1187,6 @@ local function build()
     rule:SetSize(RULE_W, 1)
     Options.footerRule = rule
     rule:SetColorTexture(1, 1, 1, 0.15)
-    local test = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
-    test:SetSize(110, 22)
-    test:SetPoint("BOTTOMLEFT", panel, "BOTTOMLEFT", 16, 11)
-    test:SetText("Test burst")
-    test:SetScript("OnClick", function()
-        -- the same orbs a kill would make: rested ones too when Rested tint is on
-        pcall(ns.commands.test, settings().restedTint and "5 rested" or "5")
-    end)
     local resetAll = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
     resetAll:SetSize(160, 22)
     resetAll:SetPoint("BOTTOMLEFT", panel, "BOTTOMLEFT", HEADER_X + RULE_W - 160, 11)
@@ -1203,12 +1195,36 @@ local function build()
     Options.resetAll = resetAll
     registerPopup()
 
+    -- The Test burst button lives under the "Test target" window (Preview.lua). Only when that window can't be built
+    -- does the panel get its own footer button, made on first need, so testing still works.
+    local function ensureFooterTest(needed)
+        if needed and not Options.footerTest then
+            local test = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+            test:SetSize(110, 22)
+            test:SetPoint("BOTTOMLEFT", panel, "BOTTOMLEFT", 16, 11)
+            test:SetText("Test burst")
+            test:SetScript("OnClick", function()
+                -- the same orbs a kill would make: rested ones too when Rested tint is on
+                pcall(ns.commands.test, settings().restedTint and "5 rested" or "5")
+            end)
+            Options.footerTest = test
+        end
+        if Options.footerTest then
+            if needed then
+                Options.footerTest:Show()
+            else
+                Options.footerTest:Hide()
+            end
+        end
+    end
     panel:SetScript("OnShow", function()
         Options:Refresh()
         -- the "Test target" stand-in window follows this panel (Preview.lua); never let it break the panel
+        local okSync, windowUp = false, false
         if ns.Preview then
-            pcall(ns.Preview.Sync, ns.Preview, true)
+            okSync, windowUp = pcall(ns.Preview.Sync, ns.Preview, true)
         end
+        ensureFooterTest(not (okSync and windowUp))
     end)
     panel:SetScript("OnHide", function()
         if ns.Preview then
