@@ -80,14 +80,16 @@ local ORB_SHAPE_DESC = {
 }
 local PULSE_TIP = "Globe orbs gently swell and shrink."
 local MAX_TIP = "At max level, each kill sends a small burst of orbs to your portrait."
-local SOUND_TIP = "Coin: a soft coin clink. Glass: a glassy tink. Brush: a soft brushed swish. "
+local SOUND_TIP = "Glass A: a glassy tink. Glass B: a soft glassy clink. Coin: a bright metal ching. "
+    .. "Brush: a soft brushed whoosh. Ding: a retro chip-tune ding. "
     .. "One per arriving orb (up to six per burst). Off by default."
 local PLAY_X = 156 -- px right of CTRL_X: just past the 150 px voice dropdown
 local PLAY_ATLAS = "voicechat-icon-speaker"
 local PLAY_FALLBACK = "Interface\\Common\\VoiceChat-Speaker"
 local PLAY_TIP = "Play a sample: a handful of orbs arriving"
-local VOICES = { "glass", "coin", "brush" }
-local VOICE_NAME = { coin = "Coin", glass = "Glass", brush = "Brush" }
+local VOICES = { "glass", "glassb", "coin", "brush", "ding" }
+local VOICE_NAME = { glass = "Glass A", glassb = "Glass B", coin = "Coin", brush = "Brush", ding = "Ding" }
+local VOICES_PER_LINE = 3 -- radio fallback: this many per line, the rest on a second line
 local OFFSET_TIP = "Moves where orbs land and the glow appears (pixels)."
 local PICK_HINT = "For a replaced XP bar, or to target your portrait (Circular)."
 
@@ -678,8 +680,8 @@ local function radioClick(key, v)
 end
 
 -- The "Sound" row under the chime checkbox: Blizzard's modern dropdown (WowStyle1DropdownTemplate + SetupMenu radios),
--- or two radio buttons when this client has no such template. Picking a voice plays one sample note, even with the
--- chime off, so the player can audition both before turning the chime on. The row stays enabled.
+-- or one radio per voice (on two lines) when this client has no such template. Picking a voice plays one sample note,
+-- even with the chime off, so the player can audition them before turning the chime on. The row stays enabled.
 local function soundVoiceRow(y)
     local row = newRow(y, 28)
     Options.rows.soundVoice = row
@@ -691,7 +693,8 @@ local function soundVoiceRow(y)
         end
         Options:Refresh()
     end
-    local dropdown
+    local dropdown, lineTwo
+    local extraH, playRow, playX = 0, row, PLAY_X
     local okMenu = pcall(function()
         dropdown = CreateFrame("DropdownButton", nil, row, "WowStyle1DropdownTemplate")
         dropdown:SetPoint("LEFT", row, "LEFT", CTRL_X, 0)
@@ -720,8 +723,13 @@ local function soundVoiceRow(y)
         end
         Options.soundDropdown = nil
         local radioBtns = {}
+        extraH = 28
+        lineTwo = newRow(y + 28, 28)
+        playRow, playX = lineTwo, 200 -- the sample button sits after the second line's radios
         for i, v in ipairs(VOICES) do
-            local radio = newRadio(row, CTRL_X + (i - 1) * 100, VOICE_NAME[v])
+            local line = (i <= VOICES_PER_LINE) and row or lineTwo
+            local slot = (i <= VOICES_PER_LINE) and (i - 1) or (i - VOICES_PER_LINE - 1)
+            local radio = newRadio(line, CTRL_X + slot * 100, VOICE_NAME[v])
             radio:SetScript("OnClick", function()
                 pick(v)
             end)
@@ -736,9 +744,9 @@ local function soundVoiceRow(y)
     end
     -- Play button right of the voice control: a sample of about six orbs arriving, through the real chime path. Dimmed
     -- and disabled with the chime off (the voice and volume stay usable so they can still be auditioned).
-    local play = CreateFrame("Button", nil, row)
+    local play = CreateFrame("Button", nil, playRow)
     play:SetSize(22, 22)
-    play:SetPoint("LEFT", row, "LEFT", CTRL_X + PLAY_X, 0)
+    play:SetPoint("LEFT", playRow, "LEFT", CTRL_X + playX, 0)
     local playTex = play:CreateTexture(nil, "ARTWORK")
     playTex:SetAllPoints(play)
     local okPlayAtlas = false
@@ -770,6 +778,7 @@ local function soundVoiceRow(y)
     addReset(row, "soundVoice", { "soundVoice" }, function()
         return VOICE_NAME[ns.defaults.soundVoice] or tostring(ns.defaults.soundVoice)
     end)
+    return extraH
 end
 
 -- The sample played while dragging the Chime volume slider: one note at the new volume, at most one per
@@ -1214,8 +1223,7 @@ local function buildSound(y)
     y = header("Sound", y + 14)
     checkbox(y, "sound", "Chime when orbs arrive", { tip = SOUND_TIP })
     y = y + 28
-    soundVoiceRow(y)
-    y = y + 28
+    y = y + 28 + soundVoiceRow(y) -- the radio fallback needs a second line
     slider(y, "soundVolume", "Chime volume", "%d%%", "%", previewVolume)
     -- dimmed with the chime off but left enabled (no controls passed), so a volume can still be auditioned and set
     postRefresh[#postRefresh + 1] = function()

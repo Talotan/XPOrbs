@@ -14,10 +14,10 @@ from test_v09 import burst, make, restricted_plate
 from test_v110 import chime_game, junk_db, last_chat, opts, play, sounds
 
 LEVELS = list(range(100, 251, 25))
-VOICES = ("coin", "glass", "brush")
+VOICES = ("glass", "glassb", "coin", "brush", "ding")
 CHIME_DIR = ROOT / "media" / "chime"
 PATH = re.compile(
-    r"Interface\\AddOns\\XPOrbs\\media\\chime\\(\d+)\\(coin|glass|brush)([1-6])\.ogg"
+    r"Interface\\AddOns\\XPOrbs\\media\\chime\\(\d+)\\(glassb|glass|coin|brush|ding)([1-6])\.ogg"
 )
 
 
@@ -102,7 +102,7 @@ def test_the_zip_ships_the_whole_chime_tree(tmp_path):
             for note in range(1, 7):
                 assert f"XPOrbs/media/chime/{level}/{voice}{note}.ogg" in names
     assert not any(
-        re.fullmatch(r"XPOrbs/media/(coin|glass|brush)\d\.ogg", name) for name in names
+        re.fullmatch(r"XPOrbs/media/(glassb|glass|coin|brush|ding)\d\.ogg", name) for name in names
     )
 
 
@@ -115,7 +115,7 @@ def test_nothing_references_the_old_flat_files():
         "tools/package.py",
     ):
         text = (ROOT / rel).read_text(encoding="utf-8")
-        assert not re.search(r"media[\\/](coin|glass|brush)[1-6N]", text), rel
+        assert not re.search(r"media[\\/](glassb|glass|coin|brush|ding)[1-6N]", text), rel
 
 
 # ---------------------------------------------------------------- the setting

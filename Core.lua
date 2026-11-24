@@ -25,7 +25,8 @@ ns.defaults = {
     targetFrame = nil,
     showAtMax = false, -- at max level: a small burst of orbs flies to the portrait when an engaged hostile dies
     sound = false, -- chime as orbs arrive
-    soundVoice = "glass", -- which chime: "coin", "glass" or "brush" (media/chime/<volume>/<voice>1-6.ogg)
+    -- which chime: "glass", "glassb", "coin", "brush" or "ding" (media/chime/<volume>/<voice>1-6.ogg)
+    soundVoice = "glass",
     soundVolume = 100, -- chime volume in percent: pre-rendered files per level, see ns.ranges and tools/make_sounds.py
     debug = false,
     -- where orbs start when the mob's position is unknown: "wide" (a zoom-scaled oval) or "off" (one point, kept for
@@ -375,7 +376,8 @@ local function sanitize(db)
     if db.glowShape ~= "bar" and db.glowShape ~= "vertical" and db.glowShape ~= "round" then
         db.glowShape = defaults.glowShape
     end
-    if db.soundVoice ~= "coin" and db.soundVoice ~= "glass" and db.soundVoice ~= "brush" then
+    if db.soundVoice ~= "glass" and db.soundVoice ~= "glassb" and db.soundVoice ~= "coin"
+        and db.soundVoice ~= "brush" and db.soundVoice ~= "ding" then
         db.soundVoice = defaults.soundVoice
     end
     for _, key in ipairs(BOOLEANS) do
@@ -502,7 +504,7 @@ function commands.help()
     say("/xporbs help - this list")
     say("/xporbs debug on|off - toggle debug logging")
     say("/xporbs debug maxlevel on|off - pretend to be at max level (this session only)")
-    say("/xporbs sound on|off|coin|glass|brush - chime when orbs arrive (coin, glass or brush picks the sound)")
+    say("/xporbs sound on|off|glassa|glassb|coin|brush|ding - chime when orbs arrive (the name picks the sound)")
     say("/xporbs status - show addon state")
     say("/xporbs test [pct] [rested] [style] [smooth|chaos|helix] - fire a test burst on your target")
     say("/xporbs test stress [n] - fire n test bursts over about 2 seconds (default 20, max 100)")

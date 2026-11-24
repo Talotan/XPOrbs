@@ -78,7 +78,7 @@ back with `/xporbs minimap on` or the "Show minimap button" option).
 | `/xporbs zoomanchor on\|off` | Turn the zoom-aware anchor on or off (on by default): plate effects sit on the mob's body, using the camera zoom to work out how far below the nameplate that is. |
 | `/xporbs calib [off\|reset\|fit\|save]` | Open the anchor calibration panel: target a mob, nudge the marker onto its body, save a point, and repeat at a few zooms. `reset` restores the default curve. |
 | `/xporbs minimap on\|off` | Show or hide the minimap button. |
-| `/xporbs sound on\|off\|coin\|glass\|brush` | Turn the arrival chime on or off (off by default), or pick its sound: `coin`, `glass` or `brush` (any also turns it on). With no argument it shows the current state and volume. |
+| `/xporbs sound on\|off\|glassa\|glassb\|coin\|brush\|ding` | Turn the arrival chime on or off (off by default), or pick its sound: `glassa` (or `glass`), `glassb`, `coin`, `brush` or `ding` (any also turns it on). With no argument it shows the current state and volume. |
 | `/xporbs sound volume N` | Set the chime volume in percent, 25 to 250 in steps of 25 (default 100); plays a sample if the chime is on. |
 | `/xporbs debug on\|off` | Turn the debug log on or off. |
 | `/xporbs debug maxlevel on\|off` | Pretend to be at max level until you reload, to try the max-level orbs below the cap. Never saved. |
@@ -92,7 +92,7 @@ The panel has these sections, most-used first:
 - **Style:** the Flight style dropdown, the kill style and the zoom-scaled spread.
 - **Arrival:** the XP bar frame and its picker, the shape of the target frame, a landing offset, and the arrival glow
   with its intensity.
-- **Sound:** the arrival chime with its sound (Coin or Glass) and volume.
+- **Sound:** the arrival chime with its sound (Glass A, Glass B, Coin, Brush or Ding) and volume.
 - **Advanced:** the debug log.
 
 The panel also has a reset button. To try your settings, use the Test Kill button on the test target, below.
@@ -116,8 +116,8 @@ orbs go to that frame instead.
 
 With "Chime when orbs arrive" on, orbs make a quiet sound as they land: up to six per burst, at most one every 70 ms,
 each a slightly different pitch picked at random. Pick the sound in the options panel ("Voice", with a play button for a sample) or with
-`/xporbs sound glass`, `/xporbs sound coin` or `/xporbs sound brush`: **Glass** (the default) is a glassy tink, **Coin** is a soft coin clink,
-**Brush** is a soft brushed swish.
+`/xporbs sound glassa`, `glassb`, `coin`, `brush` or `ding`: **Glass A** (the default) is a glassy tink, **Glass B** is a soft glassy
+clink, **Coin** is a bright metal ching, **Brush** is a soft brushed whoosh, **Ding** is a retro chip-tune ding.
 Choosing one in the panel plays a sample.
 
 **Chime volume** is a slider under the Sound choice (100 to 250 %, default 100 %; also `/xporbs sound volume N`).
@@ -322,7 +322,7 @@ ShapePreview.lua     the orb preview box in the panel (debug log on only, for no
 Minimap.lua          minimap button (LibDBIcon) and the addon-compartment entry
 logic/               pure Lua: XPParse, OrbMath, KillMatcher, MobEstimate, Engaged, Chime (no WoW globals)
 Libs/                embedded libraries for the minimap button, unmodified (sources and licences in Libs/README.md)
-media/               orb, sparkle, flash and orb-shape textures, the icons, the three chime voices (coin, glass and brush, six notes each)
+media/               orb, sparkle, flash and orb-shape textures, the icons, the five chime voices (glass, glassb, coin, brush and ding, six notes each)
 tools/               make_textures.py, make_icon.py, make_sounds.py, package.py
 tests/               pytest suite and the WoW API stubs
 docs/images/          README images
