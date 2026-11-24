@@ -340,8 +340,8 @@ def test_the_rows_below_moved_down_by_the_slider_row_and_the_content_grew(env):
     m = opts(env)
     show(m)
     assert m.opt.rows["soundVolume"].points[1][5] == -270
-    assert m.opt.rows["debug"].points[1][5] == -1284
-    assert m.opt.CONTENT_H == m.opt.child.height == 1328
+    assert m.opt.rows["debug"].points[1][5] == -1318
+    assert m.opt.CONTENT_H == m.opt.child.height == 1362
 
 
 def test_dragging_plays_one_sample_at_the_new_volume_at_most_every_150_ms(env):
@@ -406,7 +406,7 @@ def test_brush_is_deterministic_rms_matched_to_glass_and_never_clips():
     ]  # same seed, same samples
     assert len({tuple(r) for r in runs}) == 6  # a different noise seed per note
     for samples in runs:
-        assert samples[-1] == 0 and len(samples) == int(mod.RATE * 0.22)
+        assert samples[-1] == 0 and len(samples) == int(mod.RATE * mod.VOICES["brush"]["LENGTH"])
         assert 20 * math.log10(
             10 ** (mod.stats(samples)[1] / 20) / glass_rms
         ) == pytest.approx(0, abs=0.1)
@@ -416,15 +416,28 @@ def test_brush_is_deterministic_rms_matched_to_glass_and_never_clips():
 def test_brush_is_a_swept_band_of_noise_not_a_tone():
     mod = load_script("make_sounds")
     samples = mod.synth(mod.notes("brush")[0], "brush")
-    attack = mod.RATE // 50  # 20 ms: soft start, no click
     assert max(abs(s) for s in samples[:20]) < 0.1 * max(abs(s) for s in samples)
-    assert max(abs(s) for s in samples[: attack + 400]) > 0
     # the noise is not periodic: the autocorrelation at any lag past the filter's memory stays small
     n = len(samples) // 2
     energy = sum(s * s for s in samples[:n])
     for lag in (200, 333, 701):
         corr = sum(samples[i] * samples[i + lag] for i in range(n))
         assert abs(corr) < 0.5 * energy
+
+
+def test_brush_onset_is_soft_not_a_hit():
+    mod = load_script("make_sounds")
+    for i, f in enumerate(mod.notes("brush")):
+        samples = mod.synth(f, "brush", 100, i)
+        win = mod.RATE // 200  # 5 ms RMS envelope
+        env = [
+            math.sqrt(sum(x * x for x in samples[k : k + win]) / win)
+            for k in range(0, len(samples) - win, win // 2)
+        ]
+        peak = max(env)
+        first_half = next(j for j, e in enumerate(env) if e >= 0.5 * peak)
+        assert first_half * (win // 2) / mod.RATE >= 0.020  # no strike: 50 % no earlier than 20 ms
+        assert env.index(peak) * (win // 2) / mod.RATE >= 0.035  # the swell peaks late
 
 
 def test_stale_level_folders_are_removed(tmp_path):

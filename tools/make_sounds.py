@@ -13,12 +13,13 @@ glass: a glassy, icy "tink" within about 150 cents of 3 kHz. Four inharmonic par
 higher ones fading much faster), the same short noise click, no second strike, and a copy of the fundamental
 detuned by 3.5 Hz for a faint shimmer. Fundamental decay time constant 0.09 s, 0.25 s long.
 
-brush: a soft brushed "shew" at one medium-low pitch, not a tink or a tone. White noise through a resonant 2nd-order
-band-pass (RBJ biquad, centre 700 Hz, Q 2.5) whose centre glides down from 1.25x to 0.85x of the pitch over the sound,
-plus a little (15 %) wider-band noise (Q 0.7) for air. A 20 ms raised-cosine attack, then an exponential decay (tau
-0.06 s), 0.22 s long. All six files share the pitch (at most +-15 cents of jitter); the variety is a different noise
-seed per file (SEED + note number). Each file is scaled so its RMS equals the mean RMS of the glass files, because noise
-sounds louder than a tink at the same peak.
+brush: a soft, low brushed "whoosh" at one pitch, not a tink or a tone. White noise through a resonant 2nd-order
+band-pass (RBJ biquad, centre 480 Hz, Q 3.5) whose centre glides down from 1.18x to 0.8x of the pitch over the sound,
+plus a little (15 %) wider-band noise (Q 0.7) for air, under the same envelope. A 50 ms raised-cosine swell (no
+strike), then a decay that eases in (quadratic for the first ~30 ms, then exponential, tau 0.11 s), 0.33 s long. All six
+files share the pitch (at most +-15 cents of jitter); the variety is a different noise seed per file (SEED + note
+number). Each file is scaled so its RMS over the whole file equals the mean RMS of the glass files (glass is a decaying
+sound measured the same way), because noise sounds louder than a tink at the same peak.
 
 All are mono, 44.1 kHz and end in true silence. Coin and glass peak at about -26 dBFS at 100 %; brush is matched to
 glass by RMS instead (see the printed stats for its peak). The noise uses fixed seeds, so regenerating gives identical
@@ -109,40 +110,36 @@ VOICES = {
     # the wide (Q 0.7) noise, ATTACK a raised-cosine attack. Loudness is matched to RMS_MATCH's mean RMS, not to a peak.
     "brush": {
         "KIND": "noise",
-        "CENTRE": 700.0,
+        "CENTRE": 480.0,
         "CENTS": [-14, -8, -3, 4, 9, 14],
-        "LENGTH": 0.22,
-        "TAU": 0.06,
-        "Q": 2.5,
-        "SWEEP": (1.25, 0.85),
+        "LENGTH": 0.33,
+        "TAU": 0.11,
+        "Q": 3.5,
+        "SWEEP": (1.18, 0.8),
         "AIR": 0.15,
-        "ATTACK": 0.020,
+        "ATTACK": 0.050,
+        "HOLD": 0.03,
+        "SOFT": True,
         "RMS_MATCH": "glass",
     },
 }
 
-# Brush variants for --candidates (A is the shipped voice); anything not listed comes from VOICES["brush"].
+# Brush variants for --candidates; anything not listed comes from VOICES["brush"] (B2 is the shipped voice).
 CANDIDATES = {
-    "A-soft-swish": {
-        "CENTRE": 700.0,
-        "Q": 2.5,
-        "SWEEP": (1.25, 0.85),
-        "TAU": 0.06,
-        "LENGTH": 0.22,
-    },
-    "B-low-whoosh": {
-        "CENTRE": 480.0,
-        "Q": 3.5,
-        "SWEEP": (1.3, 0.8),
-        "TAU": 0.08,
+    "B-original": {
         "LENGTH": 0.26,
+        "TAU": 0.08,
+        "SWEEP": (1.3, 0.8),
+        "ATTACK": 0.020,
+        "HOLD": 0.0,
+        "SOFT": False,
     },
-    "C-airy-shew": {
-        "CENTRE": 950.0,
-        "Q": 1.6,
-        "SWEEP": (1.35, 0.8),
-        "TAU": 0.05,
-        "LENGTH": 0.20,
+    "B2-softer": {},
+    "B3-softest": {
+        "LENGTH": 0.38,
+        "TAU": 0.13,
+        "ATTACK": 0.070,
+        "HOLD": 0.04,
     },
 }
 
@@ -208,7 +205,12 @@ def _noise_raw(freq: float, v: dict, seed: int) -> list[float]:
         centre = freq * start * (end / start) ** (i / (n - 1))
         x = _bandpass(rng.uniform(-1.0, 1.0), narrow, centre, v["Q"])
         x += v["AIR"] * _bandpass(rng.uniform(-1.0, 1.0), wide, freq, 0.7)
-        env = math.exp(-t / v["TAU"])
+        if v.get("SOFT"):
+            # the decay starts after the swell and eases in (quadratic, then exponential): no strike
+            s = max(0.0, t - v["ATTACK"])
+            env = math.exp(-(s * s / (s + v["HOLD"])) / v["TAU"]) if s else 1.0
+        else:
+            env = math.exp(-t / v["TAU"])
         if i < attack_n:
             env *= 0.5 * (1 - math.cos(math.pi * i / attack_n))
         raw.append(x * env)
@@ -327,9 +329,9 @@ def render_candidates(out: Path) -> None:
     ]
     base = VOICES["brush"]
     notes_ = {
-        "A-soft-swish": "soft swish (the shipped default)",
-        "B-low-whoosh": "low whoosh, longer and darker",
-        "C-airy-shew": "airy shew, higher and shorter",
+        "B-original": "the old B: 20 ms attack, decays from the start (too abrupt)",
+        "B2-softer": "shipped: 50 ms swell, decay eases in, longer",
+        "B3-softest": "softest and longest: 70 ms swell, tau 0.13 s",
     }
     for name, params in CANDIDATES.items():
         v = {**base, **params}
@@ -343,7 +345,8 @@ def render_candidates(out: Path) -> None:
             )
         lines.append(
             f"{name}: {notes_[name]}. Centre {v['CENTRE']:.0f} Hz, Q {v['Q']}, sweep {v['SWEEP'][0]}x -> {v['SWEEP'][1]}x, "
-            f"tau {v['TAU']} s, length {v['LENGTH']} s."
+            f"tau {v['TAU']} s, length {v['LENGTH']} s, attack {v['ATTACK'] * 1000:.0f} ms, "
+            f"hold {v.get('HOLD', 0) * 1000:.0f} ms."
         )
     samples = synth(notes("glass")[0], "glass", 100)
     write_wav(out / "glass-reference-note1.wav", samples)
