@@ -13,16 +13,17 @@ glass: a glassy, icy "tink" within about 150 cents of 3 kHz. Four inharmonic par
 higher ones fading much faster), the same short noise click, no second strike, and a copy of the fundamental
 detuned by 3.5 Hz for a faint shimmer. Fundamental decay time constant 0.09 s, 0.25 s long.
 
-brush: a soft, low brushed "whoosh" at one pitch, not a tink or a tone. White noise through a resonant 2nd-order
-band-pass (RBJ biquad, centre 480 Hz, Q 3.5) whose centre glides down from 1.18x to 0.8x of the pitch over the sound,
-plus a little (15 %) wider-band noise (Q 0.7) for air, under the same envelope. A 50 ms raised-cosine swell (no
-strike), then a decay that eases in (quadratic for the first ~30 ms, then exponential, tau 0.11 s), 0.33 s long. All six
-files share the pitch (at most +-15 cents of jitter); the variety is a different noise seed per file (SEED + note
-number). Each file is scaled so its RMS over the whole file equals the mean RMS of the glass files (glass is a decaying
-sound measured the same way), because noise sounds louder than a tink at the same peak.
+brush: a soft brushed "shew" at one medium-low pitch, not a tink or a tone (candidate A "soft swish"). White noise
+through a resonant 2nd-order band-pass (RBJ biquad, centre 700 Hz, Q 2.5) whose centre glides down from 1.25x to 0.85x
+of the pitch over the sound, plus a little (15 %) wider-band noise (Q 0.7) for air. A 20 ms raised-cosine attack, then an
+exponential decay (tau 0.06 s), 0.22 s long. (The softer B2 envelope, HOLD/SOFT in the voice dict, was too indistinct
+on a hit in game and is switched off.) All six files share the pitch (at most +-15 cents of jitter); the variety is a
+different noise seed per file (SEED + note number). Each file is scaled so its RMS over the whole file equals the mean
+RMS of the glass files, because noise sounds louder than a tink at the same peak, then multiplied by GAIN (2.0, +6 dB):
+a test level, because the owner found the RMS-matched brush quieter than coin/glass in game.
 
 All are mono, 44.1 kHz and end in true silence. Coin and glass peak at about -26 dBFS at 100 %; brush is matched to
-glass by RMS instead (see the printed stats for its peak). The noise uses fixed seeds, so regenerating gives identical
+glass by RMS (times GAIN) instead (see the printed stats for its peak). The noise uses fixed seeds, so regenerating gives identical
 files.
 
 Volume: PlaySoundFile has no volume argument on this client, so every sound is pre-rendered at each level in LEVELS
@@ -110,36 +111,41 @@ VOICES = {
     # the wide (Q 0.7) noise, ATTACK a raised-cosine attack. Loudness is matched to RMS_MATCH's mean RMS, not to a peak.
     "brush": {
         "KIND": "noise",
-        "CENTRE": 480.0,
+        "CENTRE": 700.0,
         "CENTS": [-14, -8, -3, 4, 9, 14],
-        "LENGTH": 0.33,
-        "TAU": 0.11,
-        "Q": 3.5,
-        "SWEEP": (1.18, 0.8),
+        "LENGTH": 0.22,
+        "TAU": 0.06,
+        "Q": 2.5,
+        "SWEEP": (1.25, 0.85),
         "AIR": 0.15,
-        "ATTACK": 0.050,
-        "HOLD": 0.03,
-        "SOFT": True,
+        "ATTACK": 0.020,
+        "HOLD": 0.0,  # B2 envelope data, only used when SOFT
+        "SOFT": False,  # False: plain exponential decay from the attack (candidate A)
         "RMS_MATCH": "glass",
+        # test level (x2, +6 dB) applied after the RMS match: owner found brush quieter than coin/glass in game
+        "GAIN": 2.0,
     },
 }
 
-# Brush variants for --candidates; anything not listed comes from VOICES["brush"] (B2 is the shipped voice).
+# Brush variants for --candidates; anything not listed comes from VOICES["brush"] (A is the shipped voice).
 CANDIDATES = {
+    "A-soft-swish": {},
     "B-original": {
+        "CENTRE": 480.0,
+        "Q": 3.5,
         "LENGTH": 0.26,
         "TAU": 0.08,
         "SWEEP": (1.3, 0.8),
-        "ATTACK": 0.020,
-        "HOLD": 0.0,
-        "SOFT": False,
     },
-    "B2-softer": {},
-    "B3-softest": {
-        "LENGTH": 0.38,
-        "TAU": 0.13,
-        "ATTACK": 0.070,
-        "HOLD": 0.04,
+    "B2-softer": {
+        "CENTRE": 480.0,
+        "Q": 3.5,
+        "LENGTH": 0.33,
+        "TAU": 0.11,
+        "SWEEP": (1.18, 0.8),
+        "ATTACK": 0.050,
+        "HOLD": 0.03,
+        "SOFT": True,
     },
 }
 
@@ -285,7 +291,12 @@ def synth(
             )
             index = found[0] if found else 0
         raw = _noise_raw(freq, v, SEED + index)
-        scale = reference_rms(v["RMS_MATCH"]) / _rms(raw) * (level / 100)
+        scale = (
+            reference_rms(v["RMS_MATCH"])
+            / _rms(raw)
+            * v.get("GAIN", 1.0)
+            * (level / 100)
+        )
     else:
         raw = _tone_raw(freq, v)
         scale = 10 ** (v["PEAK_DBFS"] / 20) / max(abs(x) for x in raw) * (level / 100)
@@ -329,9 +340,9 @@ def render_candidates(out: Path) -> None:
     ]
     base = VOICES["brush"]
     notes_ = {
-        "B-original": "the old B: 20 ms attack, decays from the start (too abrupt)",
-        "B2-softer": "shipped: 50 ms swell, decay eases in, longer",
-        "B3-softest": "softest and longest: 70 ms swell, tau 0.13 s",
+        "A-soft-swish": "shipped: 20 ms attack, plain exponential decay",
+        "B-original": "low whoosh, 20 ms attack, decays from the start",
+        "B2-softer": "softened low whoosh: 50 ms swell, decay eases in (too indistinct on a hit)",
     }
     for name, params in CANDIDATES.items():
         v = {**base, **params}

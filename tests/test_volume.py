@@ -392,7 +392,7 @@ def test_picking_a_voice_previews_at_the_current_volume(env):
 # ---------------------------------------------------------------- the brush voice
 
 
-def test_brush_is_deterministic_rms_matched_to_glass_and_never_clips():
+def test_brush_is_deterministic_rms_is_glass_plus_gain_and_never_clips():
     mod = load_script("make_sounds")
     glass = [mod.stats(mod.synth(f, "glass"))[1] for f in mod.notes("glass")]
     glass_rms = sum(10 ** (r / 20) for r in glass) / len(glass)
@@ -407,10 +407,13 @@ def test_brush_is_deterministic_rms_matched_to_glass_and_never_clips():
     assert len({tuple(r) for r in runs}) == 6  # a different noise seed per note
     for samples in runs:
         assert samples[-1] == 0 and len(samples) == int(mod.RATE * mod.VOICES["brush"]["LENGTH"])
+        # RMS-matched to glass, then GAIN (2.0 = +6.02 dB, a test level: the owner found brush quieter in game)
+        assert mod.VOICES["brush"]["GAIN"] == 2.0
         assert 20 * math.log10(
             10 ** (mod.stats(samples)[1] / 20) / glass_rms
-        ) == pytest.approx(0, abs=0.1)
-        assert mod.stats(mod.synth(freqs[0], "brush", 250))[0] < -6
+        ) == pytest.approx(6.02, abs=0.1)
+    for i, f in enumerate(freqs):
+        assert mod.stats(mod.synth(f, "brush", 250, i))[0] < -6
 
 
 def test_brush_is_a_swept_band_of_noise_not_a_tone():
@@ -425,19 +428,18 @@ def test_brush_is_a_swept_band_of_noise_not_a_tone():
         assert abs(corr) < 0.5 * energy
 
 
-def test_brush_onset_is_soft_not_a_hit():
+def test_brush_attack_is_20ms_raised_cosine_not_a_hit():
     mod = load_script("make_sounds")
+    assert mod.VOICES["brush"]["ATTACK"] == 0.020
+    assert not mod.VOICES["brush"]["SOFT"]
     for i, f in enumerate(mod.notes("brush")):
         samples = mod.synth(f, "brush", 100, i)
-        win = mod.RATE // 200  # 5 ms RMS envelope
-        env = [
-            math.sqrt(sum(x * x for x in samples[k : k + win]) / win)
-            for k in range(0, len(samples) - win, win // 2)
-        ]
-        peak = max(env)
-        first_half = next(j for j, e in enumerate(env) if e >= 0.5 * peak)
-        assert first_half * (win // 2) / mod.RATE >= 0.020  # no strike: 50 % no earlier than 20 ms
-        assert env.index(peak) * (win // 2) / mod.RATE >= 0.035  # the swell peaks late
+        peak = max(abs(x) for x in samples)
+        attack_n = int(mod.RATE * 0.020)
+        # the raised cosine starts from silence: the first 1 ms is far below the peak
+        assert max(abs(x) for x in samples[: mod.RATE // 1000]) < 0.1 * peak
+        # the loudest sample comes after the 20 ms ramp has mostly risen, not at sample 0
+        assert samples.index(max(samples, key=abs)) > attack_n // 4
 
 
 def test_stale_level_folders_are_removed(tmp_path):
