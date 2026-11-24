@@ -22,7 +22,7 @@ ns.defaults = {
     targetFrame = nil,
     showAtMax = false, -- at max level: a small burst of orbs flies to the portrait when an engaged hostile dies
     sound = false, -- chime as orbs arrive
-    soundVoice = "glass", -- which chime: "coin" or "glass" (media/chime/<volume>/coin1-6.ogg, glass1-6.ogg)
+    soundVoice = "glass", -- which chime: "coin", "glass" or "brush" (media/chime/<volume>/<voice>1-6.ogg)
     soundVolume = 100, -- chime volume in percent: pre-rendered files per level, see ns.ranges and tools/make_sounds.py
     debug = false,
     -- where orbs start when the mob's position is unknown: "wide" (a zoom-scaled oval) or "off" (one point, kept for
@@ -67,7 +67,7 @@ ns.ranges = {
     glowOffsetX = { -100, 100, 1 },
     glowOffsetY = { -100, 100, 1 },
     glowIntensity = { 25, 200, 5 },
-    soundVolume = { 25, 250, 25 }, -- one folder of chime files per step: media/chime/<volume>/
+    soundVolume = { 100, 250, 25 }, -- one folder of chime files per step: media/chime/<volume>/
 }
 
 -- Modules add lines to /xporbs status by appending functions that return a string (or nil).
@@ -275,7 +275,7 @@ local function sanitize(db)
     if db.glowShape ~= "bar" and db.glowShape ~= "vertical" and db.glowShape ~= "round" then
         db.glowShape = defaults.glowShape
     end
-    if db.soundVoice ~= "coin" and db.soundVoice ~= "glass" then
+    if db.soundVoice ~= "coin" and db.soundVoice ~= "glass" and db.soundVoice ~= "brush" then
         db.soundVoice = defaults.soundVoice
     end
     for _, key in ipairs(BOOLEANS) do
@@ -397,7 +397,7 @@ function commands.help()
     say("/xporbs help - this list")
     say("/xporbs debug on|off - toggle debug logging")
     say("/xporbs debug maxlevel on|off - pretend to be at max level (this session only)")
-    say("/xporbs sound on|off|coin|glass - chime when orbs arrive (coin or glass picks the sound)")
+    say("/xporbs sound on|off|coin|glass|brush - chime when orbs arrive (coin, glass or brush picks the sound)")
     say("/xporbs status - show addon state")
     say("/xporbs test [pct] [rested] [style] [smooth|chaos|helix] - fire a test burst on your target")
     say("/xporbs test stress [n] - fire n test bursts over about 2 seconds (default 20, max 100)")

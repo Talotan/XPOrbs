@@ -73,14 +73,14 @@ local FLIGHT_STYLE_DESC = {
     helix = "Orbs spiral around each other in pairs.",
 }
 local MAX_TIP = "At max level, each kill sends a small burst of orbs to your portrait."
-local SOUND_TIP = "Coin: a soft coin clink. Glass: a glassy tink. One per arriving orb (up to six per burst). "
-    .. "Off by default."
+local SOUND_TIP = "Coin: a soft coin clink. Glass: a glassy tink. Brush: a soft brushed swish. "
+    .. "One per arriving orb (up to six per burst). Off by default."
 local PLAY_X = 156 -- px right of CTRL_X: just past the 150 px voice dropdown
 local PLAY_ATLAS = "voicechat-icon-speaker"
 local PLAY_FALLBACK = "Interface\\Common\\VoiceChat-Speaker"
 local PLAY_TIP = "Play a sample: a handful of orbs arriving"
-local VOICES = { "glass", "coin" }
-local VOICE_NAME = { coin = "Coin", glass = "Glass" }
+local VOICES = { "glass", "coin", "brush" }
+local VOICE_NAME = { coin = "Coin", glass = "Glass", brush = "Brush" }
 local OFFSET_TIP = "Moves where orbs land and the glow appears (pixels)."
 local PICK_HINT = "For a replaced XP bar, or to target your portrait (Circular)."
 

@@ -76,7 +76,7 @@ back with `/xporbs minimap on` or the "Show minimap button" option).
 | `/xporbs zoomanchor on\|off` | Turn the zoom-aware anchor on or off (on by default): plate effects sit on the mob's body, using the camera zoom to work out how far below the nameplate that is. |
 | `/xporbs calib [off\|reset\|fit\|save]` | Open the anchor calibration panel: target a mob, nudge the marker onto its body, save a point, and repeat at a few zooms. `reset` restores the default curve. |
 | `/xporbs minimap on\|off` | Show or hide the minimap button. |
-| `/xporbs sound on\|off\|coin\|glass` | Turn the arrival chime on or off (off by default), or pick its sound: `coin` or `glass` (either also turns it on). With no argument it shows the current state and volume. |
+| `/xporbs sound on\|off\|coin\|glass\|brush` | Turn the arrival chime on or off (off by default), or pick its sound: `coin`, `glass` or `brush` (any also turns it on). With no argument it shows the current state and volume. |
 | `/xporbs sound volume N` | Set the chime volume in percent, 25 to 250 in steps of 25 (default 100); plays a sample if the chime is on. |
 | `/xporbs debug on\|off` | Turn the debug log on or off. |
 | `/xporbs debug maxlevel on\|off` | Pretend to be at max level until you reload, to try the max-level orbs below the cap. Never saved. |
@@ -114,10 +114,11 @@ orbs go to that frame instead.
 
 With "Chime when orbs arrive" on, orbs make a quiet sound as they land: up to six per burst, at most one every 70 ms,
 each a slightly different pitch picked at random. Pick the sound in the options panel ("Voice", with a play button for a sample) or with
-`/xporbs sound glass` or `/xporbs sound coin`: **Glass** (the default) is a glassy tink, **Coin** is a soft coin clink.
+`/xporbs sound glass`, `/xporbs sound coin` or `/xporbs sound brush`: **Glass** (the default) is a glassy tink, **Coin** is a soft coin clink,
+**Brush** is a soft brushed swish.
 Choosing one in the panel plays a sample.
 
-**Chime volume** is a slider under the Sound choice (25 to 250 %, default 100 %; also `/xporbs sound volume N`).
+**Chime volume** is a slider under the Sound choice (100 to 250 %, default 100 %; also `/xporbs sound volume N`).
 Moving it plays a sample note. The game has no per-sound volume, so the addon ships every chime pre-rendered at each
 level (`media/chime/<percent>/`) and plays the file for the level you picked.
 
@@ -301,7 +302,7 @@ Options.lua          settings panel
 Minimap.lua          minimap button (LibDBIcon) and the addon-compartment entry
 logic/               pure Lua: XPParse, OrbMath, KillMatcher, MobEstimate, Engaged, Chime (no WoW globals)
 Libs/                embedded libraries for the minimap button, unmodified (sources and licences in Libs/README.md)
-media/               orb, sparkle and flash textures, the icons, the two chime voices (coin and glass, six pitches each)
+media/               orb, sparkle and flash textures, the icons, the three chime voices (coin, glass and brush, six notes each)
 tools/               make_textures.py, make_icon.py, make_sounds.py, package.py
 tests/               pytest suite and the WoW API stubs
 docs/images/          README images

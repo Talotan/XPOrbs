@@ -30,7 +30,7 @@ local FLASH_SHAPE_TEX = { bar = FLASH_TEX, vertical = FLASH_TEX_VERTICAL, round 
 -- has no per-sound volume, so each volume level (ns.ranges.soundVolume, percent) is its own pre-rendered folder, made
 -- by tools/make_sounds.py.
 local CHIME_NOTES = 6
-local CHIME_PATHS = { coin = {}, glass = {} }
+local CHIME_PATHS = { coin = {}, glass = {}, brush = {} }
 do
     local range = ns.ranges.soundVolume
     local lowest, highest, step = range[1], range[2], range[3]
@@ -1817,12 +1817,12 @@ function Orbs:PreviewSound(voice)
     end
 end
 
--- /xporbs sound on|off|coin|glass|volume N: the arrival chime. Turning it on also clears a SOUND_ERR shutdown, so it
--- can be retried. coin and glass pick the sound (and turn the chime on). volume N sets the volume in percent (snapped
--- to the options slider's steps) and plays a sample note if the chime is on.
+-- /xporbs sound on|off|coin|glass|brush|volume N: the arrival chime. Turning it on also clears a SOUND_ERR shutdown, so
+-- it can be retried. coin, glass and brush pick the sound (and turn the chime on). volume N sets the volume in percent
+-- (snapped to the options slider's steps) and plays a sample note if the chime is on.
 function ns.commands.sound(arg)
     local word, rest = string.match(arg or "", "^%s*(%S*)%s*(.-)%s*$")
-    if word == "on" or word == "coin" or word == "glass" then
+    if word == "on" or word == "coin" or word == "glass" or word == "brush" then
         settings().sound = true
         if word ~= "on" then
             settings().soundVoice = word
@@ -1845,7 +1845,7 @@ function ns.commands.sound(arg)
             Orbs:PreviewSound(settings().soundVoice)
         end
     elseif word ~= "" then
-        ns.Print("sound: use on, off, coin, glass or volume N")
+        ns.Print("sound: use on, off, coin, glass, brush or volume N")
         return
     end
     local note = soundDead and " (switched off this session: the client wouldn't play the file)" or ""

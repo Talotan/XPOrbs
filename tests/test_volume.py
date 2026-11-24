@@ -2,6 +2,7 @@
 /xporbs sound volume command and the throttled sample."""
 
 import importlib.util
+import math
 import re
 import zipfile
 
@@ -12,11 +13,11 @@ from test_v013 import reset_shown
 from test_v09 import burst, make, restricted_plate
 from test_v110 import chime_game, junk_db, last_chat, opts, play, sounds
 
-LEVELS = list(range(25, 251, 25))
-VOICES = ("coin", "glass")
+LEVELS = list(range(100, 251, 25))
+VOICES = ("coin", "glass", "brush")
 CHIME_DIR = ROOT / "media" / "chime"
 PATH = re.compile(
-    r"Interface\\AddOns\\XPOrbs\\media\\chime\\(\d+)\\(coin|glass)([1-6])\.ogg"
+    r"Interface\\AddOns\\XPOrbs\\media\\chime\\(\d+)\\(coin|glass|brush)([1-6])\.ogg"
 )
 
 
@@ -51,7 +52,7 @@ def test_no_stray_level_folders_or_files():
         str(level) for level in LEVELS
     )
     for folder in CHIME_DIR.iterdir():
-        assert len(list(folder.iterdir())) == 12
+        assert len(list(folder.iterdir())) == 18
 
 
 def load_script(name):
@@ -74,7 +75,7 @@ def test_the_generator_scales_the_samples_and_100_is_unchanged():
         return max(abs(s) for s in samples)
 
     assert peak(mod.synth(freq, "glass", 250)) == pytest.approx(2.5 * peak(base), abs=2)
-    assert peak(mod.synth(freq, "glass", 25)) == pytest.approx(0.25 * peak(base), abs=2)
+    assert peak(mod.synth(freq, "glass", 150)) == pytest.approx(1.5 * peak(base), abs=2)
     assert (
         mod.stats(mod.synth(freq, "coin", 250))[0] < -17.5
     )  # about -18 dBFS: no clipping
@@ -89,7 +90,7 @@ def test_the_zip_ships_the_whole_chime_tree(tmp_path):
             for note in range(1, 7):
                 assert f"XPOrbs/media/chime/{level}/{voice}{note}.ogg" in names
     assert not any(
-        re.fullmatch(r"XPOrbs/media/(coin|glass)\d\.ogg", name) for name in names
+        re.fullmatch(r"XPOrbs/media/(coin|glass|brush)\d\.ogg", name) for name in names
     )
 
 
@@ -102,7 +103,7 @@ def test_nothing_references_the_old_flat_files():
         "tools/package.py",
     ):
         text = (ROOT / rel).read_text(encoding="utf-8")
-        assert not re.search(r"media[\\/](coin|glass)[1-6N]", text), rel
+        assert not re.search(r"media[\\/](coin|glass|brush)[1-6N]", text), rel
 
 
 # ---------------------------------------------------------------- the setting
@@ -112,7 +113,7 @@ def test_default_and_range(env):
     env.load_addon()
     assert env.ns.defaults.soundVolume == 100
     r = env.ns.ranges.soundVolume
-    assert (r[1], r[2], r[3]) == (25, 250, 25)
+    assert (r[1], r[2], r[3]) == (100, 250, 25)
 
 
 @pytest.mark.parametrize(
@@ -122,8 +123,12 @@ def test_default_and_range(env):
         ("loud", 100),
         (True, 100),
         (float("nan"), 100),
-        (0, 25),
-        (-40, 25),
+        (0, 100),
+        (-40, 100),
+        (25, 100),  # the old levels below 100 were dropped
+        (50, 100),
+        (75, 100),
+        (99, 100),
         (9999, 250),
         (125, 125),
         (130, 125),
@@ -153,13 +158,13 @@ def test_arrivals_play_the_file_for_the_saved_level_and_voice(env, level, voice)
 
 def test_changing_the_volume_mid_session_takes_effect_on_the_next_burst(env):
     g = chime_game(env)
-    g.db.soundVolume = 50
+    g.db.soundVolume = 125
     play(g)
     first = len(played(g))
     g.db.soundVolume = 225
     play(g)
     heard = volumes(g)
-    assert first > 0 and set(heard[:first]) == {50} and set(heard[first:]) == {225}
+    assert first > 0 and set(heard[:first]) == {125} and set(heard[first:]) == {225}
 
 
 def test_an_off_grid_saved_volume_plays_at_100_instead_of_throwing(env):
@@ -242,17 +247,19 @@ def test_volume_command_sets_clamps_snaps_prints_and_plays_a_sample(env):
     g.slash("sound volume 9999")
     assert g.db.soundVolume == 250
     g.slash("sound volume 1")
-    assert g.db.soundVolume == 25 and volumes(g)[-1] == 25
+    assert g.db.soundVolume == 100 and volumes(g)[-1] == 100
+    g.slash("sound volume 40")  # the removed levels clamp up to 100
+    assert g.db.soundVolume == 100
 
 
 def test_volume_command_rejects_junk_and_keeps_the_value(env):
     g = chime_game(env)
-    g.db.soundVolume = 75
+    g.db.soundVolume = 175
     n0 = len(g.stub.sounds)
     for junk in ("sound volume", "sound volume loud", "sound volume nan"):
         g.slash(junk)
         assert "volume needs a number" in last_chat(g)
-    assert g.db.soundVolume == 75 and len(g.stub.sounds) == n0
+    assert g.db.soundVolume == 175 and len(g.stub.sounds) == n0
 
 
 def test_volume_command_is_silent_with_the_chime_off(env):
@@ -285,11 +292,11 @@ def test_slider_uses_the_shared_range_and_sits_under_the_sound_row(env):
     m = opts(env)
     show(m)
     s = ctl(m, "soundVolume")
-    assert (s.minV, s.maxV, s.step) == (25, 250, 25)
+    assert (s.minV, s.maxV, s.step) == (100, 250, 25)
     assert str(m.opt.valueTexts["soundVolume"].text) == "100%"
     row, voice_row = m.opt.rows["soundVolume"], m.opt.rows["soundVoice"]
     assert row.points[1][5] == voice_row.points[1][5] - 28
-    assert "25, 250, 25" not in (ROOT / "Options.lua").read_text(encoding="utf-8")
+    assert "100, 250, 25" not in (ROOT / "Options.lua").read_text(encoding="utf-8")
 
 
 def test_slider_writes_the_db_and_shows_the_percent(env):
@@ -321,8 +328,8 @@ def test_the_row_dims_with_the_chime_off_but_stays_usable(env):
     row, s = m.opt.rows["soundVolume"], ctl(m, "soundVolume")
     assert m.db.sound is False
     assert row.alpha == pytest.approx(0.4) and s.IsEnabled(s)
-    m.stub.slide(s, 75)
-    assert m.db.soundVolume == 75  # still works while dimmed
+    m.stub.slide(s, 175)
+    assert m.db.soundVolume == 175  # still works while dimmed
     m.stub.click(ctl(m, "sound"))
     assert m.db.sound is True and row.alpha == 1 and s.IsEnabled(s)
     m.stub.click(ctl(m, "sound"))
@@ -380,3 +387,52 @@ def test_picking_a_voice_previews_at_the_current_volume(env):
     m.stub.pickMenu(m.opt.soundDropdown, "Coin")
     heard = played(m)
     assert len(heard) == 1 and heard[0][:2] == (200, "coin")
+
+
+# ---------------------------------------------------------------- the brush voice
+
+
+def test_brush_is_deterministic_rms_matched_to_glass_and_never_clips():
+    mod = load_script("make_sounds")
+    glass = [mod.stats(mod.synth(f, "glass"))[1] for f in mod.notes("glass")]
+    glass_rms = sum(10 ** (r / 20) for r in glass) / len(glass)
+    freqs = mod.notes("brush")
+    assert len(freqs) == 6 and all(
+        abs(1200 * math.log2(f / mod.VOICES["brush"]["CENTRE"])) <= 15 for f in freqs
+    )
+    runs = [mod.synth(f, "brush", 100) for f in freqs]
+    assert runs == [
+        mod.synth(f, "brush", 100) for f in freqs
+    ]  # same seed, same samples
+    assert len({tuple(r) for r in runs}) == 6  # a different noise seed per note
+    for samples in runs:
+        assert samples[-1] == 0 and len(samples) == int(mod.RATE * 0.22)
+        assert 20 * math.log10(
+            10 ** (mod.stats(samples)[1] / 20) / glass_rms
+        ) == pytest.approx(0, abs=0.1)
+        assert mod.stats(mod.synth(freqs[0], "brush", 250))[0] < -6
+
+
+def test_brush_is_a_swept_band_of_noise_not_a_tone():
+    mod = load_script("make_sounds")
+    samples = mod.synth(mod.notes("brush")[0], "brush")
+    attack = mod.RATE // 50  # 20 ms: soft start, no click
+    assert max(abs(s) for s in samples[:20]) < 0.1 * max(abs(s) for s in samples)
+    assert max(abs(s) for s in samples[: attack + 400]) > 0
+    # the noise is not periodic: the autocorrelation at any lag past the filter's memory stays small
+    n = len(samples) // 2
+    energy = sum(s * s for s in samples[:n])
+    for lag in (200, 333, 701):
+        corr = sum(samples[i] * samples[i + lag] for i in range(n))
+        assert abs(corr) < 0.5 * energy
+
+
+def test_stale_level_folders_are_removed(tmp_path):
+    mod = load_script("make_sounds")
+    for stale in ("25", "50", "75"):
+        (tmp_path / "chime" / stale).mkdir(parents=True)
+        (tmp_path / "chime" / stale / "glass1.ogg").write_bytes(b"x")
+    (tmp_path / "chime" / "100").mkdir()
+    mod.remove_stale_levels(tmp_path)
+    assert (tmp_path / "chime" / "100").is_dir()
+    assert not any((tmp_path / "chime" / s).exists() for s in ("25", "50", "75"))
