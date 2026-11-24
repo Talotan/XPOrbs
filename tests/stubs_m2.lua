@@ -6,7 +6,7 @@ local fm = getmetatable(UIParent).__index
 
 for _, name in ipairs({
     "SetTexture", "SetVertexColor", "SetBlendMode", "SetDrawLayer", "SetRotation", "SetAllPoints",
-    "SetFrameStrata", "EnableMouse", "SetParent", "SetHeight",
+    "SetFrameStrata", "EnableMouse", "SetParent", "SetHeight", "SetTexCoord", "SetColorTexture",
 }) do
     fm[name] = function(self, ...)
         self.calls = self.calls or {}

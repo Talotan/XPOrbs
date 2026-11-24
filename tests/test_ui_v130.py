@@ -76,7 +76,7 @@ def test_sections_and_rows_run_in_the_agreed_order(env):
 
 def test_content_height_fits_the_last_row_exactly(env):
     m = build(env)
-    assert m.opt.CONTENT_H == m.opt.child.height == row_y(m, "debug") + 28 + 16 == 1328
+    assert m.opt.CONTENT_H == m.opt.child.height == row_y(m, "debug") + 28 + 16 == 1362
 
 
 def test_exploration_checkbox_and_tooltips(env):

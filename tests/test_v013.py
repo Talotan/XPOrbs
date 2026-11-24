@@ -266,8 +266,8 @@ def test_scroll_frame_exists_with_the_specified_anchors_and_content_height(m):
     ]
     assert pts[0][0] == "TOPLEFT" and (pts[0][3], pts[0][4]) == (0, -40)
     assert pts[1][0] == "BOTTOMRIGHT" and (pts[1][3], pts[1][4]) == (-28, 44)
-    # the last row (Debug log, y 1284) is 28 tall, plus the 16 px bottom margin
-    assert o.child.width == 584 and o.child.height == 1284 + 28 + 16 == o.CONTENT_H == 1328
+    # the last row (Debug log, y 1318) is 28 tall, plus the 16 px bottom margin
+    assert o.child.width == 584 and o.child.height == 1318 + 28 + 16 == o.CONTENT_H == 1362
 
 
 def test_scroll_template_falls_back(env):
@@ -304,20 +304,20 @@ def test_scroll_frame_without_any_template_still_scrolls(env):
         ("size", 406),
         ("flightTime", 438),
         ("trail", 470),
-        ("color", 498),
-        ("restedTint", 526),
-        ("restedColor", 554),
-        ("flightPath", 622),
-        ("style_popstream", 678),
-        ("popMode_nameplate", 720),
-        ("popMode_direct", 762),
-        ("style_crossfade", 814),
-        ("style_stream", 860),
-        ("zoomSpread", 914),
-        ("targetFrame", 984),
-        ("glowShape", 1084),
-        ("glow", 1184),
-        ("debug", 1284),
+        ("color", 532),
+        ("restedTint", 560),
+        ("restedColor", 588),
+        ("flightPath", 656),
+        ("style_popstream", 712),
+        ("popMode_nameplate", 754),
+        ("popMode_direct", 796),
+        ("style_crossfade", 848),
+        ("style_stream", 894),
+        ("zoomSpread", 948),
+        ("targetFrame", 1018),
+        ("glowShape", 1118),
+        ("glow", 1218),
+        ("debug", 1318),
     ],
 )
 def test_row_positions_follow_the_spec(m, key, y):
@@ -431,9 +431,9 @@ def test_style_radios_use_the_radio_template_and_each_has_a_description(m):
 def test_style_description_positions(m):
     d = m.opt.descs
     for st, y in (
-        ("popstream", 678 + 24),
-        ("crossfade", 814 + 24),
-        ("stream", 860 + 24),
+        ("popstream", 712 + 24),
+        ("crossfade", 848 + 24),
+        ("stream", 894 + 24),
     ):
         pt = d[st].points[1]
         assert (pt[4], pt[5]) == (56, -y) and d[

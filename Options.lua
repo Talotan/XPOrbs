@@ -72,6 +72,12 @@ local FLIGHT_STYLE_DESC = {
     chaos = "Orbs dart and weave like fireflies on the way.",
     helix = "Orbs spiral around each other in pairs.",
 }
+local ORB_SHAPE_DESC = {
+    starlight = "Soft glowing orbs with a spinning sparkle.",
+    retro = "Chunky pixel-art orbs that move in blocky steps.",
+    wisp = "Fewer, larger, smooth orbs that fly a little slower and trail a long soft tail.",
+    power = "A bright core crackling with lightning.",
+}
 local MAX_TIP = "At max level, each kill sends a small burst of orbs to your portrait."
 local SOUND_TIP = "Coin: a soft coin clink. Glass: a glassy tink. Brush: a soft brushed swish. "
     .. "One per arriving orb (up to six per burst). Off by default."
@@ -810,6 +816,122 @@ local function buildGeneral(y)
     return y + 28
 end
 
+-- The "Flight style" (db.flightPath, /xporbs path) and "Orb shape" (db.orbShape, /xporbs shape) dropdowns: both apply
+-- to every kill style, so they never dim. Built like the Sound voice dropdown. Each option explains itself in its own
+-- menu tooltip and the button's tooltip explains the current one, so no description takes page space. Radios replace
+-- the dropdown on a client without the template. "Smooth (default)" inside the dropdown menu only; everywhere else
+-- (button text, tooltips, radios) the plain name.
+local FLIGHT_DROPDOWN = {
+    key = "flightPath", text = "Flight style", order = ns.PATH_ORDER, labels = ns.PATH_LABEL,
+    desc = FLIGHT_STYLE_DESC, field = "flightDropdown", radioX = { 0, 140, 230 }, -- px right of CTRL_X (the first
+    -- label is the long one)
+}
+local SHAPE_DROPDOWN = {
+    key = "orbShape", text = "Orb shape", order = ns.SHAPE_ORDER, labels = ns.SHAPE_LABEL,
+    desc = ORB_SHAPE_DESC, field = "shapeDropdown", radioX = { 0, 90, 165, 235 },
+}
+
+local function choiceName(spec, kind, withDefault)
+    return spec.labels[kind] .. (withDefault and kind == ns.defaults[spec.key] and " (default)" or "")
+end
+
+-- Fills a menu tooltip (Blizzard's GameTooltip_* helpers when they exist, plain tooltip calls otherwise).
+local function fillMenuTooltip(tooltip, title, body)
+    pcall(function()
+        if GameTooltip_SetTitle and GameTooltip_AddNormalLine then
+            GameTooltip_SetTitle(tooltip, title)
+            GameTooltip_AddNormalLine(tooltip, body)
+        else
+            tooltip:SetText(title)
+            tooltip:AddLine(body, 1, 1, 1, true)
+        end
+    end)
+end
+
+local function choiceRow(spec, y)
+    local key = spec.key
+    local row = newRow(y, 28)
+    Options.rows[key] = row
+    label(row, spec.text, LABEL_X)
+    local function pick(kind)
+        settings()[key] = kind
+        Options:Refresh()
+    end
+    local dropdown
+    local okMenu = pcall(function()
+        dropdown = CreateFrame("DropdownButton", nil, row, "WowStyle1DropdownTemplate")
+        dropdown:SetPoint("LEFT", row, "LEFT", CTRL_X, 0)
+        dropdown:SetSize(150, 26)
+        dropdown:SetupMenu(function(_, root)
+            for _, kind in ipairs(spec.order) do
+                local name = choiceName(spec, kind, true)
+                local element = root:CreateRadio(name, function()
+                    return settings()[key] == kind
+                end, function()
+                    pick(kind)
+                end)
+                if element and element.SetTooltip then
+                    pcall(element.SetTooltip, element, function(tooltip)
+                        fillMenuTooltip(tooltip, name, spec.desc[kind])
+                    end)
+                end
+            end
+        end)
+    end)
+    if okMenu and dropdown then
+        Options[spec.field] = dropdown
+        Options.controls[key] = dropdown
+        local function showCurrent(self)
+            local kind = settings()[key]
+            showTip2(self, choiceName(spec, kind), spec.desc[kind] or "")
+        end
+        -- HookScript keeps whatever highlight the template's own OnEnter does
+        local setHandler = dropdown.HookScript or dropdown.SetScript
+        pcall(setHandler, dropdown, "OnEnter", showCurrent)
+        pcall(setHandler, dropdown, "OnLeave", hideTip)
+        refreshers[#refreshers + 1] = function()
+            if dropdown.GenerateMenu then
+                dropdown:GenerateMenu()
+            end
+            -- the button shows the plain name; only the menu items carry "(default)"
+            if dropdown.OverrideText then
+                pcall(dropdown.OverrideText, dropdown, choiceName(spec, settings()[key]))
+            end
+        end
+    else
+        if dropdown then
+            pcall(dropdown.Hide, dropdown) -- a half-built dropdown must not sit over the radios
+        end
+        Options[spec.field] = nil
+        local radioBtns = {}
+        for i, kind in ipairs(spec.order) do
+            local radio = newRadio(row, CTRL_X + spec.radioX[i], choiceName(spec, kind))
+            radio:SetScript("OnClick", function()
+                pick(kind)
+            end)
+            radio:SetScript("OnEnter", function(self)
+                showTip2(self, choiceName(spec, kind), spec.desc[kind])
+            end)
+            radio:SetScript("OnLeave", hideTip)
+            radioBtns[i] = radio
+            Options.controls[key .. "_" .. kind] = radio
+        end
+        refreshers[#refreshers + 1] = function()
+            for i, kind in ipairs(spec.order) do
+                radioBtns[i]:SetChecked(settings()[key] == kind)
+            end
+        end
+    end
+    addReset(row, key, { key }, function()
+        return choiceName(spec, ns.defaults[key])
+    end)
+    return y + 34
+end
+
+local function flightStyleRow(y)
+    return choiceRow(FLIGHT_DROPDOWN, y)
+end
+
 local function buildLook(y)
     y = header("Look", y + 14)
     for _, c in ipairs({
@@ -823,6 +945,7 @@ local function buildLook(y)
     end
     checkbox(y, "trail", "Trail")
     y = y + 28
+    y = choiceRow(SHAPE_DROPDOWN, y)
 
     -- Orb colour: swatch + "Class colour" checkbox; one reset button resets both
     local colourRow = newRow(y, 28)
@@ -868,106 +991,6 @@ local function buildLook(y)
         setDim(restedRow, { restedSwatch }, settings().restedTint)
     end
     return y + 28
-end
-
--- The "Flight style" dropdown (db.flightPath, /xporbs path): applies to every kill style, so it never dims. Built like
--- the Sound voice dropdown. Each option explains itself in its own menu tooltip and the button's tooltip explains the
--- current one, so no description takes page space. Radios replace the dropdown on a client without the template.
--- "Smooth (default)" inside the dropdown menu only; everywhere else (button text, tooltips, radios) the plain name.
-local function flightStyleName(kind, withDefault)
-    return ns.PATH_LABEL[kind] .. (withDefault and kind == ns.defaults.flightPath and " (default)" or "")
-end
-
--- Fills a menu tooltip (Blizzard's GameTooltip_* helpers when they exist, plain tooltip calls otherwise).
-local function fillMenuTooltip(tooltip, title, body)
-    pcall(function()
-        if GameTooltip_SetTitle and GameTooltip_AddNormalLine then
-            GameTooltip_SetTitle(tooltip, title)
-            GameTooltip_AddNormalLine(tooltip, body)
-        else
-            tooltip:SetText(title)
-            tooltip:AddLine(body, 1, 1, 1, true)
-        end
-    end)
-end
-
-local function flightStyleRow(y)
-    local row = newRow(y, 28)
-    Options.rows.flightPath = row
-    label(row, "Flight style", LABEL_X)
-    local function pick(kind)
-        settings().flightPath = kind
-        Options:Refresh()
-    end
-    local dropdown
-    local okMenu = pcall(function()
-        dropdown = CreateFrame("DropdownButton", nil, row, "WowStyle1DropdownTemplate")
-        dropdown:SetPoint("LEFT", row, "LEFT", CTRL_X, 0)
-        dropdown:SetSize(150, 26)
-        dropdown:SetupMenu(function(_, root)
-            for _, kind in ipairs(ns.PATH_ORDER) do
-                local name = flightStyleName(kind, true)
-                local element = root:CreateRadio(name, function()
-                    return settings().flightPath == kind
-                end, function()
-                    pick(kind)
-                end)
-                if element and element.SetTooltip then
-                    pcall(element.SetTooltip, element, function(tooltip)
-                        fillMenuTooltip(tooltip, name, FLIGHT_STYLE_DESC[kind])
-                    end)
-                end
-            end
-        end)
-    end)
-    if okMenu and dropdown then
-        Options.flightDropdown = dropdown
-        Options.controls.flightPath = dropdown
-        local function showCurrent(self)
-            local kind = settings().flightPath
-            showTip2(self, flightStyleName(kind), FLIGHT_STYLE_DESC[kind] or "")
-        end
-        -- HookScript keeps whatever highlight the template's own OnEnter does
-        local setHandler = dropdown.HookScript or dropdown.SetScript
-        pcall(setHandler, dropdown, "OnEnter", showCurrent)
-        pcall(setHandler, dropdown, "OnLeave", hideTip)
-        refreshers[#refreshers + 1] = function()
-            if dropdown.GenerateMenu then
-                dropdown:GenerateMenu()
-            end
-            -- the button shows the plain name; only the menu items carry "(default)"
-            if dropdown.OverrideText then
-                pcall(dropdown.OverrideText, dropdown, flightStyleName(settings().flightPath))
-            end
-        end
-    else
-        if dropdown then
-            pcall(dropdown.Hide, dropdown) -- a half-built dropdown must not sit over the radios
-        end
-        Options.flightDropdown = nil
-        local radioBtns, radioX = {}, { 0, 140, 230 } -- px right of CTRL_X (the first label is the long one)
-        for i, kind in ipairs(ns.PATH_ORDER) do
-            local radio = newRadio(row, CTRL_X + radioX[i], flightStyleName(kind))
-            radio:SetScript("OnClick", function()
-                pick(kind)
-            end)
-            radio:SetScript("OnEnter", function(self)
-                showTip2(self, flightStyleName(kind), FLIGHT_STYLE_DESC[kind])
-            end)
-            radio:SetScript("OnLeave", hideTip)
-            radioBtns[i] = radio
-            Options.controls["flightPath_" .. kind] = radio
-        end
-        refreshers[#refreshers + 1] = function()
-            for i, kind in ipairs(ns.PATH_ORDER) do
-                radioBtns[i]:SetChecked(settings().flightPath == kind)
-            end
-        end
-    end
-    addReset(row, "flightPath", { "flightPath" }, function()
-        return flightStyleName(ns.defaults.flightPath)
-    end)
-    return y + 34
 end
 
 -- Style: the Flight Style dropdown, then three radios (row 24 + its description), Popstream's two sub-radios indented

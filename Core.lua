@@ -35,6 +35,7 @@ ns.defaults = {
     -- Popstream's sub-choice: "nameplate" (pop on the nameplate) or "direct" (pop at the estimate)
     popMode = "nameplate",
     flightPath = "smooth", -- how orbs fly: "smooth" (the plain curve), "chaos" (erratic) or "helix" (spiralling)
+    orbShape = "starlight", -- how orbs are drawn: "starlight", "retro" (pixel art), "wisp" or "power" (ns.SHAPE_LABEL)
     glow = true, -- arrival flash on/off
     -- "bar" (horizontal flash on the fill edge), "vertical" (the same flash upright, filling bottom to top) or "round"
     -- (circular glow at the frame centre)
@@ -109,6 +110,8 @@ ns.STYLE_LABEL = { popstream = "Popstream", crossfade = "Crossfade", stream = "D
 ns.POPMODE_LABEL = { nameplate = "Nameplate", direct = "Direct" }
 ns.PATH_ORDER = { "smooth", "chaos", "helix" }
 ns.PATH_LABEL = { smooth = "Smooth", chaos = "Chaos", helix = "Helix" } -- the valid db.flightPath values
+ns.SHAPE_ORDER = { "starlight", "retro", "wisp", "power" }
+ns.SHAPE_LABEL = { starlight = "Starlight", retro = "Retro", wisp = "Wisp", power = "Power" } -- valid db.orbShape
 
 -- The renderer's own style for a style name (any alias) and a popMode: "popstream" (pop on the nameplate),
 -- "streampop" (pop at the estimate, screen space), "crossfade" or "stream". Unknown names give the default.
@@ -169,9 +172,9 @@ end
 -- v6: three kill styles. popstream -> Popstream (Nameplate), streampop -> Popstream (Direct), wide / mob -> Popstream
 -- (Nameplate) with Zoom-scaled spread on (zoomSpread, new, default on), crossfade and stream unchanged, anything
 -- else -> the default (STYLE_ALIAS).
--- v0.13 added classColor / glow / glowShape and v0.14 added glowIntensity / glowOffsetX / glowOffsetY: no schema bump,
--- deepFill adds the missing keys (a stored false or an existing value is never overwritten, a missing key gets the
--- default).
+-- v0.13 added classColor / glow / glowShape, v0.14 added glowIntensity / glowOffsetX / glowOffsetY and the orb shape
+-- added orbShape: no schema bump, deepFill adds the missing keys (a stored false or an existing value is never
+-- overwritten, a missing key gets the default).
 local function migrate(db)
     local version = type(db.version) == "number" and db.version or 0
     if version < 2 then
@@ -268,6 +271,9 @@ local function sanitize(db)
     end
     if not ns.PATH_LABEL[db.flightPath] then
         db.flightPath = defaults.flightPath
+    end
+    if not ns.SHAPE_LABEL[db.orbShape] then
+        db.orbShape = defaults.orbShape
     end
     if db.unknownOrigin ~= "off" and db.unknownOrigin ~= "wide" then -- also maps the dropped "late"/"inplace"
         db.unknownOrigin = defaults.unknownOrigin
@@ -410,6 +416,8 @@ function commands.help()
         .. "direction)")
     say("  stream = Direct Stream: a plain stream from the estimated mob position (no pop, no nameplate)")
     say("/xporbs path smooth|chaos|helix - flight style: a clean arc, an erratic wobble or a spiral (no arg: show)")
+    say("/xporbs shape starlight|retro|wisp|power - orb shape: soft stars, pixel art, glowing wisps or crackling "
+        .. "power orbs (no arg: show)")
     say("/xporbs wide on|off - zoom-scaled spread: pops and stream starts spread wider when zoomed in, tighter "
         .. "zoomed out (on by default)")
     say("/xporbs unknown wide|off - where orbs start when the mob's position is unknown")

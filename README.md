@@ -65,6 +65,7 @@ back with `/xporbs minimap on` or the "Show minimap button" option).
 | `/xporbs perf [reset]` | Print the addon's memory use, the average and worst time of an orb frame, and how much of the orb pool is in use. `reset` zeroes the frame timings. |
 | `/xporbs style popstream [nameplate\|direct]` | Set the kill style to Popstream, optionally with its pop on the nameplate or direct. With no argument, print the current style. |
 | `/xporbs style crossfade\|stream` | Set the kill style to Crossfade or Direct Stream (`stream`). The older names still work: `streampop` is Popstream (Direct), and `wide` is Popstream (Nameplate) with zoom-scaled spread on. |
+| `/xporbs shape starlight\|retro\|wisp\|power` | Set the orb shape: `starlight` (the default), `retro`, `wisp` or `power`. With no argument, print the current shape. |
 | `/xporbs path smooth\|chaos\|helix` | Set the flight style (how orbs fly): `smooth` (the default), `chaos` or `helix`. With no argument, print the current style. |
 | `/xporbs wide on\|off` | Turn the zoom-scaled spread on or off (on by default). |
 | `/xporbs unknown wide\|off` | Where orbs start when the mob's position is unknown: `wide` (the default) spreads them over an area that scales with camera zoom, `off` starts them at one point. |
@@ -85,8 +86,8 @@ back with `/xporbs minimap on` or the "Show minimap button" option).
 The panel has these sections, most-used first:
 
 - **General:** enable, orbs at max level, quest bursts, exploration bursts and the minimap button.
-- **Look:** orb quantity, maximum orbs per burst, orb size, flight time (1 s by default), trail, orb colour (or your
-  class colour), rested tint and rested colour.
+- **Look:** orb quantity, maximum orbs per burst, orb size, flight time (1 s by default), trail, the orb shape
+  dropdown, orb colour (or your class colour), rested tint and rested colour.
 - **Style:** the Flight style dropdown, the kill style and the zoom-scaled spread.
 - **Arrival:** the XP bar frame and its picker, the shape of the target frame, a landing offset, and the arrival glow
   with its intensity.
@@ -187,6 +188,17 @@ whether the pop needs the mob's nameplate.
   way short of the bar and fly the last stretch; most of the trip is implied rather than drawn. The pop needs the
   nameplate; the estimated position sets the direction the orbs leave in. Without a nameplate it is a plain stream.
 - **Direct Stream** (`stream`): no pop, just the stream from the estimated position. Never uses the nameplate.
+
+**Orb shape** (the dropdown in the Look section, or `/xporbs shape`): how every orb is drawn: flying orbs, corpse pops,
+crossfade copies and the max-level portrait bursts. Each burst keeps the shape it started with, so changing it mid-flight
+never swaps the art on orbs already in the air. Hover an option in the dropdown for a short description.
+
+- **Starlight** (default): soft glowing orbs with a spinning sparkle and a fading trail.
+- **Retro**: chunky pixel-art orbs on an 8 x 8 grid that move in blocky steps, with a blinking twinkle and a trail of
+  two square pixels.
+- **Wisp**: half as many orbs (at least one), 1.6 times the size and a 1.35 times longer flight, smooth and solid,
+  breathing slightly, with a long four-ghost tail. These multiply your own settings; the saved values don't change.
+- **Power**: a steady bright core wrapped in a bolt of lightning that jumps to a new shape and angle about every 80 ms.
 
 **Flight style** (the dropdown in Options, or `/xporbs path`): how the orbs fly to the bar, for every style. The pops and
 the arrival glow don't change. Hover an option in the dropdown for a short description.
@@ -297,12 +309,13 @@ Kills.lua            event wiring, kill matching, rested detection, hands bursts
 Mouseover.lua        cursor samples while hovering a hostile unit
 Target.lua           destination (XP bar edge), frame picker
 Orbs.lua             overlay, texture pool, plate-anchored frames, flight and glow
+Shapes.lua           the Retro, Wisp and Power orb shapes (Starlight is drawn in Orbs.lua)
 Calib.lua            zoom-anchor calibration panel (/xporbs calib)
 Options.lua          settings panel
 Minimap.lua          minimap button (LibDBIcon) and the addon-compartment entry
 logic/               pure Lua: XPParse, OrbMath, KillMatcher, MobEstimate, Engaged, Chime (no WoW globals)
 Libs/                embedded libraries for the minimap button, unmodified (sources and licences in Libs/README.md)
-media/               orb, sparkle and flash textures, the icons, the three chime voices (coin, glass and brush, six notes each)
+media/               orb, sparkle, flash and orb-shape textures, the icons, the three chime voices (coin, glass and brush, six notes each)
 tools/               make_textures.py, make_icon.py, make_sounds.py, package.py
 tests/               pytest suite and the WoW API stubs
 docs/images/          README images

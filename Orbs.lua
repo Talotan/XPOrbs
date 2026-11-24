@@ -181,6 +181,23 @@ local SP_PROFILE = { born = 0.03, bloomMin = 0.20, bloomSpan = 0.06, bsize = 1.5
     centreX = {}, centreY = {}, ringAngle = {}, ringX = {}, ringY = {}, blooms = {}, dist = {}, idx = {} }
 XF_PROFILE.sp = SP_PROFILE -- reached through XF_PROFILE from Burst, which cannot take another upvalue
 
+-- Orb shapes (db.orbShape). "starlight" is the original drawing in this file: orb.shape is nil for it, so every branch
+-- below that handles a shape is skipped and Starlight runs exactly the code it always did. Retro, Wisp and Power live
+-- in Shapes.lua (loaded right after this file): it fills `by` (name -> shape table) and uses `host` (the helpers of
+-- this file: pooled textures, placement, the flight path) and `k` (the shared tunables). One table, reached through
+-- XF_PROFILE from Burst, which cannot take another upvalue.
+-- A shape table has: needTrail / needPlain (pool textures per flying orb with / without the trail), adjust(n, nPurple,
+-- scale) -> n, nPurple, scale (count and size multipliers), timeMul (flight time), build(orb, trail, red, green, blue)
+-- (the textures of a flying orb), setup(under, body, spark, st, red, green, blue) (the 3 textures of a pop or copy-A
+-- slot; also the first three of a flying orb), draw(st, t, rel, under, body, spark, x, y, size, alpha) (the 3 textures
+-- of one orb, no trail; size is db.size scaled, never GLOW) and optionally trail(...), see Shapes.lua. `st` is the
+-- table holding the orb's shape state: the orb record, or a per-slot table of a pop group.
+local SHAPES = { by = {}, host = {}, k = { glow = GLOW, ghostStep = GHOST_STEP, ghost1Alpha = GHOST1_ALPHA,
+    ghost1Size = GHOST1_SIZE, ghost2Alpha = GHOST2_ALPHA, ghost2Size = GHOST2_SIZE, underK = UNDER_K,
+    sparkleWhite = SPARKLE_WHITE, extras = EXTRAS } }
+ns.OrbShapes = SHAPES
+XF_PROFILE.shapes = SHAPES
+
 -- Where the pop has put the orb `age` seconds after its birth (screen space; allocates nothing): out from the ring
 -- centre to the ring point over orb.bloom s, on a partial ease-out (a blend of linear and cubic, so it ends with some
 -- speed). Returns x, y and the bloom's eased progress (0..1). Shared by the bloom drawing and by Burst (the flight
@@ -265,8 +282,11 @@ local function settings()
 end
 
 -- Room for two full-cap bursts, so a pull that kills several mobs at once doesn't leave the later kills without orbs.
+-- (the per-orb need is the largest of the current shape's and the Starlight 1 + EXTRAS)
 local function ceiling()
-    return settings().cap * (1 + EXTRAS) * 2 + 8
+    local shape = SHAPES.by[settings().orbShape]
+    local perOrb = shape and max(1 + EXTRAS, shape.needTrail) or 1 + EXTRAS
+    return settings().cap * perOrb * 2 + 8
 end
 
 local function readable(v)
@@ -385,7 +405,9 @@ local function ensureFrames()
     texCreated = 1 -- the flash counts towards the ceiling
 end
 
-local function acquire(path, subLayer, red, green, blue, blendMode)
+-- A texture from the pool (or a new one under the ceiling check the caller made), unconfigured. A texture that carried
+-- a rotation or a texcoord window (xoDirty) gets the full image back first.
+local function take()
     local tex = freeTex[#freeTex]
     if tex then
         freeTex[#freeTex] = nil
@@ -395,6 +417,23 @@ local function acquire(path, subLayer, red, green, blue, blendMode)
         texCreated = texCreated + 1
     end
     texInUse = texInUse + 1
+    if tex.xoDirty then
+        tex:SetTexCoord(0, 1, 0, 1)
+        tex.xoDirty = false
+    end
+    return tex
+end
+
+-- The same for the permanent textures of a pop group.
+local function clean(tex)
+    if tex.xoDirty then
+        tex:SetTexCoord(0, 1, 0, 1)
+        tex.xoDirty = false
+    end
+end
+
+local function acquire(path, subLayer, red, green, blue, blendMode)
+    local tex = take()
     tex:SetTexture(path)
     tex:SetBlendMode(blendMode or "ADD")
     tex:SetDrawLayer("ARTWORK", subLayer)
@@ -483,7 +522,12 @@ local function freeOrb(orb)
     if orb.ghost2 then
         release(orb.ghost2)
     end
+    if orb.ghost3 then -- Wisp's longer trail
+        release(orb.ghost3)
+        release(orb.ghost4)
+    end
     orb.under, orb.body, orb.spark, orb.ghost1, orb.ghost2 = nil, nil, nil, nil, nil
+    orb.ghost3, orb.ghost4 = nil, nil
     if orb.group then
         local group = orb.group
         orb.group = nil
@@ -509,6 +553,12 @@ local function drawA(orb, group, posX, posY, size, alpha)
         return
     end
     local frame, ox, oy = group.frame, posX - orb.px, posY - orb.py
+    local shape = orb.shape
+    if shape then
+        shape.draw(orb, orb.elapsed, frame, tex[slotBase + 1], tex[slotBase + 2], tex[slotBase + 3], ox, oy, size,
+            alpha)
+        return
+    end
     placeRel(tex[slotBase + 1], frame, ox, oy, size * GLOW * UNDER_SIZE, alpha * UNDER_ALPHA)
     placeRel(tex[slotBase + 2], frame, ox, oy, size * GLOW, alpha)
     local sparkle = tex[slotBase + 3]
@@ -531,10 +581,16 @@ end
 local function hideB(orb)
     hideTex(orb.under)
     hideTex(orb.body)
-    hideTex(orb.spark)
+    if orb.spark then -- (Wisp has no sparkle)
+        hideTex(orb.spark)
+    end
     if orb.ghost1 then
         hideTex(orb.ghost1)
         hideTex(orb.ghost2)
+    end
+    if orb.ghost3 then
+        hideTex(orb.ghost3)
+        hideTex(orb.ghost4)
     end
 end
 
@@ -575,6 +631,11 @@ local function drawSpHold(orb, age)
     local x, y, eased = SP_PROFILE.bloomPoint(orb, age)
     local alpha = age < profile.fadeIn and age / profile.fadeIn or 1
     local size = orb.size * (1 + (profile.bsize - 1) * (1 - eased))
+    local shape = orb.shape
+    if shape then
+        shape.draw(orb, orb.elapsed, nil, orb.under, orb.body, orb.spark, x, y, size, alpha)
+        return
+    end
     place(orb.under, x, y, size * GLOW * UNDER_SIZE, alpha * UNDER_ALPHA)
     place(orb.body, x, y, size * GLOW, alpha)
     place(orb.spark, x, y, size * SPARKLE, alpha * SPARKLE_ALPHA)
@@ -608,6 +669,19 @@ local function flightPoint(orb, progress, dx, dy, control2X, control2Y)
     return pathX, pathY, sizeMul, alphaMul
 end
 
+-- place / placeRel in one call: rel nil places on the overlay (screen space), a frame places relative to it.
+local function putAt(tex, rel, x, y, size, alpha)
+    if rel then
+        placeRel(tex, rel, x, y, size, alpha)
+    else
+        place(tex, x, y, size, alpha)
+    end
+end
+
+-- What Shapes.lua may use of this file (see SHAPES).
+SHAPES.host.take, SHAPES.host.putAt, SHAPES.host.place, SHAPES.host.hide = take, putAt, place, hideTex
+SHAPES.host.flightPoint = flightPoint
+
 -- One flying orb at `progress` (0..1) of its flight towards the destination (dx, dy): position on its flight path,
 -- shrink near the end, fade-in, spark rotation and the two trail ghosts (the same path a little earlier in time).
 local function drawOrb(orb, progress, dx, dy)
@@ -624,10 +698,21 @@ local function drawOrb(orb, progress, dx, dy)
     local fadeIn = orb.fadeIn
     local alpha = progress < fadeIn and progress / fadeIn or 1
     local group = orb.group
-    place(orb.under, orbX, orbY, size * sizeMul * GLOW * UNDER_SIZE, alpha * alphaMul * UNDER_ALPHA)
-    place(orb.body, orbX, orbY, size * sizeMul * GLOW, alpha * alphaMul)
-    place(orb.spark, orbX, orbY, size * sizeMul * SPARKLE, alpha * alphaMul * SPARKLE_ALPHA)
-    orb.spark:SetRotation(orb.startRotation + TWO_PI * (orb.elapsed - orb.delay))
+    local shape = orb.shape
+    if shape then
+        shape.draw(orb, orb.elapsed, nil, orb.under, orb.body, orb.spark, orbX, orbY, size * sizeMul, alpha * alphaMul)
+        if shape.trail then -- a trail of its own (Retro, Wisp); Power keeps the Starlight ghosts below
+            if orb.ghost1 then
+                shape.trail(orb, progress, dx, dy, control2X, control2Y, orbX, orbY, alpha * alphaMul)
+            end
+            return
+        end
+    else
+        place(orb.under, orbX, orbY, size * sizeMul * GLOW * UNDER_SIZE, alpha * alphaMul * UNDER_ALPHA)
+        place(orb.body, orbX, orbY, size * sizeMul * GLOW, alpha * alphaMul)
+        place(orb.spark, orbX, orbY, size * sizeMul * SPARKLE, alpha * alphaMul * SPARKLE_ALPHA)
+        orb.spark:SetRotation(orb.startRotation + TWO_PI * (orb.elapsed - orb.delay))
+    end
     if orb.ghost1 then
         local ghostProgress = progress - GHOST_STEP
         if group and progress < fadeIn then
@@ -671,7 +756,7 @@ local function newPop()
     frame:EnableMouse(false)
     frame:Hide()
     return { frame = frame, tex = {}, offsetX = {}, offsetY = {}, drift = {}, size = {}, rotation = {}, n = 0,
-        used = 0 }
+        used = 0, st = {} }
 end
 
 function releasePop(group)
@@ -685,7 +770,7 @@ function releasePop(group)
         texture:Hide()
         texture.xoShown = false
     end
-    group.used, group.plate, group.isCrossfade, group.refs = 0, nil, false, 0
+    group.used, group.plate, group.isCrossfade, group.refs, group.shape = 0, nil, false, 0, nil
     pcall(group.frame.ClearAllPoints, group.frame)
     pcall(group.frame.Hide, group.frame)
     freePop[#freePop + 1] = group
@@ -697,6 +782,7 @@ end
 local function setupPop(group, plate, orbCount, scale, restedCount, restedColour, normalColour, ux, uy, bodyAnchorY,
                         spreadFactor)
     local config = ns.db
+    local shape = group.shape -- nil: Starlight
     local frame, tex = group.frame, group.tex
     frame:ClearAllPoints()
     local rel, y = plateAnchor(bodyAnchorY, "CENTER", POP_Y)
@@ -713,19 +799,28 @@ local function setupPop(group, plate, orbCount, scale, restedCount, restedColour
         local red, green, blue = colour[1], colour[2], colour[3]
         local slotBase = (i - 1) * 3
         local underTex, orbTex, sparkleTex = tex[slotBase + 1], tex[slotBase + 2], tex[slotBase + 3]
-        underTex:SetTexture(ORB_TEX)
-        underTex:SetBlendMode("BLEND")
-        underTex:SetDrawLayer("ARTWORK", -1)
-        underTex:SetVertexColor(red * UNDER_K, green * UNDER_K, blue * UNDER_K)
-        orbTex:SetTexture(ORB_TEX)
-        orbTex:SetBlendMode("ADD")
-        orbTex:SetDrawLayer("ARTWORK", 0)
-        orbTex:SetVertexColor(red, green, blue)
-        sparkleTex:SetTexture(SPARKLE_TEX)
-        sparkleTex:SetBlendMode("ADD")
-        sparkleTex:SetDrawLayer("ARTWORK", 1)
-        sparkleTex:SetVertexColor(red + (1 - red) * SPARKLE_WHITE, green + (1 - green) * SPARKLE_WHITE,
-            blue + (1 - blue) * SPARKLE_WHITE)
+        clean(underTex)
+        clean(orbTex)
+        clean(sparkleTex)
+        if shape then
+            group.st[i] = group.st[i] or {}
+            shape.setup(underTex, orbTex, sparkleTex, group.st[i], red, green, blue)
+        else
+            underTex:SetTexture(ORB_TEX)
+            underTex:SetBlendMode("BLEND")
+            underTex:SetDrawLayer("ARTWORK", -1)
+            underTex:SetVertexColor(red * UNDER_K, green * UNDER_K, blue * UNDER_K)
+            orbTex:SetTexture(ORB_TEX)
+            orbTex:SetBlendMode("ADD")
+            orbTex:SetDrawLayer("ARTWORK", 0)
+            orbTex:SetVertexColor(red, green, blue)
+            sparkleTex:SetTexture(SPARKLE_TEX)
+            sparkleTex:SetBlendMode("ADD")
+            sparkleTex:SetDrawLayer("ARTWORK", 1)
+            sparkleTex:SetVertexColor(red + (1 - red) * SPARKLE_WHITE, green + (1 - green) * SPARKLE_WHITE,
+                blue + (1 - blue) * SPARKLE_WHITE)
+            sparkleTex.xoDirty = true -- it spins (SetRotation)
+        end
         for j = 1, 3 do
             local texture = tex[slotBase + j]
             texture:SetAlpha(0)
@@ -763,7 +858,7 @@ local function takePopFrame()
 end
 
 -- Returns true when a pop was started. Never throws; every failure just means "no pop".
-local function startPop(plate, n, scale, nPurple, ux, uy, bodyAnchorY, spreadFactor)
+local function startPop(plate, n, scale, nPurple, ux, uy, bodyAnchorY, spreadFactor, shape)
     if type(plate) ~= "table" or not readable(plate) then
         return false
     end
@@ -772,6 +867,7 @@ local function startPop(plate, n, scale, nPurple, ux, uy, bodyAnchorY, spreadFac
         return false
     end
     local config = ns.db
+    group.shape = shape
     local count = min(n, POP_MAX)
     local restedCount = nPurple > 0 and floor(nPurple * count / n + 0.5) or 0
     local ok, err = pcall(setupPop, group, plate, count, scale, restedCount, config.restedColor, normalColour, ux, uy,
@@ -842,7 +938,7 @@ end
 
 -- Creates/configures the 3 textures of orb slot slotBase+1..slotBase+3 on the crossfade frame. Errors propagate
 -- (pcall'd).
-local function crossfadeTextures(group, slotBase, red, green, blue)
+local function crossfadeTextures(group, slotBase, red, green, blue, shape, orb)
     local tex, frame = group.tex, group.frame
     for j = 1, 3 do
         if not tex[slotBase + j] then
@@ -850,19 +946,27 @@ local function crossfadeTextures(group, slotBase, red, green, blue)
         end
     end
     local underTex, orbTex, sparkleTex = tex[slotBase + 1], tex[slotBase + 2], tex[slotBase + 3]
-    underTex:SetTexture(ORB_TEX)
-    underTex:SetBlendMode("BLEND")
-    underTex:SetDrawLayer("ARTWORK", -1)
-    underTex:SetVertexColor(red * UNDER_K, green * UNDER_K, blue * UNDER_K)
-    orbTex:SetTexture(ORB_TEX)
-    orbTex:SetBlendMode("ADD")
-    orbTex:SetDrawLayer("ARTWORK", 0)
-    orbTex:SetVertexColor(red, green, blue)
-    sparkleTex:SetTexture(SPARKLE_TEX)
-    sparkleTex:SetBlendMode("ADD")
-    sparkleTex:SetDrawLayer("ARTWORK", 1)
-    sparkleTex:SetVertexColor(red + (1 - red) * SPARKLE_WHITE, green + (1 - green) * SPARKLE_WHITE,
-        blue + (1 - blue) * SPARKLE_WHITE)
+    clean(underTex)
+    clean(orbTex)
+    clean(sparkleTex)
+    if shape then
+        shape.setup(underTex, orbTex, sparkleTex, orb, red, green, blue) -- the orb record holds copy A's shape state
+    else
+        underTex:SetTexture(ORB_TEX)
+        underTex:SetBlendMode("BLEND")
+        underTex:SetDrawLayer("ARTWORK", -1)
+        underTex:SetVertexColor(red * UNDER_K, green * UNDER_K, blue * UNDER_K)
+        orbTex:SetTexture(ORB_TEX)
+        orbTex:SetBlendMode("ADD")
+        orbTex:SetDrawLayer("ARTWORK", 0)
+        orbTex:SetVertexColor(red, green, blue)
+        sparkleTex:SetTexture(SPARKLE_TEX)
+        sparkleTex:SetBlendMode("ADD")
+        sparkleTex:SetDrawLayer("ARTWORK", 1)
+        sparkleTex:SetVertexColor(red + (1 - red) * SPARKLE_WHITE, green + (1 - green) * SPARKLE_WHITE,
+            blue + (1 - blue) * SPARKLE_WHITE)
+        sparkleTex.xoDirty = true
+    end
     for j = 1, 3 do
         local texture = tex[slotBase + j]
         texture:SetAlpha(0)
@@ -892,16 +996,22 @@ local function drawPop(group)
     local exitX, exitY = group.ux * exit, group.uy * exit
     local frame, tex = group.frame, group.tex
     local spin = TWO_PI * group.elapsed
+    local shape = group.shape
     for i = 1, group.n do
         local ox = group.offsetX[i] * eased * gather + exitX
         local oy = (group.offsetY[i] + group.drift[i]) * eased * gather + exitY
-        local size = group.size[i] * GLOW * POP_SIZE * sizeScale
         local slotBase = (i - 1) * 3
-        placeRel(tex[slotBase + 1], frame, ox, oy, size * UNDER_SIZE, alpha * POP_UNDER_ALPHA)
-        placeRel(tex[slotBase + 2], frame, ox, oy, size, alpha)
-        local sparkle = tex[slotBase + 3]
-        placeRel(sparkle, frame, ox, oy, size * SPARKLE, alpha * SPARKLE_ALPHA)
-        sparkle:SetRotation(group.rotation[i] + spin)
+        if shape then
+            shape.draw(group.st[i], group.elapsed, frame, tex[slotBase + 1], tex[slotBase + 2], tex[slotBase + 3], ox,
+                oy, group.size[i] * POP_SIZE * sizeScale, alpha)
+        else
+            local size = group.size[i] * GLOW * POP_SIZE * sizeScale
+            placeRel(tex[slotBase + 1], frame, ox, oy, size * UNDER_SIZE, alpha * POP_UNDER_ALPHA)
+            placeRel(tex[slotBase + 2], frame, ox, oy, size, alpha)
+            local sparkle = tex[slotBase + 3]
+            placeRel(sparkle, frame, ox, oy, size * SPARKLE, alpha * SPARKLE_ALPHA)
+            sparkle:SetRotation(group.rotation[i] + spin)
+        end
     end
 end
 
@@ -1187,6 +1297,22 @@ local function lighten(channel)
     return channel + (1 - channel) * SPARKLE_WHITE
 end
 
+-- Gets the textures of one flying orb from the pool: the Starlight art here (underlay, orb, sparkle, 2 ghosts), or
+-- the shape's own. Called through XF_PROFILE.shapes, because Burst has no upvalue to spare.
+function SHAPES.build(orb, shape, trail, red, green, blue)
+    if shape then
+        return shape.build(orb, trail, red, green, blue)
+    end
+    orb.under = acquire(ORB_TEX, -1, red * UNDER_K, green * UNDER_K, blue * UNDER_K, "BLEND")
+    orb.body = acquire(ORB_TEX, 0, red, green, blue)
+    orb.spark = acquire(SPARKLE_TEX, 1, lighten(red), lighten(green), lighten(blue))
+    orb.spark.xoDirty = true -- it spins (SetRotation)
+    if trail then
+        orb.ghost1 = acquire(ORB_TEX, 0, red, green, blue)
+        orb.ghost2 = acquire(ORB_TEX, 0, red, green, blue)
+    end
+end
+
 -- Wide start of one stream orb: orb.x0, orb.y0 moves to a random point of the unknown-origin ellipse around (x, y)
 -- (unknownLevel == 0: left alone). zoomFactor scales the ellipse (the camera-zoom factor, read once per burst).
 -- A helix (pathKind == "helix") starts from a short line across the flight instead (the perpendicular of the way from
@@ -1257,6 +1383,14 @@ function Orbs:Burst(params)
     if not config.restedTint then
         nPurple = 0
     end
+    -- the orb shape is the same for the whole burst (changing the setting mid-flight never swaps art in the air); nil =
+    -- Starlight. A shape may scale the orb count, size and flight time (all multipliers on the player's own settings).
+    local shape = XF_PROFILE.shapes.by[config.orbShape]
+    local flightTime = config.flightTime
+    if shape then
+        n, nPurple, scale = shape.adjust(n, nPurple, scale)
+        flightTime = flightTime * shape.timeMul
+    end
     local x, y = params.x, params.y
     local style = ns.RenderStyle(params.style or config.style, params.popMode or config.popMode)
     if params.kind == "other" then
@@ -1295,7 +1429,7 @@ function Orbs:Burst(params)
     local spreadFactor = config.zoomSpread and params.kind ~= "other" and unknownZoomFactor or 1
     if params.plate ~= nil and style == "popstream" then
         local ux, uy = OrbMath.ExitVector(x, y, px, py, dx, dy)
-        popped = startPop(params.plate, n, scale, nPurple, ux, uy, bodyAnchorY, spreadFactor)
+        popped = startPop(params.plate, n, scale, nPurple, ux, uy, bodyAnchorY, spreadFactor, shape)
     elseif style == "crossfade" then
         -- no readable plate: the group is anchored to the screen at P-hat instead
         crossfadeGroup = startCrossfade(params.plate, bodyAnchorY, px, py)
@@ -1311,11 +1445,15 @@ function Orbs:Burst(params)
     -- drops its trail ghosts (3 per orb), then draws fewer orbs. Every burst still gets min(n, 3) orbs while 9
     -- textures are free, so the later kills of an AoE pull are never starved by the earlier ones.
     local trail = config.trail and true or false
-    local need = trail and 1 + EXTRAS or 3 -- orb + underlay + sparkle (+ 2 ghosts)
+    local needTrail, needPlain = 1 + EXTRAS, 3 -- orb + underlay + sparkle (+ 2 ghosts)
+    if shape then
+        needTrail, needPlain = shape.needTrail, shape.needPlain
+    end
+    local need = trail and needTrail or needPlain
     local limit = ceiling() - 1 -- the arrival flash holds one slot
     local free = limit - texInUse
     if trail and n * need > free then
-        trail, need = false, 3
+        trail, need = false, needPlain
     end
     local fit = floor(free / need)
     if fit < 0 then
@@ -1376,12 +1514,13 @@ function Orbs:Burst(params)
             local colour = rested and config.restedColor or baseColour
             local red, green, blue = colour[1], colour[2], colour[3]
             local orb = newRec()
+            orb.shape = shape
             building, buildingLive = orb, false
             local controlScale, staggerScale, pathJitterLow, pathJitterSpan = OrbMath.PathShape(burstPath)
             orb.group, orb.hold, orb.easeWeight, orb.profile = nil, 0, nil, nil
             if crossfadeGroup then
                 local slotBase = crossfadeCount * 3 -- first of this orb's 3 texture slots on the group
-                if pcall(crossfadeTextures, crossfadeGroup, slotBase, red, green, blue) then
+                if pcall(crossfadeTextures, crossfadeGroup, slotBase, red, green, blue, shape, orb) then
                     crossfadeCount = crossfadeCount + 1
                     orb.group, orb.slotBase, orb.px, orb.py = crossfadeGroup, slotBase, px, py
                     orb.hold, orb.easeWeight, orb.profile = profile.hold, profile.ease, profile
@@ -1474,7 +1613,7 @@ function Orbs:Burst(params)
                 jitterLow, jitterSpan = pathJitterLow, pathJitterSpan -- a helix's strands keep their spacing
             end
             orb.dur = max(MIN_DUR,
-                config.flightTime * (orb.group and flightScale or 1) * (jitterLow + random() * jitterSpan))
+                flightTime * (orb.group and flightScale or 1) * (jitterLow + random() * jitterSpan))
             orb.elapsed = 0
             orb.fadeIn = fadeIn -- plate-copy orbs fade in during the hold (profile.fadeIn); crossfade's B over bFade
             if orb.group then
@@ -1485,13 +1624,7 @@ function Orbs:Burst(params)
             orb.rested = rested
             orb.size = config.size * scale * (rested and RESTED_SIZE or 1)
             orb.startRotation = random() * TWO_PI
-            orb.under = acquire(ORB_TEX, -1, red * UNDER_K, green * UNDER_K, blue * UNDER_K, "BLEND")
-            orb.body = acquire(ORB_TEX, 0, red, green, blue)
-            orb.spark = acquire(SPARKLE_TEX, 1, lighten(red), lighten(green), lighten(blue))
-            if trail then
-                orb.ghost1 = acquire(ORB_TEX, 0, red, green, blue)
-                orb.ghost2 = acquire(ORB_TEX, 0, red, green, blue)
-            end
+            XF_PROFILE.shapes.build(orb, shape, trail, red, green, blue)
             nLive = nLive + 1
             live[nLive] = orb
             orb.burstKey = burstKey
@@ -1896,6 +2029,20 @@ function ns.commands.path(arg)
     ns.Print("flight style: " .. (ns.PATH_LABEL[settings().flightPath] or "Smooth"))
 end
 
+-- /xporbs shape starlight|retro|wisp|power: how the orbs are drawn (db.orbShape). No argument shows the current one.
+function ns.commands.shape(arg)
+    local word = string.match(arg or "", "^%s*(%S*)")
+    if word ~= "" then
+        if not ns.SHAPE_LABEL[word] then
+            ns.Print("shape: use starlight, retro, wisp or power")
+            return
+        end
+        settings().orbShape = word
+        refreshPanel()
+    end
+    ns.Print("orb shape: " .. (ns.SHAPE_LABEL[settings().orbShape] or ns.SHAPE_LABEL.starlight))
+end
+
 local function spreadState()
     return settings().zoomSpread and "on" or "off"
 end
@@ -1965,4 +2112,8 @@ end)
 
 table.insert(ns.statusProviders, function()
     return "unknown origin: " .. tostring(settings().unknownOrigin)
+end)
+
+table.insert(ns.statusProviders, function()
+    return "orb shape: " .. (ns.SHAPE_LABEL[settings().orbShape] or ns.SHAPE_LABEL.starlight)
 end)

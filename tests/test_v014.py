@@ -268,11 +268,11 @@ def test_round_flash_lands_on_the_centre_plus_offset(m):
 @pytest.mark.parametrize(
     "key,y,h",
     [
-        ("glowShape", 1084, 24),
-        ("glowOffsetX", 1116, 32),
-        ("glowOffsetY", 1148, 32),
-        ("glow", 1184, 28),
-        ("glowIntensity", 1212, 32),
+        ("glowShape", 1118, 24),
+        ("glowOffsetX", 1150, 32),
+        ("glowOffsetY", 1182, 32),
+        ("glow", 1218, 28),
+        ("glowIntensity", 1246, 32),
     ],
 )
 def test_new_rows_follow_the_grid(m, key, y, h):
@@ -390,16 +390,16 @@ def test_picker_hint_fontstring(m):
     assert h.text == "For a replaced XP bar, or to target your portrait (Circular)."
     assert [h.textColor[i] for i in (1, 2, 3)] == pytest.approx([0.7, 0.7, 0.7])
     assert h.width == 520 and h.calls["SetWordWrap"][1] is True
-    assert (h.points[1][4], h.points[1][5]) == (32, -1054)
+    assert (h.points[1][4], h.points[1][5]) == (32, -1088)
     assert h.text in panel_texts(m)
 
 
 def test_content_height_grew_and_rows_below_moved(m):
-    assert m.opt.CONTENT_H == 1328 and m.opt.child.height == 1328
-    assert m.opt.rows["debug"].points[1][5] == -1284
-    assert 1284 + 28 + 16 == m.opt.CONTENT_H
+    assert m.opt.CONTENT_H == 1362 and m.opt.child.height == 1362
+    assert m.opt.rows["debug"].points[1][5] == -1318
+    assert 1318 + 28 + 16 == m.opt.CONTENT_H
     # the picker hint (one line) clears the shape row
-    assert 1054 + 30 <= 1084
+    assert 1088 + 30 <= 1118
 
 
 # ---------------------------------------------------------------- design-review fixes (docs/review-v013)
