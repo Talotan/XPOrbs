@@ -784,7 +784,7 @@ def test_old_chime_files_are_gone():
     assert not list(
         SOUNDS.glob("*.ogg")
     )  # every sound lives under media/chime/<level>/
-    assert len(list((SOUNDS / "chime").glob("*/*.ogg"))) == 7 * 18
+    assert len(list((SOUNDS / "chime").glob("*/*.ogg"))) == 7 * 30
 
 
 def load_generator():
@@ -815,18 +815,19 @@ def test_generator_is_stdlib_only_and_documents_the_licence():
 
 
 @pytest.mark.parametrize(
-    "voice,centre,cents", [("coin", 1700, 100), ("glass", 3000, 150)]
+    "voice,centre,cents",
+    [("glassb", 1700, 100), ("coin", 3100, 120), ("glass", 3000, 150)],
 )
 def test_generator_makes_six_close_pitches_per_voice(voice, centre, cents):
     mod = load_generator()
-    assert set(mod.VOICES) == {"coin", "glass", "brush"}
+    assert set(mod.VOICES) == {"coin", "glass", "glassb", "brush", "ding"}
     notes = mod.notes(voice)
     assert len(notes) == 6 and notes == sorted(notes) and len(set(notes)) == 6
     for f in notes:
         assert abs(1200 * math.log2(f / centre)) <= cents + 1
 
 
-@pytest.mark.parametrize("voice", ["coin", "glass"])
+@pytest.mark.parametrize("voice", ["glassb", "glass"])
 def test_generator_voices_are_quiet_short_and_deterministic(voice):
     mod = load_generator()
     for f in mod.notes(voice):
@@ -840,12 +841,12 @@ def test_generator_voices_are_quiet_short_and_deterministic(voice):
 def test_glass_has_no_second_strike_and_coin_does():
     mod = load_generator()
     assert mod.VOICES["glass"]["BOUNCE_AMP"] == 0
-    assert mod.VOICES["coin"]["BOUNCE_AMP"] > 0
-    # the coin's settling strike lands at 30 ms; without it the same voice is identical before and different after
-    one_strike = dict(mod.VOICES["coin"], BOUNCE_AMP=0.0)
+    assert mod.VOICES["glassb"]["BOUNCE_AMP"] > 0
+    # glassb's settling strike lands at 30 ms; without it the same voice is identical before and different after
+    one_strike = dict(mod.VOICES["glassb"], BOUNCE_AMP=0.0)
     mod.VOICES["plain"] = one_strike
     i = int(44100 * 0.03)
-    with_b, without = mod.synth(1700.0, "coin"), mod.synth(1700.0, "plain")
+    with_b, without = mod.synth(1700.0, "glassb"), mod.synth(1700.0, "plain")
     assert with_b[i + 100 : i + 400] != without[i + 100 : i + 400]
     # the glass voice is already a single strike: forcing its bounce on changes it, so it really has none
     mod.VOICES["glass2"] = dict(mod.VOICES["glass"], BOUNCE_S=0.03, BOUNCE_AMP=0.35)

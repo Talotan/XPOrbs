@@ -33,6 +33,7 @@ Calib.lua
 Kills.lua
 Sources.lua
 Options.lua
+ShapePreview.lua
 Preview.lua
 Setup.lua
 Minimap.lua

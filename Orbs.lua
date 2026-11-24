@@ -182,19 +182,24 @@ local SP_PROFILE = { born = 0.03, bloomMin = 0.20, bloomSpan = 0.06, bsize = 1.5
 XF_PROFILE.sp = SP_PROFILE -- reached through XF_PROFILE from Burst, which cannot take another upvalue
 
 -- Orb shapes (db.orbShape). "starlight" is the original drawing in this file: orb.shape is nil for it, so every branch
--- below that handles a shape is skipped and Starlight runs exactly the code it always did. Retro, Wisp and Power live
--- in Shapes.lua (loaded right after this file): it fills `by` (name -> shape table) and uses `host` (the helpers of
--- this file: pooled textures, placement, the flight path) and `k` (the shared tunables). One table, reached through
+-- below that handles a shape is skipped and Starlight runs exactly the code it always did. Retro, Globe and Crackle
+-- live in Shapes.lua (loaded right after this file): it fills `by` (name -> shape table) and uses `host` (the helpers
+-- of this file: pooled textures, placement, the flight path) and `k` (the shared tunables). One table, reached through
 -- XF_PROFILE from Burst, which cannot take another upvalue.
+-- Every orb also carries orb.opacity (db.opacity / 100, taken per burst): the alpha computed once per orb is multiplied
+-- by it, so every texture of every shape follows (a pop group has group.opacity). orb.base is db.size x the burst's
+-- scale, before the rested multiplier: Retro's one cell size per burst comes from it.
 -- A shape table has: needTrail / needPlain (pool textures per flying orb with / without the trail), adjust(n, nPurple,
 -- scale) -> n, nPurple, scale (count and size multipliers), timeMul (flight time), build(orb, trail, red, green, blue)
 -- (the textures of a flying orb), setup(under, body, spark, st, red, green, blue) (the 3 textures of a pop or copy-A
 -- slot; also the first three of a flying orb), draw(st, t, rel, under, body, spark, x, y, size, alpha) (the 3 textures
--- of one orb, no trail; size is db.size scaled, never GLOW) and optionally trail(...), see Shapes.lua. `st` is the
+-- of one orb, no trail; size is db.size scaled, never GLOW; grow, when given (a pop or bloom), is 0.4..1 of the flight
+-- size, see SHAPES.grow) and optionally trail(...), see Shapes.lua. `st` is the
 -- table holding the orb's shape state: the orb record, or a per-slot table of a pop group.
 local SHAPES = { by = {}, host = {}, k = { glow = GLOW, ghostStep = GHOST_STEP, ghost1Alpha = GHOST1_ALPHA,
     ghost1Size = GHOST1_SIZE, ghost2Alpha = GHOST2_ALPHA, ghost2Size = GHOST2_SIZE, underK = UNDER_K,
-    sparkleWhite = SPARKLE_WHITE, extras = EXTRAS } }
+    sparkleWhite = SPARKLE_WHITE, extras = EXTRAS, underSize = UNDER_SIZE, underAlpha = UNDER_ALPHA,
+    sparkle = SPARKLE, sparkleAlpha = SPARKLE_ALPHA, restedSize = RESTED_SIZE } }
 ns.OrbShapes = SHAPES
 XF_PROFILE.shapes = SHAPES
 
@@ -379,6 +384,19 @@ local function resolveNormal(config)
     return normalColour
 end
 
+-- The same normal-orb colour as r, g, b without touching the burst's table (the options preview asks for it).
+function Orbs.NormalRGB(config)
+    local colour = config.color
+    local red, green, blue = colour[1], colour[2], colour[3]
+    if config.classColor then
+        local classRed, classGreen, classBlue = classRGB()
+        if classRed then
+            red, green, blue = classRed, classGreen, classBlue
+        end
+    end
+    return red, green, blue
+end
+
 -- Circular shape = the destination is a round frame (a portrait): the orbs aim at its centre, not the XP fill edge.
 -- Independent of Show glow (v0.14): the shape describes the target frame, not just the flash.
 local function aimCentre(config)
@@ -522,7 +540,7 @@ local function freeOrb(orb)
     if orb.ghost2 then
         release(orb.ghost2)
     end
-    if orb.ghost3 then -- Wisp's longer trail
+    if orb.ghost3 then -- Globe's longer trail
         release(orb.ghost3)
         release(orb.ghost4)
     end
@@ -544,8 +562,9 @@ local function freeOrb(orb)
 end
 
 -- Crossfade copy A: this orb's textures on the plate-anchored frame, offset by (B - P-hat). Under pcall.
-local function drawA(orb, group, posX, posY, size, alpha)
+local function drawA(orb, group, posX, posY, size, alpha, grow)
     local tex, slotBase = group.tex, orb.slotBase
+    alpha = alpha * (orb.opacity or 1)
     if alpha <= 0 then
         hideTex(tex[slotBase + 1])
         hideTex(tex[slotBase + 2])
@@ -556,7 +575,7 @@ local function drawA(orb, group, posX, posY, size, alpha)
     local shape = orb.shape
     if shape then
         shape.draw(orb, orb.elapsed, frame, tex[slotBase + 1], tex[slotBase + 2], tex[slotBase + 3], ox, oy, size,
-            alpha)
+            alpha, grow)
         return
     end
     placeRel(tex[slotBase + 1], frame, ox, oy, size * GLOW * UNDER_SIZE, alpha * UNDER_ALPHA)
@@ -567,8 +586,8 @@ local function drawA(orb, group, posX, posY, size, alpha)
 end
 
 -- drawA under pcall; the first failure silences copy A for the whole burst frame and is logged once.
-local function safeA(orb, group, posX, posY, size, alpha)
-    local ok, err = pcall(drawA, orb, group, posX, posY, size, alpha)
+local function safeA(orb, group, posX, posY, size, alpha, grow)
+    local ok, err = pcall(drawA, orb, group, posX, posY, size, alpha, grow)
     if not ok then
         group.fadeMultiplier = 0
         if not popErrSeen then
@@ -581,7 +600,7 @@ end
 local function hideB(orb)
     hideTex(orb.under)
     hideTex(orb.body)
-    if orb.spark then -- (Wisp has no sparkle)
+    if orb.spark then
         hideTex(orb.spark)
     end
     if orb.ghost1 then
@@ -606,22 +625,23 @@ local function drawHold(orb, age)
     local eased = 1 - (1 - bloomProgress) * (1 - bloomProgress) * (1 - bloomProgress)
     local alpha = age < profile.fadeIn and age / profile.fadeIn or 1
     local group = orb.group
+    local grow = orb.shape and SHAPES.grow(bloomProgress) -- (a shape that draws a pop smaller at first)
     hideB(orb)
     local ringX, ringY = orb.ringX, orb.ringY -- x0, y0 is copy B's start near the bar; A rests on its own ring point
     local leaveProgress = (sinceBloom - orb.leaveStart) / profile.leaveTime
     if leaveProgress > 0 then
         -- leave: accelerate away along u, fading out; leaveProgress >= 1 draws nothing (the gap before B appears)
         if leaveProgress >= 1 then
-            safeA(orb, group, ringX, ringY, 0, 0)
+            safeA(orb, group, ringX, ringY, 0, 0, grow)
         else
             local leaveOffset = orb.leaveDist * leaveProgress * leaveProgress
             safeA(orb, group, ringX + orb.ux * leaveOffset, ringY + orb.uy * leaveOffset,
-                orb.size * (1 - 0.2 * leaveProgress), (1 - leaveProgress * leaveProgress) * group.fadeMultiplier)
+                orb.size * (1 - 0.2 * leaveProgress), (1 - leaveProgress * leaveProgress) * group.fadeMultiplier, grow)
         end
         return
     end
     safeA(orb, group, orb.px + (ringX - orb.px) * eased, orb.py + (ringY - orb.py) * eased,
-        orb.size * (1 + (profile.bsize - 1) * (1 - eased)), alpha * group.fadeMultiplier)
+        orb.size * (1 + (profile.bsize - 1) * (1 - eased)), alpha * group.fadeMultiplier, grow)
 end
 
 -- Stream pop bloom: `age` seconds after the orb's birth, before its launch. Screen space: SP_PROFILE.bloomPoint (size
@@ -629,11 +649,12 @@ end
 local function drawSpHold(orb, age)
     local profile = SP_PROFILE
     local x, y, eased = SP_PROFILE.bloomPoint(orb, age)
-    local alpha = age < profile.fadeIn and age / profile.fadeIn or 1
+    local alpha = (age < profile.fadeIn and age / profile.fadeIn or 1) * (orb.opacity or 1)
     local size = orb.size * (1 + (profile.bsize - 1) * (1 - eased))
     local shape = orb.shape
     if shape then
-        shape.draw(orb, orb.elapsed, nil, orb.under, orb.body, orb.spark, x, y, size, alpha)
+        shape.draw(orb, orb.elapsed, nil, orb.under, orb.body, orb.spark, x, y, size, alpha,
+            SHAPES.grow(age / orb.bloom))
         return
     end
     place(orb.under, x, y, size * GLOW * UNDER_SIZE, alpha * UNDER_ALPHA)
@@ -696,12 +717,12 @@ local function drawOrb(orb, progress, dx, dy)
         size = size * (1 - 0.4 * (progress - SHRINK_FROM) / (1 - SHRINK_FROM))
     end
     local fadeIn = orb.fadeIn
-    local alpha = progress < fadeIn and progress / fadeIn or 1
+    local alpha = (progress < fadeIn and progress / fadeIn or 1) * (orb.opacity or 1)
     local group = orb.group
     local shape = orb.shape
     if shape then
         shape.draw(orb, orb.elapsed, nil, orb.under, orb.body, orb.spark, orbX, orbY, size * sizeMul, alpha * alphaMul)
-        if shape.trail then -- a trail of its own (Retro, Wisp); Power keeps the Starlight ghosts below
+        if shape.trail then -- a trail of its own (Retro, Globe); Crackle keeps the Starlight ghosts below
             if orb.ghost1 then
                 shape.trail(orb, progress, dx, dy, control2X, control2Y, orbX, orbY, alpha * alphaMul)
             end
@@ -783,6 +804,7 @@ local function setupPop(group, plate, orbCount, scale, restedCount, restedColour
                         spreadFactor)
     local config = ns.db
     local shape = group.shape -- nil: Starlight
+    group.opacity = config.opacity / 100
     local frame, tex = group.frame, group.tex
     frame:ClearAllPoints()
     local rel, y = plateAnchor(bodyAnchorY, "CENTER", POP_Y)
@@ -804,6 +826,7 @@ local function setupPop(group, plate, orbCount, scale, restedCount, restedColour
         clean(sparkleTex)
         if shape then
             group.st[i] = group.st[i] or {}
+            group.st[i].base = config.size * scale -- (Retro's one cell size per burst)
             shape.setup(underTex, orbTex, sparkleTex, group.st[i], red, green, blue)
         else
             underTex:SetTexture(ORB_TEX)
@@ -986,7 +1009,8 @@ local function drawPop(group)
     end
     local eased = 1 - (1 - progress) * (1 - progress) * (1 - progress)
     local sizeScale = progress > POP_SHRINK_FROM and 1 - (progress - POP_SHRINK_FROM) / (1 - POP_SHRINK_FROM) or 1
-    local alpha = progress > POP_FADE_FROM and 1 - (progress - POP_FADE_FROM) / (1 - POP_FADE_FROM) or 1
+    local alpha = (progress > POP_FADE_FROM and 1 - (progress - POP_FADE_FROM) / (1 - POP_FADE_FROM) or 1)
+        * (group.opacity or 1)
     if group.fading then
         alpha = alpha * (1 - group.fadeElapsed / POP_FADE_OUT)
     end
@@ -997,13 +1021,14 @@ local function drawPop(group)
     local frame, tex = group.frame, group.tex
     local spin = TWO_PI * group.elapsed
     local shape = group.shape
+    local grow = shape and SHAPES.grow(progress) -- (a shape that draws a pop smaller at first)
     for i = 1, group.n do
         local ox = group.offsetX[i] * eased * gather + exitX
         local oy = (group.offsetY[i] + group.drift[i]) * eased * gather + exitY
         local slotBase = (i - 1) * 3
         if shape then
             shape.draw(group.st[i], group.elapsed, frame, tex[slotBase + 1], tex[slotBase + 2], tex[slotBase + 3], ox,
-                oy, group.size[i] * POP_SIZE * sizeScale, alpha)
+                oy, group.size[i] * POP_SIZE * sizeScale, alpha, grow)
         else
             local size = group.size[i] * GLOW * POP_SIZE * sizeScale
             placeRel(tex[slotBase + 1], frame, ox, oy, size * UNDER_SIZE, alpha * POP_UNDER_ALPHA)
@@ -1515,6 +1540,7 @@ function Orbs:Burst(params)
             local red, green, blue = colour[1], colour[2], colour[3]
             local orb = newRec()
             orb.shape = shape
+            orb.base, orb.opacity = config.size * scale, config.opacity / 100 -- (see SHAPES)
             building, buildingLive = orb, false
             local controlScale, staggerScale, pathJitterLow, pathJitterSpan = OrbMath.PathShape(burstPath)
             orb.group, orb.hold, orb.easeWeight, orb.profile = nil, 0, nil, nil
@@ -2029,18 +2055,32 @@ function ns.commands.path(arg)
     ns.Print("flight style: " .. (ns.PATH_LABEL[settings().flightPath] or "Smooth"))
 end
 
--- /xporbs shape starlight|retro|wisp|power: how the orbs are drawn (db.orbShape). No argument shows the current one.
+-- /xporbs shape starlight|retro|globe|crackle: how the orbs are drawn (db.orbShape; the old names power and wisp still
+-- work). Size, quantity and opacity are remembered per shape (ns.SetOrbShape). No argument shows the current one.
 function ns.commands.shape(arg)
     local word = string.match(arg or "", "^%s*(%S*)")
     if word ~= "" then
-        if not ns.SHAPE_LABEL[word] then
-            ns.Print("shape: use starlight, retro, wisp or power")
+        settings()
+        if not ns.SetOrbShape(word) then
+            ns.Print("shape: use starlight, retro, globe or crackle")
             return
         end
-        settings().orbShape = word
         refreshPanel()
     end
     ns.Print("orb shape: " .. (ns.SHAPE_LABEL[settings().orbShape] or ns.SHAPE_LABEL.starlight))
+end
+
+-- /xporbs pulse on|off: the "Pulsing" tickbox (db.pulse): Globe orbs gently swell and shrink.
+function ns.commands.pulse(arg)
+    local word = string.match(arg or "", "%S+")
+    if word == "on" or word == "off" then
+        settings().pulse = word == "on"
+        refreshPanel()
+    elseif word ~= nil then
+        ns.Print("pulse: use on or off (now " .. (settings().pulse and "on" or "off") .. ")")
+        return
+    end
+    ns.Print("pulsing: " .. (settings().pulse and "on" or "off"))
 end
 
 local function spreadState()
@@ -2115,5 +2155,8 @@ table.insert(ns.statusProviders, function()
 end)
 
 table.insert(ns.statusProviders, function()
-    return "orb shape: " .. (ns.SHAPE_LABEL[settings().orbShape] or ns.SHAPE_LABEL.starlight)
+    local config = settings()
+    return string.format("orb shape: %s (size %d, quantity %d%%, opacity %d%%), pulsing %s",
+        ns.SHAPE_LABEL[config.orbShape] or ns.SHAPE_LABEL.starlight, config.size, config.density, config.opacity,
+        config.pulse and "on" or "off")
 end)

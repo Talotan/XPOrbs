@@ -7,9 +7,12 @@ local ADDON, ns = ...
 
 ns.defaults = {
     enabled = true,
+    -- size, density and opacity are the ACTIVE values of the current orb shape (everything else reads these): each
+    -- shape keeps its own in shapeLook, swapped in by ns.SetOrbShape and written through by ns.SetLook
     density = 100, -- orb multiplier in % (100 = normal), see OrbMath.Count
     cap = 40,
     size = 14,
+    opacity = 100, -- orb opacity in % (every orb texture except the arrival flash)
     flightTime = 1.0,
     -- the Forever XP bar is purple (blue when rested); orbs are additive, so these are full-brightness versions
     color = { 0.72, 0.28, 1.00 },
@@ -35,7 +38,15 @@ ns.defaults = {
     -- Popstream's sub-choice: "nameplate" (pop on the nameplate) or "direct" (pop at the estimate)
     popMode = "nameplate",
     flightPath = "smooth", -- how orbs fly: "smooth" (the plain curve), "chaos" (erratic) or "helix" (spiralling)
-    orbShape = "starlight", -- how orbs are drawn: "starlight", "retro" (pixel art), "wisp" or "power" (ns.SHAPE_LABEL)
+    orbShape = "starlight", -- how orbs are drawn: "starlight", "retro" (pixel art), "globe" or "crackle" (SHAPE_LABEL)
+    pulse = true, -- Globe orbs gently swell and shrink
+    -- the look each orb shape remembers (see ns.SHAPE_LOOK_KEYS); a missing or broken entry gets these
+    shapeLook = {
+        starlight = { size = 14, density = 100, opacity = 100 },
+        retro = { size = 12, density = 75, opacity = 100 },
+        globe = { size = 17, density = 100, opacity = 100 },
+        crackle = { size = 14, density = 100, opacity = 100 },
+    },
     glow = true, -- arrival flash on/off
     -- "bar" (horizontal flash on the fill edge), "vertical" (the same flash upright, filling bottom to top) or "round"
     -- (circular glow at the frame centre)
@@ -64,6 +75,7 @@ ns.ranges = {
     density = { 25, 400, 25 },
     cap = { 5, 80, 1 },
     size = { 8, 32, 1 },
+    opacity = { 20, 100, 5 },
     flightTime = { 0.4, 1.5, 0.05 },
     glowOffsetX = { -100, 100, 1 },
     glowOffsetY = { -100, 100, 1 },
@@ -110,8 +122,79 @@ ns.STYLE_LABEL = { popstream = "Popstream", crossfade = "Crossfade", stream = "D
 ns.POPMODE_LABEL = { nameplate = "Nameplate", direct = "Direct" }
 ns.PATH_ORDER = { "smooth", "chaos", "helix" }
 ns.PATH_LABEL = { smooth = "Smooth", chaos = "Chaos", helix = "Helix" } -- the valid db.flightPath values
-ns.SHAPE_ORDER = { "starlight", "retro", "wisp", "power" }
-ns.SHAPE_LABEL = { starlight = "Starlight", retro = "Retro", wisp = "Wisp", power = "Power" } -- valid db.orbShape
+ns.SHAPE_ORDER = { "starlight", "retro", "globe", "crackle" }
+ns.SHAPE_LABEL = { starlight = "Starlight", retro = "Retro", globe = "Globe", crackle = "Crackle" } -- valid db.orbShape
+ns.SHAPE_ALIAS = { power = "crackle", wisp = "globe" } -- the first names of these shapes, still accepted
+ns.SHAPE_LOOK_KEYS = { "size", "density", "opacity" } -- the settings each shape remembers for itself
+
+-- The shape a name stands for (a current name or an old alias), or nil.
+function ns.CanonShape(name)
+    if type(name) ~= "string" then
+        return nil
+    end
+    name = ns.SHAPE_ALIAS[name] or name
+    return ns.SHAPE_LABEL[name] and name or nil
+end
+
+-- A shape's default for one of ns.SHAPE_LOOK_KEYS.
+function ns.ShapeDefault(shape, key)
+    local looks = ns.defaults.shapeLook
+    return (looks[shape] or looks[ns.defaults.orbShape])[key]
+end
+
+-- The saved look entry of a shape (made when missing).
+local function lookOf(db, shape)
+    if type(db.shapeLook) ~= "table" then
+        db.shapeLook = {}
+    end
+    if type(db.shapeLook[shape]) ~= "table" then
+        db.shapeLook[shape] = {}
+    end
+    return db.shapeLook[shape]
+end
+
+-- Stores the active size / density / opacity as `shape`'s own.
+local function storeLook(db, shape)
+    local look = lookOf(db, shape)
+    for _, key in ipairs(ns.SHAPE_LOOK_KEYS) do
+        look[key] = db[key]
+    end
+end
+
+-- Makes `shape`'s remembered size / density / opacity the active ones.
+local function loadLook(db, shape)
+    local look = lookOf(db, shape)
+    for _, key in ipairs(ns.SHAPE_LOOK_KEYS) do
+        db[key] = look[key] == nil and ns.ShapeDefault(shape, key) or look[key]
+    end
+end
+
+-- Switches the orb shape (any name or alias; false when it is none): the active size / density / opacity go to the
+-- old shape's entry and the new shape's come in. The one way the Options dropdown and /xporbs shape change it.
+function ns.SetOrbShape(name)
+    local shape = ns.CanonShape(name)
+    if not shape then
+        return false
+    end
+    local db = ns.db
+    if not db then
+        ns:InitDB()
+        db = ns.db
+    end
+    if shape ~= db.orbShape then
+        storeLook(db, ns.CanonShape(db.orbShape) or ns.defaults.orbShape)
+        db.orbShape = shape
+        loadLook(db, shape)
+    end
+    return true
+end
+
+-- Writes one of ns.SHAPE_LOOK_KEYS: the active value and the current shape's entry (what the sliders do).
+function ns.SetLook(key, value)
+    local db = ns.db
+    db[key] = value
+    lookOf(db, ns.CanonShape(db.orbShape) or ns.defaults.orbShape)[key] = value
+end
 
 -- The renderer's own style for a style name (any alias) and a popMode: "popstream" (pop on the nameplate),
 -- "streampop" (pop at the estimate, screen space), "crossfade" or "stream". Unknown names give the default.
@@ -214,7 +297,7 @@ end
 
 local BOOLEANS = {
     "enabled", "classColor", "restedTint", "trail", "questBursts", "exploreBursts", "showAtMax", "debug", "glow",
-    "sound", "zoomAnchor", "zoomSpread", "setupDismissed",
+    "sound", "zoomAnchor", "zoomSpread", "setupDismissed", "pulse",
 }
 local ZOOM_RANGES = { zoomA = { -100, 300 }, zoomB = { 0, 3000 }, zoomMin = { 0.5, 10 } }
 ns.ZOOM_POINTS_MAX = ZOOM_POINTS_MAX
@@ -272,9 +355,20 @@ local function sanitize(db)
     if not ns.PATH_LABEL[db.flightPath] then
         db.flightPath = defaults.flightPath
     end
-    if not ns.SHAPE_LABEL[db.orbShape] then
-        db.orbShape = defaults.orbShape
+    db.orbShape = ns.CanonShape(db.orbShape) or defaults.orbShape -- (maps the old names power and wisp)
+    -- every shape's remembered look: missing, partial or broken entries fall back to that shape's defaults, values
+    -- are snapped to the slider ranges; then the current shape's entry becomes the active size / density / opacity
+    if type(db.shapeLook) ~= "table" then
+        db.shapeLook = {}
     end
+    for shape in pairs(ns.SHAPE_LABEL) do
+        local look = lookOf(db, shape)
+        for _, key in ipairs(ns.SHAPE_LOOK_KEYS) do
+            local range = ns.ranges[key]
+            look[key] = Snap(look[key], range[1], range[2], range[3]) or ns.ShapeDefault(shape, key)
+        end
+    end
+    loadLook(db, db.orbShape)
     if db.unknownOrigin ~= "off" and db.unknownOrigin ~= "wide" then -- also maps the dropped "late"/"inplace"
         db.unknownOrigin = defaults.unknownOrigin
     end
@@ -332,6 +426,11 @@ function ns:InitDB()
         XPOrbsDB = {}
     end
     migrate(XPOrbsDB)
+    -- a save from before the per-shape look: its size and density become the current shape's own
+    if XPOrbsDB.shapeLook == nil then
+        local shape = ns.CanonShape(XPOrbsDB.orbShape) or ns.defaults.orbShape
+        XPOrbsDB.shapeLook = { [shape] = { size = XPOrbsDB.size, density = XPOrbsDB.density } }
+    end
     -- exploreBursts was split off questBursts: a save that predates it keeps what the player chose for both
     if XPOrbsDB.exploreBursts == nil and type(XPOrbsDB.questBursts) == "boolean" then
         XPOrbsDB.exploreBursts = XPOrbsDB.questBursts
@@ -416,8 +515,9 @@ function commands.help()
         .. "direction)")
     say("  stream = Direct Stream: a plain stream from the estimated mob position (no pop, no nameplate)")
     say("/xporbs path smooth|chaos|helix - flight style: a clean arc, an erratic wobble or a spiral (no arg: show)")
-    say("/xporbs shape starlight|retro|wisp|power - orb shape: soft stars, pixel art, glowing wisps or crackling "
-        .. "power orbs (no arg: show)")
+    say("/xporbs shape starlight|retro|globe|crackle - orb shape: soft stars, pixel art, glowing globes or "
+        .. "crackling orbs (no arg: show). Size, quantity and opacity are remembered per shape")
+    say("/xporbs pulse on|off - Globe orbs gently swell and shrink (no arg: show)")
     say("/xporbs wide on|off - zoom-scaled spread: pops and stream starts spread wider when zoomed in, tighter "
         .. "zoomed out (on by default)")
     say("/xporbs unknown wide|off - where orbs start when the mob's position is unknown")

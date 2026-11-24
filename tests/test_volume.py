@@ -52,7 +52,7 @@ def test_no_stray_level_folders_or_files():
         str(level) for level in LEVELS
     )
     for folder in CHIME_DIR.iterdir():
-        assert len(list(folder.iterdir())) == 18
+        assert len(list(folder.iterdir())) == 30  # coin, glass, glassb, brush, ding x 6
 
 
 def load_script(name):
@@ -77,8 +77,20 @@ def test_the_generator_scales_the_samples_and_100_is_unchanged():
     assert peak(mod.synth(freq, "glass", 250)) == pytest.approx(2.5 * peak(base), abs=2)
     assert peak(mod.synth(freq, "glass", 150)) == pytest.approx(1.5 * peak(base), abs=2)
     assert (
-        mod.stats(mod.synth(freq, "coin", 250))[0] < -17.5
+        mod.stats(mod.synth(freq, "glass", 250))[0] < -17.5
     )  # about -18 dBFS: no clipping
+
+
+def test_every_voice_has_six_files_and_stays_under_minus_6_dbfs_at_250():
+    mod = load_script("make_sounds")
+    assert list(mod.VOICES) == ["coin", "glass", "glassb", "brush", "ding"]
+    for voice in mod.VOICES:
+        freqs = mod.notes(voice)
+        assert len(freqs) == 6 and len(set(freqs)) == 6
+        for i, f in enumerate(freqs):
+            samples = mod.synth(f, voice, 250, i)
+            assert samples[-1] == 0
+            assert mod.stats(samples)[0] < -6, voice
 
 
 def test_the_zip_ships_the_whole_chime_tree(tmp_path):
@@ -340,8 +352,8 @@ def test_the_rows_below_moved_down_by_the_slider_row_and_the_content_grew(env):
     m = opts(env)
     show(m)
     assert m.opt.rows["soundVolume"].points[1][5] == -270
-    assert m.opt.rows["debug"].points[1][5] == -1318
-    assert m.opt.CONTENT_H == m.opt.child.height == 1362
+    assert m.opt.rows["debug"].points[1][5] == -1378
+    assert m.opt.CONTENT_H == m.opt.child.height == 1422
 
 
 def test_dragging_plays_one_sample_at_the_new_volume_at_most_every_150_ms(env):
@@ -406,7 +418,9 @@ def test_brush_is_deterministic_rms_is_glass_plus_gain_and_never_clips():
     ]  # same seed, same samples
     assert len({tuple(r) for r in runs}) == 6  # a different noise seed per note
     for samples in runs:
-        assert samples[-1] == 0 and len(samples) == int(mod.RATE * mod.VOICES["brush"]["LENGTH"])
+        assert samples[-1] == 0 and len(samples) == int(
+            mod.RATE * mod.VOICES["brush"]["LENGTH"]
+        )
         # RMS-matched to glass, then GAIN (2.0 = +6.02 dB, a test level: the owner found brush quieter in game)
         assert mod.VOICES["brush"]["GAIN"] == 2.0
         assert 20 * math.log10(
@@ -428,18 +442,38 @@ def test_brush_is_a_swept_band_of_noise_not_a_tone():
         assert abs(corr) < 0.5 * energy
 
 
-def test_brush_attack_is_20ms_raised_cosine_not_a_hit():
+def _onset_ms(samples, frac=0.5, window=88):
+    """Time (ms) at which the 2 ms RMS first reaches frac of its maximum."""
+    rms = [
+        math.sqrt(sum(x * x for x in samples[i : i + window]) / window)
+        for i in range(0, len(samples) - window, 22)
+    ]
+    top = max(rms)
+    return next(k for k, r in enumerate(rms) if r >= frac * top) * 22 / 44100 * 1000
+
+
+def test_brush_onset_is_soft_34ms_raised_cosine_and_softer_than_the_old_hit():
     mod = load_script("make_sounds")
-    assert mod.VOICES["brush"]["ATTACK"] == 0.020
-    assert not mod.VOICES["brush"]["SOFT"]
+    v = mod.VOICES["brush"]
+    assert v["ATTACK"] == 0.034 and v["LENGTH"] == 0.26 and v["AIR"] < 0.15
+    old = {**v, **mod.CANDIDATES["brush-B-original"][1]}  # the 20 ms, air 0.15 voice
     for i, f in enumerate(mod.notes("brush")):
         samples = mod.synth(f, "brush", 100, i)
         peak = max(abs(x) for x in samples)
-        attack_n = int(mod.RATE * 0.020)
         # the raised cosine starts from silence: the first 1 ms is far below the peak
         assert max(abs(x) for x in samples[: mod.RATE // 1000]) < 0.1 * peak
-        # the loudest sample comes after the 20 ms ramp has mostly risen, not at sample 0
-        assert samples.index(max(samples, key=abs)) > attack_n // 4
+        assert samples.index(max(samples, key=abs)) > int(mod.RATE * v["ATTACK"]) // 4
+    # the noise makes single notes vary a little, so compare the mean over the six notes: half of the peak level
+    # arrives no earlier than 15 ms in, and later than for the 20 ms original
+    soft = [
+        _onset_ms(mod.synth(f, "brush", 100, i))
+        for i, f in enumerate(mod.notes("brush"))
+    ]
+    hard = [
+        _onset_ms(mod.synth(f, old, 100, i)) for i, f in enumerate(mod.notes("brush"))
+    ]
+    assert sum(soft) / 6 >= 15
+    assert sum(soft) / 6 > sum(hard) / 6 + 1
 
 
 def test_stale_level_folders_are_removed(tmp_path):
@@ -451,3 +485,103 @@ def test_stale_level_folders_are_removed(tmp_path):
     mod.remove_stale_levels(tmp_path)
     assert (tmp_path / "chime" / "100").is_dir()
     assert not any((tmp_path / "chime" / s).exists() for s in ("25", "50", "75"))
+
+
+# ---------------------------------------------------------------- coin, glassb and ding voices
+
+
+def _goertzel_power(samples, freq):
+    w = 2 * math.pi * freq / 44100
+    c = 2 * math.cos(w)
+    s1 = s2 = 0.0
+    for x in samples:
+        s1, s2 = x + c * s1 - s2, s1
+    return s1 * s1 + s2 * s2 - c * s1 * s2
+
+
+def _centroid(samples, step=250, top=20000):
+    freqs = range(step, top + 1, step)
+    power = [_goertzel_power(samples, f) for f in freqs]
+    return sum(f * p for f, p in zip(freqs, power)) / sum(power)
+
+
+def test_glassb_is_the_old_coin_synthesis_and_files_are_deterministic():
+    mod = load_script("make_sounds")
+    v = mod.VOICES["glassb"]
+    assert (v["CENTRE"], v["LENGTH"], v["TAU"], v["PEAK_DBFS"]) == (
+        1700.0,
+        0.22,
+        0.07,
+        -26.0,
+    )
+    assert mod.notes("glassb")[0] == 1613.9
+    for voice in ("coin", "glassb", "ding"):
+        f = mod.notes(voice)[1]
+        assert mod.synth(f, voice, 100, 1) == mod.synth(f, voice, 100, 1)
+
+
+def test_coin_is_a_longer_brighter_ring_than_glassb_and_rms_matched_to_glass():
+    mod = load_script("make_sounds")
+    coin, old = mod.VOICES["coin"], mod.VOICES["glassb"]
+    assert 0.35 <= coin["LENGTH"] <= 0.45 and coin["LENGTH"] > old["LENGTH"]
+    # six inharmonic thin-disc modes, none a whole multiple of the fundamental
+    assert len(coin["PARTIALS"]) == 6
+    assert all(abs(r - round(r)) > 0.1 for r, _, _ in coin["PARTIALS"][1:])
+    freqs = mod.notes("coin")
+    assert all(abs(1200 * math.log2(f / coin["CENTRE"])) <= 60.5 for f in freqs)
+    assert max(freqs) / min(freqs) < 2 ** (120 / 1200) + 1e-9
+    glass = [
+        10 ** (mod.stats(mod.synth(f, "glass"))[1] / 20) for f in mod.notes("glass")
+    ]
+    glass_rms = sum(glass) / len(glass)
+    for i, f in enumerate(freqs):
+        c = mod.synth(f, "coin", 100, i)
+        assert len(c) == int(mod.RATE * coin["LENGTH"]) and c[-1] == 0
+        assert 10 ** (mod.stats(c)[1] / 20) == pytest.approx(glass_rms, rel=0.02)
+        o = mod.synth(mod.notes("glassb")[i], "glassb", 100, i)
+        assert _centroid(c) > 1.1 * _centroid(o)
+        # rings on: still audible well after the old coin has gone silent
+        tail = c[int(mod.RATE * 0.25) : int(mod.RATE * 0.3)]
+        assert max(abs(x) for x in tail) > 0.01 * max(abs(x) for x in c)
+        break
+
+
+def test_ding_notes_are_pentatonic_stepped_band_limited_and_rms_matched():
+    mod = load_script("make_sounds")
+    v = mod.VOICES["ding"]
+    pentatonic = {0, 2, 4, 7, 9}  # C D E G A, semitones above C
+    freqs = mod.notes("ding")
+    assert len(set(freqs)) == 6 and 750 < min(freqs) and max(freqs) < 1800
+
+    def pitch_class(f):
+        return round(12 * math.log2(f / 440) + 9) % 12  # A4 = 440 is 9 above C
+
+    for f, ratio in zip(freqs, v["STEP_RATIOS"]):
+        assert pitch_class(f) in pentatonic
+        assert ratio in (4 / 3, 3 / 2) and pitch_class(f * ratio) in pentatonic
+    assert v["DUTY"] == 0.25 and v["LEVELS"] == 16 and 0.22 <= v["LENGTH"] <= 0.28
+    glass = [
+        10 ** (mod.stats(mod.synth(f, "glass"))[1] / 20) for f in mod.notes("glass")
+    ]
+    glass_rms = sum(glass) / len(glass)
+    for i, f in enumerate(freqs):
+        s = mod.synth(f, "ding", 100, i)
+        assert s[-1] == 0 and len(s) == int(mod.RATE * v["LENGTH"])
+        assert 10 ** (mod.stats(s)[1] / 20) == pytest.approx(glass_rms, rel=0.02)
+    s = mod.synth(freqs[1], "ding", 100, 1)
+    # stepped envelope: at most 16 distinct levels (peaks of each 0.5 ms block), not a smooth decay
+    blocks = {
+        round(max(abs(x) for x in s[j : j + 22]) / max(abs(x) for x in s) * 15)
+        for j in range(0, len(s) - 22, 22)
+    }
+    assert len(blocks) <= 17
+    # the pitch steps up after STEP_S: the fundamental moves from f to f * ratio
+    early = s[int(mod.RATE * 0.01) : int(mod.RATE * 0.045)]
+    late = s[int(mod.RATE * 0.06) : int(mod.RATE * 0.095)]
+    r = v["STEP_RATIOS"][1]
+    assert _goertzel_power(early, freqs[1]) > 3 * _goertzel_power(early, freqs[1] * r)
+    assert _goertzel_power(late, freqs[1] * r) > 3 * _goertzel_power(late, freqs[1])
+    # band-limited: next to nothing above 18 kHz (no aliasing spikes folded down from past Nyquist)
+    total = sum(_goertzel_power(s, f) for f in range(250, 22001, 250))
+    high = sum(_goertzel_power(s, f) for f in range(18500, 22001, 250))
+    assert high / total < 0.002

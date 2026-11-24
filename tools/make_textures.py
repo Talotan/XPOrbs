@@ -58,7 +58,7 @@ def save_tga(img, path):
     img.save(path, format="TGA", compression=None)
 
 # ---------------------------------------------------------------------------
-# Orb shapes besides Starlight: Retro (pixel art), Wisp (solid ball), Power (core plus crackling bolts).
+# Orb shapes besides Starlight: Retro (pixel art), Globe (solid ball with a glint), Crackle (core plus bolts).
 # Every new texture has power-of-two dimensions (older clients show other sizes as missing); art that is not
 # a power of two is padded and the game crops it with SetTexCoord.
 # ---------------------------------------------------------------------------
@@ -69,7 +69,7 @@ def smoothstep(a, b, x):
     return t * t * (3 - 2 * t)
 
 
-def wisp(u, v):
+def globe(u, v):
     """Glowing ball: a hot centred core on a solid plateau, a faint bright rim and a soft halo."""
     r = math.hypot(u, v)
     body = 0.72 * (1 - smoothstep(0.52, 0.74, r))
@@ -79,14 +79,24 @@ def wisp(u, v):
     return max(halo, body + core + rim)
 
 
-def wisp_under(u, v):
-    """The dark disc under a wisp: solid, with a soft edge."""
+def globe_under(u, v):
+    """The dark disc under a globe: solid, with a soft edge."""
     return 1 - smoothstep(0.60, 0.82, math.hypot(u, v))
 
 
-def power_core(u, v):
+def globe_glint(u, v):
+    """A soft highlight: a gaussian blob a little longer along the diagonal that runs up-right (across the line to
+    the highlight's up-left position), peak 1.0, faded to nothing well inside the quad. Drawn 0.30 x the globe."""
+    along = (u - v) / math.sqrt(2)  # v grows downwards in the image, so (+u, -v) is up and to the right
+    across = (u + v) / math.sqrt(2)
+    blob = math.exp(-(along**2 / (2 * 0.52**2) + across**2 / (2 * 0.40**2)))
+    return blob * (1 - smoothstep(0.55, 0.95, math.hypot(u, v)))
+
+
+def crackle_core(u, v):
+    """The core of a crackle orb: a hot centre and a fuller halo with a clear edge, so the bolts sit on its rim."""
     r = math.hypot(u, v)
-    return min(1.0, math.exp(-((r / 0.20) ** 2) / 2) + 0.55 * (1 - smoothstep(0.0, 0.62, r)) ** 1.5)
+    return min(1.0, math.exp(-((r / 0.20) ** 2) / 2) + 0.75 * (1 - smoothstep(0.0, 0.70, r)) ** 1.5)
 
 
 def polar(r, a):
@@ -112,7 +122,7 @@ def bolt_ring(seed, n_arcs, spike, size=64, ss=4, width=2.6, glow_sigma=2.0, sha
         a0 = base + 2 * math.pi * k / n_arcs + rnd.uniform(-0.3, 0.3)
         sweep = rnd.uniform(1.2, 2.3)
         segs = rnd.randint(6, 8)
-        radius = rnd.uniform(0.44, 0.58)
+        radius = rnd.uniform(0.40, 0.50)  # on the rim of crackle_core (the quad is 1.30 x the body)
         sign = rnd.choice([-1, 1])
         points = []
         for i in range(segs + 1):
@@ -128,7 +138,7 @@ def bolt_ring(seed, n_arcs, spike, size=64, ss=4, width=2.6, glow_sigma=2.0, sha
         stroke(points, width)
     for _ in range(spike):
         a = base + rnd.uniform(0, 2 * math.pi)
-        stroke([polar(0.36, a), polar(0.52, a + 0.25), polar(0.58, a - 0.05), polar(0.76, a + 0.2)], width * 0.8)
+        stroke([polar(0.32, a), polar(0.46, a + 0.25), polar(0.51, a - 0.05), polar(0.67, a + 0.2)], width * 0.8)
     sharp = core.filter(ImageFilter.GaussianBlur(ss * sharp_sigma))
     glow = core.filter(ImageFilter.GaussianBlur(ss * glow_sigma))  # glow gain 1.0
     alpha = ImageChops.lighter(sharp, glow).resize((size, size), Image.Resampling.LANCZOS)
@@ -261,7 +271,7 @@ def preview(imgs):
 
 # --- shape preview sheet: the four shapes with the in-game parameters (Orbs.lua / Shapes.lua) ---------------------------
 
-SIZE = 14  # db.size
+SIZES = {"Starlight": 14, "Retro": 12, "Globe": 17, "Crackle": 14}  # the per-shape default db.size
 PURPLE, BLUE = (0.72, 0.28, 1.0), (0.15, 0.38, 1.0)
 
 
@@ -311,6 +321,7 @@ def _alphas(imgs):
 def draw_orb(canvas, kind, tex, col, x, y, ux, uy, t, rnd, trail=True):
     """One orb at (x, y) flying along (ux, uy) at time t, drawn the way the game composites it."""
     dim = tuple(c * 0.25 for c in col)
+    SIZE = SIZES[kind]
     if kind == "Starlight":
         body = SIZE * 2.0
         if trail:
@@ -320,7 +331,7 @@ def draw_orb(canvas, kind, tex, col, x, y, ux, uy, t, rnd, trail=True):
         add_layer(canvas, tex["orb"], col, x, y, body)
         add_layer(canvas, tex["sparkle"], lighten(col, 0.15), x, y, SIZE * 1.9, 0.6, rot=math.degrees(t * 2 * math.pi))
     elif kind == "Retro":
-        cell = max(2, math.floor(SIZE * 24 / 14 / 8 + 0.5))
+        cell = max(2, math.floor(SIZE * 24 / 14 / 8 + 0.5))  # one cell size for the whole burst
 
         def snap(v):
             return math.floor(v / cell + 0.5) * cell
@@ -337,23 +348,25 @@ def draw_orb(canvas, kind, tex, col, x, y, ux, uy, t, rnd, trail=True):
         if (t + 0.1) % 0.5 < 0.25:  # the twinkle blinks 0.25 s on, 0.25 s off
             twinkle = tex["retro_twinkle"].crop((0, 0, 24, 24))
             add_layer(canvas, twinkle, lighten(col, 0.5), gx - 2.5 * cell, gy - 2.5 * cell, 3 * cell, 1.0, True)
-    elif kind == "Wisp":
-        body = SIZE * 1.6 * 1.5 * (1 + 0.06 * math.sin(2 * math.pi * 2.5 * t))
+    elif kind == "Globe":
+        body = SIZE * 1.5 * (1 + 0.06 * math.sin(2 * math.pi * 2.5 * t))
         if trail:
             for gap, a, s in ((40, 0.12, 0.55), (30, 0.22, 0.65), (20, 0.36, 0.75), (10, 0.52, 0.87)):
-                add_layer(canvas, tex["wisp"], col, x - ux * gap, y - uy * gap, body * s, a)
-        blend_layer(canvas, tex["wisp_under"], dim, x, y, body, 0.80)
-        add_layer(canvas, tex["wisp"], col, x, y, body)
-    else:  # Power
+                add_layer(canvas, tex["globe"], col, x - ux * gap, y - uy * gap, body * s, a)
+        blend_layer(canvas, tex["globe_under"], dim, x, y, body, 0.80)
+        add_layer(canvas, tex["globe"], col, x, y, body)
+        # the glint: 0.30 x the body, up and to the left (the canvas y grows downwards), ADD, 0.55, white 0.75
+        add_layer(canvas, tex["globe_glint"], lighten(col, 0.75), x - 0.20 * body, y - 0.20 * body, body * 0.30, 0.55)
+    else:  # Crackle
         body = SIZE * 2.0
         if trail:
             for gap, a, s in ((20, 0.30, 0.70), (10, 0.55, 0.85)):
-                add_layer(canvas, tex["power_core"], col, x - ux * gap, y - uy * gap, body * s, a)
+                add_layer(canvas, tex["crackle_core"], col, x - ux * gap, y - uy * gap, body * s, a)
         blend_layer(canvas, tex["orb"], dim, x, y, body * 1.6, 0.58)
-        add_layer(canvas, tex["power_core"], col, x, y, body * 0.9)
+        add_layer(canvas, tex["crackle_core"], col, x, y, body * 1.15)
         bolt = tex[f"bolt{rnd.randint(1, 4)}"]
         add_layer(
-            canvas, bolt, lighten(col, 0.15), x, y, body * 1.5, rnd.uniform(0.7, 1.0), rot=rnd.uniform(0, 360)
+            canvas, bolt, lighten(col, 0.15), x, y, body * 1.30, rnd.uniform(0.7, 1.0), rot=rnd.uniform(0, 360)
         )
 
 
@@ -367,7 +380,7 @@ def _background(kind, w, h, seed):
 def preview_shapes(imgs):
     PREVIEW.mkdir(parents=True, exist_ok=True)
     tex = _alphas(imgs)
-    kinds = ["Starlight", "Retro", "Wisp", "Power"]
+    kinds = ["Starlight", "Retro", "Globe", "Crackle"]
     pw, ph = 380, 150
     sheet = Image.new("RGB", (2 * pw + 30, 4 * (ph + 22) + 20 + 150), (30, 30, 36))
     draw = ImageDraw.Draw(sheet)
@@ -383,11 +396,11 @@ def preview_shapes(imgs):
                 draw_orb(panel, kind, tex, col, x, y, ux, uy, rnd.uniform(0, 2), rnd)
             x0, y0 = 10 + col_i * (pw + 10), 10 + row * (ph + 22) + 16
             sheet.paste(panel, (x0, y0))
-            label = f"{kind} / {bg_kind}" + (" (12 shown; the game draws half)" if kind == "Wisp" else "")
+            label = f"{kind} (size {SIZES[kind]}) / {bg_kind}"
             draw.text((x0, y0 - 14), label, fill=(210, 210, 215))
-    # ten consecutive ticks of one Power orb (a tick is 70-90 ms): the bolt changes frame, angle and brightness
+    # ten consecutive ticks of one Crackle orb (a tick is 70-90 ms): the bolt changes frame, angle and brightness
     y0 = 10 + 4 * (ph + 22) + 16
-    draw.text((10, y0 - 14), "Power: ten bolt ticks", fill=(210, 210, 215))
+    draw.text((10, y0 - 14), "Crackle: ten bolt ticks", fill=(210, 210, 215))
     rnd = random.Random(99)
     frame, turn = 1, 0.0
     for i in range(10):
@@ -395,10 +408,10 @@ def preview_shapes(imgs):
         frame = (frame + rnd.randint(0, 2)) % 4 + 1  # never the same frame twice running
         turn += rnd.uniform(60, 300)
         bolt = tex[f"bolt{frame}"]
-        body = SIZE * 2.0
+        body = SIZES["Crackle"] * 2.0
         blend_layer(cell, tex["orb"], tuple(c * 0.25 for c in BLUE), 35, 55, body * 1.6, 0.58)
-        add_layer(cell, tex["power_core"], BLUE, 35, 55, body * 0.9)
-        add_layer(cell, bolt, lighten(BLUE, 0.15), 35, 55, body * 1.5, rnd.uniform(0.7, 1.0), rot=turn)
+        add_layer(cell, tex["crackle_core"], BLUE, 35, 55, body * 1.15)
+        add_layer(cell, bolt, lighten(BLUE, 0.15), 35, 55, body * 1.30, rnd.uniform(0.7, 1.0), rot=turn)
         sheet.paste(cell, (10 + i * 74, y0))
     sheet.save(PREVIEW / "shapes.png")
 
@@ -414,13 +427,14 @@ def main():
         "retro": retro(),
         "retro_under": retro_under(),
         "retro_twinkle": retro_twinkle(),
-        "wisp": build((64, 64), wisp),
-        "wisp_under": build((64, 64), wisp_under),
-        "power_core": build((64, 64), power_core),
+        "globe": build((64, 64), globe),
+        "globe_under": build((64, 64), globe_under),
+        "globe_glint": build((64, 64), globe_glint),
+        "crackle_core": build((64, 64), crackle_core),
         "bolt1": bolt_ring(301, 2, 1),
         "bolt2": bolt_ring(302, 1, 1),
         "bolt3": bolt_ring(303, 2, 0),
-        "bolt4": bolt_ring(304, 3, 0),
+        "bolt4": bolt_ring(309, 3, 0),
     }
     for name, img in imgs.items():
         save_tga(img, MEDIA / f"{name}.tga")

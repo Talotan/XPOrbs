@@ -75,9 +75,10 @@ local FLIGHT_STYLE_DESC = {
 local ORB_SHAPE_DESC = {
     starlight = "Soft glowing orbs with a spinning sparkle.",
     retro = "Chunky pixel-art orbs that move in blocky steps.",
-    wisp = "Fewer, larger, smooth orbs that fly a little slower and trail a long soft tail.",
-    power = "A bright core crackling with lightning.",
+    globe = "Smooth glossy orbs that gently pulse and trail a long soft tail.",
+    crackle = "A bright core with lightning crackling round its edge.",
 }
+local PULSE_TIP = "Globe orbs gently swell and shrink."
 local MAX_TIP = "At max level, each kill sends a small burst of orbs to your portrait."
 local SOUND_TIP = "Coin: a soft coin clink. Glass: a glassy tink. Brush: a soft brushed swish. "
     .. "One per arriving orb (up to six per burst). Off by default."
@@ -92,6 +93,12 @@ local PICK_HINT = "For a replaced XP bar, or to target your portrait (Circular).
 
 local refreshers, postRefresh, resets = {}, {}, {}
 local refreshing = false
+-- Size, quantity and opacity belong to the current orb shape (ns.SetLook / ns.ShapeDefault, Core.lua): a slider writes
+-- the active value and the shape's own entry, and a reset button restores the current shape's default.
+local LOOK = {}
+for _, lookKey in ipairs(ns.SHAPE_LOOK_KEYS) do
+    LOOK[lookKey] = true
+end
 local child -- the scroll child every row hangs off
 Options.controls = {} -- key -> the widget (checkbox, slider, swatch, radio)
 Options.rows = {} -- key -> the row frame (dimming and layout)
@@ -104,6 +111,35 @@ local function settings()
         ns:InitDB()
     end
     return ns.db
+end
+
+local function lookDefault(key)
+    return ns.ShapeDefault(settings().orbShape, key)
+end
+
+local LOOK_RESET = {
+    default = lookDefault,
+    reset = function(key)
+        ns.SetLook(key, lookDefault(key))
+    end,
+}
+
+-- The orb shape's own reset: back to the default shape (which swaps the look settings, like picking it does).
+local SHAPE_RESET = {
+    default = function()
+        return ns.defaults.orbShape
+    end,
+    reset = function()
+        ns.SetOrbShape(ns.defaults.orbShape)
+    end,
+}
+
+local function writeValue(key, value)
+    if LOOK[key] then
+        ns.SetLook(key, value)
+    else
+        settings()[key] = value
+    end
 end
 
 local function updateResets()
@@ -302,7 +338,9 @@ local function newRadio(row, x, labelStr)
 end
 
 -- The small revert button in the gutter. keys: db keys it resets (a colour row has two). describe() -> default text.
-local function addReset(row, name, keys, describe)
+-- custom { default(key), reset(key) } replaces the plain ns.defaults value for keys whose default depends on something
+-- else (the current orb shape).
+local function addReset(row, name, keys, describe, custom)
     local btn = CreateFrame("Button", nil, row)
     btn:SetSize(20, 20)
     btn:SetPoint("LEFT", row, "LEFT", RESET_X, 0)
@@ -331,7 +369,11 @@ local function addReset(row, name, keys, describe)
     btn:SetScript("OnClick", function()
         local saved = settings()
         for _, k in ipairs(keys) do
-            saved[k] = copyDefault(ns.defaults[k])
+            if custom then
+                custom.reset(k)
+            else
+                saved[k] = copyDefault(ns.defaults[k])
+            end
         end
         hideTip()
         Options:Refresh()
@@ -340,7 +382,11 @@ local function addReset(row, name, keys, describe)
     resets[#resets + 1] = function()
         local saved, differs = settings(), false
         for _, k in ipairs(keys) do
-            if OrbMath.Differs(saved[k], ns.defaults[k]) then
+            local default = ns.defaults[k]
+            if custom then
+                default = custom.default(k)
+            end
+            if OrbMath.Differs(saved[k], default) then
                 differs = true
             end
         end
@@ -444,7 +490,7 @@ local function attachValueEdit(row, key, val, lo, hi, step, unit)
         if apply then
             local v = OrbMath.Snap(OrbMath.ParseNumber(typed), lo, hi, step)
             if v then
-                settings()[key] = v
+                writeValue(key, v)
             end
         end
         Options:Refresh() -- repaints the slider and the value text (the old value when the input was junk)
@@ -515,7 +561,7 @@ local function slider(y, key, labelStr, fmt, unit, onChange)
         end
         val:SetText(string.format(fmt, v))
         if not refreshing then
-            settings()[key] = v
+            writeValue(key, v)
             changed()
             if onChange then
                 onChange(v)
@@ -532,8 +578,8 @@ local function slider(y, key, labelStr, fmt, unit, onChange)
     end
     attachValueEdit(row, key, val, lo, hi, step, unit)
     addReset(row, key, { key }, function()
-        return string.format(fmt, ns.defaults[key])
-    end)
+        return string.format(fmt, LOOK[key] and lookDefault(key) or ns.defaults[key])
+    end, LOOK[key] and LOOK_RESET or nil)
     Options.controls[key] = sliderFrame
     Options.rows[key] = row
 end
@@ -829,6 +875,11 @@ local FLIGHT_DROPDOWN = {
 local SHAPE_DROPDOWN = {
     key = "orbShape", text = "Orb shape", order = ns.SHAPE_ORDER, labels = ns.SHAPE_LABEL,
     desc = ORB_SHAPE_DESC, field = "shapeDropdown", radioX = { 0, 90, 165, 235 },
+    -- switching shape also swaps in that shape's own size, quantity and opacity (ns.SetOrbShape)
+    set = function(kind)
+        ns.SetOrbShape(kind)
+    end,
+    reset = SHAPE_RESET,
 }
 
 local function choiceName(spec, kind, withDefault)
@@ -854,7 +905,11 @@ local function choiceRow(spec, y)
     Options.rows[key] = row
     label(row, spec.text, LABEL_X)
     local function pick(kind)
-        settings()[key] = kind
+        if spec.set then
+            spec.set(kind)
+        else
+            settings()[key] = kind
+        end
         Options:Refresh()
     end
     local dropdown
@@ -924,7 +979,7 @@ local function choiceRow(spec, y)
     end
     addReset(row, key, { key }, function()
         return choiceName(spec, ns.defaults[key])
-    end)
+    end, spec.reset)
     return y + 34
 end
 
@@ -938,6 +993,7 @@ local function buildLook(y)
         { "density", "Orb quantity multiplier", "%d%%", "%" },
         { "cap", "Max orbs per burst", "%d", "" },
         { "size", "Orb size", "%d", "" },
+        { "opacity", "Orb opacity", "%d%%", "%" },
         { "flightTime", "Flight time", "%.2f s", " s" },
     }) do
         slider(y, c[1], c[2], c[3], c[4])
@@ -946,6 +1002,8 @@ local function buildLook(y)
     checkbox(y, "trail", "Trail")
     y = y + 28
     y = choiceRow(SHAPE_DROPDOWN, y)
+    checkbox(y, "pulse", "Pulsing", { tip = PULSE_TIP })
+    y = y + 28
 
     -- Orb colour: swatch + "Class colour" checkbox; one reset button resets both
     local colourRow = newRow(y, 28)
@@ -1203,6 +1261,14 @@ local function build()
     CONTENT_H = y + 16
     Options.CONTENT_H = CONTENT_H
     child:SetSize(CONTENT_W, CONTENT_H)
+    Options.footerY = 44 -- the footer rule's px above the panel's bottom; ShapePreview.lua sits just above it
+    Options.rightX = HEADER_X + RULE_W -- the right edge of the rules and the footer button
+    -- the orb preview (ShapePreview.lua, only with the debug log on) follows every change made here
+    postRefresh[#postRefresh + 1] = function()
+        if ns.ShapePreview then
+            ns.ShapePreview:Sync()
+        end
+    end
 
     -- fixed footer
     local rule = panel:CreateTexture(nil, "ARTWORK")
@@ -1252,6 +1318,9 @@ local function build()
     panel:SetScript("OnHide", function()
         if ns.Preview then
             pcall(ns.Preview.Sync, ns.Preview, false)
+        end
+        if ns.ShapePreview then
+            pcall(ns.ShapePreview.Stop, ns.ShapePreview) -- its OnUpdate runs only while the panel is shown
         end
     end)
     return panel

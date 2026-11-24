@@ -1,6 +1,6 @@
-"""Selectable orb shapes (db.orbShape): Starlight (the original), Retro, Wisp and Power. Settings, the slash command,
+"""Selectable orb shapes (db.orbShape): Starlight (the original), Retro, Globe and Crackle. Settings, the slash command,
 the Options dropdown, the art every shape puts on its textures (flying orbs, corpse pops, crossfade copies A and B),
-the texture budget, each shape's behaviour (Wisp multipliers, Retro grid snapping and twinkle, Power bolt ticks), the
+the texture budget, each shape's behaviour (Globe glint and pulse, Retro grid snapping and twinkle, Crackle bolt ticks), the
 per-burst snapshot and the media files."""
 
 import math
@@ -19,7 +19,7 @@ from test_v102 import load_db
 
 MEDIA = ROOT / "media"
 PRE = "Interface\\AddOns\\XPOrbs\\media\\"
-SHAPES = ["starlight", "retro", "wisp", "power"]
+SHAPES = ["starlight", "retro", "globe", "crackle"]
 BOLTS = [PRE + f"bolt{i}" for i in range(1, 5)]
 TWO_PI = 2 * math.pi
 
@@ -27,16 +27,16 @@ TWO_PI = 2 * math.pi
 ART = {
     "starlight": (PRE + "orb", PRE + "orb", PRE + "sparkle"),
     "retro": (PRE + "retro_under", PRE + "retro", PRE + "retro_twinkle"),
-    "wisp": (PRE + "wisp_under", PRE + "wisp", None),
-    "power": (PRE + "orb", PRE + "power_core", BOLTS),
+    "globe": (PRE + "globe_under", PRE + "globe", PRE + "globe_glint"),
+    "crackle": (PRE + "orb", PRE + "crackle_core", BOLTS),
 }
 GHOST_ART = {
     "starlight": PRE + "orb",
-    "wisp": PRE + "wisp",
-    "power": PRE + "power_core",
+    "globe": PRE + "globe",
+    "crackle": PRE + "crackle_core",
 }
 # pool textures per flying orb: (with the trail, without)
-NEED = {"starlight": (5, 3), "retro": (5, 3), "wisp": (6, 2), "power": (5, 3)}
+NEED = {"starlight": (5, 3), "retro": (5, 3), "globe": (7, 3), "crackle": (5, 3)}
 
 
 def path_of(tex):
@@ -99,8 +99,8 @@ def test_slash_shape_sets_prints_and_rejects(env):
     assert m.say()[-1].endswith("orb shape: Starlight")
     for word, label in (
         ("retro", "Retro"),
-        ("wisp", "Wisp"),
-        ("power", "Power"),
+        ("globe", "Globe"),
+        ("crackle", "Crackle"),
         ("starlight", "Starlight"),
     ):
         m.slash(f"shape {word}")
@@ -109,7 +109,7 @@ def test_slash_shape_sets_prints_and_rejects(env):
     m.slash("shape bogus")
     assert (
         m.db.orbShape == "retro"
-        and "shape: use starlight, retro, wisp or power" in m.say()[-1]
+        and "shape: use starlight, retro, globe or crackle" in m.say()[-1]
     )
 
 
@@ -117,20 +117,18 @@ def test_help_and_status_mention_the_shape(env):
     m = build(env)
     m.slash("help")
     assert any(
-        "/xporbs shape" in line and "starlight|retro|wisp|power" in line
+        "/xporbs shape" in line and "starlight|retro|globe|crackle" in line
         for line in m.say()
     )
-    m.db.orbShape = "wisp"
+    m.db.orbShape = "globe"
     m.slash("status")
-    assert "orb shape: Wisp" in m.say()[-1] or any(
-        "orb shape: Wisp" in line for line in m.say()
-    )
+    assert any("orb shape: Globe" in line for line in m.say())
 
 
 def test_slash_refreshes_the_dropdown(env):
     m = build(env)
     show(m)
-    m.slash("shape power")
+    m.slash("shape crackle")
     assert [s for _, s in selection(m.opt.shapeDropdown)] == [False, False, False, True]
 
 
@@ -149,13 +147,14 @@ def test_orb_shape_dropdown_in_the_look_section(env):
     assert selection(dropdown) == [
         ("Starlight (default)", True),
         ("Retro", False),
-        ("Wisp", False),
-        ("Power", False),
+        ("Globe", False),
+        ("Crackle", False),
     ]
     def y(key):
         return -m.opt.rows[key].points[1][5]
 
-    assert y("trail") < y("orbShape") < y("color") and y("orbShape") < y("flightPath")
+    assert y("trail") < y("orbShape") < y("pulse") < y("color")
+    assert y("orbShape") < y("flightPath")
 
 
 def test_picking_a_shape_saves_it_and_shows_the_reset(env):
@@ -163,8 +162,8 @@ def test_picking_a_shape_saves_it_and_shows_the_reset(env):
     show(m)
     btn = m.opt.resets["orbShape"]
     assert not btn.shown
-    assert m.stub.pickMenu(m.opt.shapeDropdown, "Wisp") is True
-    assert m.db.orbShape == "wisp" and btn.shown
+    assert m.stub.pickMenu(m.opt.shapeDropdown, "Globe") is True
+    assert m.db.orbShape == "globe" and btn.shown
     assert [s for _, s in selection(m.opt.shapeDropdown)] == [False, False, True, False]
     m.stub.click(btn)
     assert m.db.orbShape == "starlight" and not btn.shown
@@ -198,9 +197,9 @@ def test_the_button_shows_the_current_shapes_tooltip(env):
     m.stub.hover(dropdown)
     assert str(m.stub.tooltip.text) == "Starlight" and m.stub.tooltip.shown
     m.stub.unhover(dropdown)
-    m.db.orbShape = "power"
+    m.db.orbShape = "crackle"
     m.stub.hover(dropdown)
-    assert str(m.stub.tooltip.text) == "Power"
+    assert str(m.stub.tooltip.text) == "Crackle"
 
 
 def test_radios_replace_the_shape_dropdown_without_the_template(env):
@@ -233,20 +232,16 @@ def test_flying_orbs_wear_their_shapes_art(env, shape):
     go(g, shape)
     under, body, spark = ART[shape]
     recs = flying(g)
-    assert len(recs) == (2 if shape == "wisp" else 3)  # Wisp draws half as many
+    assert len(recs) == 3
     for o in recs:
-        assert art_ok(o.under, under) and art_ok(o.body, body)
-        if shape == "wisp":
-            assert o.spark is None
-        else:
-            assert art_ok(o.spark, spark)
+        assert art_ok(o.under, under) and art_ok(o.body, body) and art_ok(o.spark, spark)
         if shape == "retro":
             assert (
                 o.ghost1.calls["SetColorTexture"] and o.ghost2.calls["SetColorTexture"]
             )
         else:
             ghosts = [o.ghost1, o.ghost2] + (
-                [o.ghost3, o.ghost4] if shape == "wisp" else []
+                [o.ghost3, o.ghost4] if shape == "globe" else []
             )
             assert all(path_of(t) == GHOST_ART[shape] for t in ghosts)
     assert [o.shape is None for o in recs] == [shape == "starlight"] * len(recs)
@@ -258,13 +253,10 @@ def test_pops_wear_their_shapes_art(env, shape):
     go(g, shape, style="popstream", n=2, advance=0.1)
     under, body, spark = ART[shape]
     slots = pop_textures(g)
-    count = 1 if shape == "wisp" else 2
-    assert len(slots) == 3 * count
-    for i in range(count):
+    assert len(slots) == 6
+    for i in range(2):
         u, b, s = slots[3 * i : 3 * i + 3]
-        assert art_ok(u, under) and art_ok(b, body)
-        if spark:
-            assert art_ok(s, spark)
+        assert art_ok(u, under) and art_ok(b, body) and art_ok(s, spark)
 
 
 @pytest.mark.parametrize("shape", SHAPES)
@@ -314,8 +306,7 @@ def test_calib_marker_keeps_the_orb_art():
 def test_each_shape_needs_its_texture_count(env, shape, trail):
     g = make(env)
     go(g, shape, n=4, trail=trail, advance=0.05)
-    count = 2 if shape == "wisp" else 4
-    assert in_use(g) == count * NEED[shape][0 if trail else 1]
+    assert in_use(g) == 4 * NEED[shape][0 if trail else 1]
 
 
 @pytest.mark.parametrize("shape", SHAPES)
@@ -327,7 +318,7 @@ def test_the_ceiling_fits_a_full_burst_of_every_shape(env, shape):
     ceiling = g.orbs.Info(g.orbs)[3]
     per_orb = max(5, NEED[shape][0])
     assert ceiling == cap * per_orb * 2 + 8
-    count = math.ceil(cap * 0.5) if shape == "wisp" else cap
+    count = cap
     fire(g, "stream", n=cap)
     assert in_use(g) == count * NEED[shape][0]  # a full burst keeps its trail
     fire(g, "stream", n=cap)  # room for a second full burst
@@ -343,55 +334,63 @@ def test_starlights_ceiling_is_unchanged(env):
 
 def test_a_tight_pool_drops_the_trail_per_shapes_plain_need(env):
     g = make(env)
-    set_shape(g, "wisp")
+    set_shape(g, "globe")
     g.db.trail = True
     g.db.cap = 10
-    assert g.orbs.Info(g.orbs)[3] == 10 * 6 * 2 + 8  # 128, one slot of it the arrival flash's
-    fire(g, "stream", n=20)  # 10 orbs, 6 textures each
-    fire(g, "stream", n=20)
-    assert in_use(g) == 120
-    fire(g, "stream", n=20)  # 7 free: no room for 6 per orb, so the trail goes and 2 per orb fit
-    assert in_use(g) == 126
-    assert [o.ghost1 is None for o in flying(g)] == [False] * 20 + [True] * 3
+    assert g.orbs.Info(g.orbs)[3] == 10 * 7 * 2 + 8  # 148, one slot of it the arrival flash's
+    fire(g, "stream", n=10)  # 10 orbs, 7 textures each
+    fire(g, "stream", n=10)
+    assert in_use(g) == 140
+    fire(g, "stream", n=10)  # 7 free: no room for 7 per orb, so the trail goes and 3 per orb fit
+    assert in_use(g) == 146
+    assert [o.ghost1 is None for o in flying(g)] == [False] * 20 + [True] * 2
     g.tick(0.05, 80)
     assert in_use(g) == 0
 
 
-# ---------------------------------------------------------------- Wisp
+# ---------------------------------------------------------------- Globe
 
 
-def test_wisp_multipliers_never_touch_the_saved_values(env):
+def test_globe_has_no_count_size_or_time_multiplier(env):
     g = make(env)
-    saved = {k: g.db[k] for k in ("size", "density", "flightTime", "cap")}
-    set_shape(g, "wisp")
+    set_shape(g, "globe")
     g.db.flightTime = 1.0
-    saved["flightTime"] = 1.0
+    saved = {k: g.db[k] for k in ("size", "density", "flightTime", "cap")}
+    shape = g.ns.OrbShapes.by.globe
+    assert shape.timeMul == 1
+    n, n_purple, scale = shape.adjust(10, 4, 1.0)
+    assert (n, n_purple, scale) == (10, 4, 1.0)
     fire(g, "stream", n=10, nPurple=4)
     recs = flying(g)
-    assert len(recs) == 5
-    assert sum(1 for o in recs if o.rested) == 2  # 4 of 10 -> 2 of 5
+    assert len(recs) == 10 and sum(1 for o in recs if o.rested) == 4
     size = float(g.db.size)
-    assert sorted({round(o.size, 6) for o in recs}) == pytest.approx(
-        sorted({size * 1.6, size * 1.6 * 1.15})
-    )
-    assert all(
-        o.dur == pytest.approx(1.35 * 1.0) for o in recs
-    )  # fixed random: jitter 1.0
+    assert sorted({round(o.size, 6) for o in recs}) == pytest.approx(sorted({size, size * 1.15}))
+    assert all(o.dur == pytest.approx(1.0) for o in recs)  # fixed random: jitter 1.0
     assert {k: g.db[k] for k in saved} == saved
 
 
-@pytest.mark.parametrize("n, expected", [(1, 1), (2, 1), (3, 2), (7, 4), (40, 20)])
-def test_wisp_count_is_half_rounded_up(env, n, expected):
+@pytest.mark.parametrize("n", [1, 2, 3, 7, 40])
+def test_globe_draws_every_orb_asked_for(env, n):
     g = make(env)
-    set_shape(g, "wisp")
+    set_shape(g, "globe")
     fire(g, "stream", n=n)
-    assert len(flying(g)) == expected
+    assert len(flying(g)) == n
 
 
-def test_wisp_breathes_and_draws_at_one_and_a_half_times_the_size(env):
+def test_globe_default_size_draws_a_25_and_a_half_px_ball(env):
     g = make(env)
-    go(g, "wisp", n=2, trail=False, advance=0.0)
+    g.db.pulse = False
+    g.ns.SetOrbShape("globe")
+    assert g.db.size == 17
+    go(g, "globe", n=1, trail=False, advance=0.3)
     (o,) = flying(g)
+    assert o.body.width == pytest.approx(25.5)
+
+
+def test_globe_breathes_and_draws_at_one_and_a_half_times_the_size(env):
+    g = make(env)
+    go(g, "globe", n=2, trail=False, advance=0.0)
+    (o, _) = flying(g)[:2]
     sizes = []
     for _ in range(30):
         g.tick(0.02, 1)
@@ -400,15 +399,57 @@ def test_wisp_breathes_and_draws_at_one_and_a_half_times_the_size(env):
     base = o.size * 1.5
     assert min(sizes) < base < max(sizes)
     assert all(base * 0.94 - 1e-6 <= s <= base * 1.06 + 1e-6 for s in sizes)  # +-6 %
-    assert o.under.width == pytest.approx(
-        o.body.width
-    )  # the dark disc is the body's size
+    assert o.under.width == pytest.approx(o.body.width)  # the dark disc is the body's size
 
 
-def test_wisp_trail_has_four_ghosts_fainter_and_smaller(env):
+def test_pulse_off_keeps_the_globe_at_a_constant_size(env):
     g = make(env)
-    go(g, "wisp", n=2, trail=True, advance=0.45)
+    g.db.pulse = False
+    go(g, "globe", n=1, trail=False, advance=0.0)
     (o,) = flying(g)
+    sizes = []
+    for _ in range(30):
+        g.tick(0.02, 1)
+        if o.body.width:
+            sizes.append(o.body.width)
+    assert len(sizes) > 10 and all(s == pytest.approx(o.size * 1.5) for s in sizes)
+    g.db.pulse = True  # live: the next frames breathe again
+    g.tick(0.02, 12)
+    assert o.body.width != pytest.approx(o.size * 1.5)
+
+
+def test_globe_glint_sits_up_and_left_and_breathes_with_the_body(env):
+    g = make(env)
+    go(g, "globe", n=1, trail=False, advance=0.3)
+    (o,) = flying(g)
+    for _ in range(6):
+        g.tick(0.03, 1)
+        body = o.body.width
+        spark = o.spark
+        assert path_of(spark) == PRE + "globe_glint" and spark.shown
+        assert spark.width == pytest.approx(0.30 * body)
+        assert spark.points[1][4] - o.body.points[1][4] == pytest.approx(-0.20 * body)
+        assert spark.points[1][5] - o.body.points[1][5] == pytest.approx(0.20 * body)
+        assert spark.alpha == pytest.approx(0.55 * o.body.alpha)
+    assert str(spark.calls["SetBlendMode"][1]) == "ADD"
+    colour = [float(g.db.color[i]) for i in (1, 2, 3)]
+    tint = [float(v) for v in spark.calls["SetVertexColor"].values()][:3]
+    assert tint == pytest.approx([c + (1 - c) * 0.75 for c in colour])
+
+
+def test_globe_pop_has_the_glint_too(env):
+    g = make(env)
+    go(g, "globe", style="popstream", n=1, advance=0.2)
+    under, body, glint = pop_textures(g)[:3]
+    assert path_of(glint) == PRE + "globe_glint" and glint.shown
+    assert glint.points[1][4] - body.points[1][4] == pytest.approx(-0.20 * body.width)
+    assert glint.points[1][5] - body.points[1][5] == pytest.approx(0.20 * body.width)
+
+
+def test_globe_trail_has_four_ghosts_fainter_and_smaller(env):
+    g = make(env)
+    go(g, "globe", n=2, trail=True, advance=0.45)
+    (o, _) = flying(g)[:2]
     ghosts = [o.ghost1, o.ghost2, o.ghost3, o.ghost4]
     assert all(t.shown for t in ghosts)
     alphas = [t.alpha / o.body.alpha for t in ghosts]
@@ -578,7 +619,7 @@ def test_retro_logs_that_nearest_worked_once(env):
     assert sum("SHAPE nearest filter ok" in line for line in g.log()) == 1
 
 
-# ---------------------------------------------------------------- Power
+# ---------------------------------------------------------------- Crackle
 
 
 def collect_ticks(g, until=1.2, dt=0.004):
@@ -604,10 +645,10 @@ def collect_ticks(g, until=1.2, dt=0.004):
     return changes
 
 
-def test_power_bolt_ticks_every_70_to_90_ms_and_never_repeats_a_frame(env):
+def test_crackle_bolt_ticks_every_70_to_90_ms_and_never_repeats_a_frame(env):
     env.lua.execute(LCG)
     g = make(env, fixed_random=False)
-    go(g, "power", n=1, trail=False, advance=0.2)
+    go(g, "crackle", n=1, trail=False, advance=0.2)
     changes = collect_ticks(g)
     assert len(changes) >= 6
     gaps = [b[0] - a[0] for a, b in pairwise(changes)]
@@ -617,10 +658,10 @@ def test_power_bolt_ticks_every_70_to_90_ms_and_never_repeats_a_frame(env):
     assert len(set(frames)) >= 3
 
 
-def test_power_bolt_turns_at_least_60_degrees_and_varies_in_brightness(env):
+def test_crackle_bolt_turns_at_least_60_degrees_and_varies_in_brightness(env):
     env.lua.execute(LCG)
     g = make(env, fixed_random=False)
-    go(g, "power", n=1, trail=False, advance=0.2)
+    go(g, "crackle", n=1, trail=False, advance=0.2)
     changes = collect_ticks(g)
     turns = [(b[2] - a[2]) % TWO_PI for a, b in pairwise(changes)]
     assert all(min(t, TWO_PI - t) >= math.pi / 3 - 1e-6 for t in turns), turns
@@ -631,9 +672,9 @@ def test_power_bolt_turns_at_least_60_degrees_and_varies_in_brightness(env):
     )
 
 
-def test_power_core_is_steady_and_sized_from_the_body(env):
+def test_crackle_core_is_steady_and_sized_from_the_body(env):
     g = make(env, trail=True)
-    go(g, "power", n=1, advance=0.0)
+    go(g, "crackle", n=1, advance=0.0)
     (o,) = flying(g)
     ratios = []
     for _ in range(10):
@@ -645,8 +686,8 @@ def test_power_core_is_steady_and_sized_from_the_body(env):
             )
     assert ratios
     for core, bolt, under in ratios:
-        assert core == pytest.approx(0.9, rel=0.02) and bolt == pytest.approx(
-            1.5, rel=0.02
+        assert core == pytest.approx(1.15, rel=0.02) and bolt == pytest.approx(
+            1.30, rel=0.02
         )
         assert under == pytest.approx(1.6, rel=0.02)
     assert (
@@ -655,20 +696,20 @@ def test_power_core_is_steady_and_sized_from_the_body(env):
     )
 
 
-def test_power_ghosts_follow_the_starlight_rules(env):
+def test_crackle_ghosts_follow_the_starlight_rules(env):
     g = make(env, trail=True)
-    go(g, "power", n=1, advance=0.5)
+    go(g, "crackle", n=1, advance=0.5)
     (o,) = flying(g)
     assert o.ghost1.alpha / o.body.alpha == pytest.approx(
         0.55
     ) and o.ghost2.alpha / o.body.alpha == pytest.approx(0.30)
-    assert o.ghost1.width / o.body.width == pytest.approx(0.85 / 0.9)
+    assert o.ghost1.width / o.body.width == pytest.approx(0.85 / 1.15)
 
 
-def test_power_pop_bolts_tick_too(env):
+def test_crackle_pop_bolts_tick_too(env):
     env.lua.execute(LCG)
     g = make(env, fixed_random=False)
-    go(g, "power", style="popstream", n=1, advance=0.0)
+    go(g, "crackle", style="popstream", n=1, advance=0.0)
     seen = set()
     for _ in range(60):
         g.tick(0.005, 1)
@@ -682,7 +723,7 @@ def test_power_pop_bolts_tick_too(env):
 
 
 @pytest.mark.parametrize(
-    "first, second", [("starlight", "retro"), ("wisp", "power"), ("power", "starlight")]
+    "first, second", [("starlight", "retro"), ("globe", "crackle"), ("crackle", "starlight")]
 )
 def test_the_shape_is_fixed_for_the_burst(env, first, second):
     g = make(env, trail=True)
@@ -701,7 +742,7 @@ def test_the_shape_is_fixed_for_the_burst(env, first, second):
 def test_the_shape_is_fixed_for_a_pop_and_a_crossfade(env):
     g = make(env, trail=True)
     go(g, "retro", style="popstream", n=2, advance=0.1)
-    set_shape(g, "power")
+    set_shape(g, "crackle")
     g.tick(0.05, 4)
     assert all(
         path_of(t) in (ART["retro"][0], ART["retro"][1], ART["retro"][2])
@@ -709,7 +750,7 @@ def test_the_shape_is_fixed_for_a_pop_and_a_crossfade(env):
     )
     g.tick(0.05, 40)
     go(g, "starlight", style="crossfade", n=2, advance=0.1)
-    set_shape(g, "wisp")
+    set_shape(g, "globe")
     g.tick(0.05, 3)
     shown = [t for t in a_orbs(g)]
     assert shown and all(path_of(t) == PRE + "orb" for t in shown)
@@ -719,7 +760,7 @@ def test_the_shape_is_fixed_for_a_pop_and_a_crossfade(env):
 
 def test_a_recycled_record_never_keeps_the_old_shape(env):
     g = make(env, trail=True)
-    go(g, "wisp", n=2, advance=0.1)
+    go(g, "globe", n=2, advance=0.1)
     g.tick(0.05, 60)
     go(g, "starlight", n=2, advance=0.1)
     for o in flying(g):
@@ -729,7 +770,7 @@ def test_a_recycled_record_never_keeps_the_old_shape(env):
 # ---------------------------------------------------------------- Test burst, portrait bursts, textures all returned
 
 
-@pytest.mark.parametrize("shape", ["retro", "wisp", "power"])
+@pytest.mark.parametrize("shape", ["retro", "globe", "crackle"])
 def test_the_test_burst_uses_the_shape(env, shape):
     g = make(env, trail=True)
     set_shape(g, shape)
@@ -799,9 +840,10 @@ def test_every_media_texture_the_lua_names_exists():
         "retro",
         "retro_under",
         "retro_twinkle",
-        "wisp",
-        "wisp_under",
-        "power_core",
+        "globe",
+        "globe_under",
+        "globe_glint",
+        "crackle_core",
     } <= names
     assert {f"bolt{i}" for i in range(1, 5)} <= names
     for name in names:
@@ -812,9 +854,10 @@ NEW = [
     "retro",
     "retro_under",
     "retro_twinkle",
-    "wisp",
-    "wisp_under",
-    "power_core",
+    "globe",
+    "globe_under",
+    "globe_glint",
+    "crackle_core",
     "bolt1",
     "bolt2",
     "bolt3",
@@ -897,7 +940,15 @@ def test_bolts_stay_inside_the_texture_and_leave_the_centre_clear(name):
 def test_the_generators_keep_the_original_textures_byte_identical():
     import subprocess
 
-    for name in ("orb", "sparkle", "flash", "flash_v"):
+    for name in (
+        "orb",
+        "sparkle",
+        "flash",
+        "flash_v",
+        "retro",
+        "retro_under",
+        "retro_twinkle",
+    ):
         committed = subprocess.run(
             ["git", "show", f"HEAD:media/{name}.tga"],
             cwd=ROOT,
@@ -906,3 +957,41 @@ def test_the_generators_keep_the_original_textures_byte_identical():
         ).stdout
         assert (MEDIA / f"{name}.tga").read_bytes() == committed, name
 
+
+
+def test_globe_glint_is_a_soft_blob_that_fades_well_inside_the_quad():
+    w, h, rows = read_tga(MEDIA / "globe_glint.tga")
+    assert (w, h) == (64, 64)
+    assert alpha_at(rows, 31, 31) == 255 and alpha_at(rows, 32, 32) == 255  # peak alpha 1.0 in the middle
+    ring = [
+        alpha_at(rows, x, y)
+        for y in range(h)
+        for x in range(w)
+        if math.hypot((x + 0.5) / 32 - 1, (y + 0.5) / 32 - 1) > 0.95
+    ]
+    assert max(ring) == 0 and alpha_at(rows, 0, 0) == 0
+    # slightly elongated (along the diagonal running up and to the right), smooth with no hard edge
+    assert alpha_at(rows, 40, 24) > alpha_at(rows, 40, 40)
+    steps = [alpha_at(rows, 32 + i, 32) for i in range(0, 30)]
+    assert all(a >= b for a, b in pairwise(steps)) and max(a - b for a, b in pairwise(steps)) < 60
+
+
+def test_the_crackle_core_is_fuller_with_a_clear_edge():
+    w, h, rows = read_tga(MEDIA / "crackle_core.tga")
+    assert (w, h) == (64, 64)
+    assert alpha_at(rows, 32, 32) == 255
+    assert alpha_at(rows, round(32 + 0.4 * 32), 32) >= 64  # the halo reaches further than the old 0.55 / 0.62
+    assert alpha_at(rows, round(32 + 0.72 * 32), 32) == 0  # and ends at 0.70
+
+
+@pytest.mark.parametrize("name", ["bolt1", "bolt2", "bolt3", "bolt4"])
+def test_the_bolts_hug_the_cores_rim(name):
+    w, h, rows = read_tga(MEDIA / f"{name}.tga")
+    radii = [
+        math.hypot((x + 0.5) / 32 - 1, (y + 0.5) / 32 - 1)
+        for y in range(h)
+        for x in range(w)
+        if alpha_at(rows, x, y) > 128
+    ]
+    assert 0.40 <= sum(radii) / len(radii) <= 0.55  # arcs at 0.40-0.50 of the half quad (was 0.44-0.58)
+    assert max(radii) < 0.75  # the spike is shorter too
