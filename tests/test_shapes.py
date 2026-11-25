@@ -377,14 +377,14 @@ def test_globe_draws_every_orb_asked_for(env, n):
     assert len(flying(g)) == n
 
 
-def test_globe_default_size_draws_a_25_and_a_half_px_ball(env):
+def test_globe_default_size_draws_a_21_px_ball(env):
     g = make(env)
-    g.db.pulse = False
     g.ns.SetOrbShape("globe")
-    assert g.db.size == 17
+    g.ns.SetLook("pulse", False)
+    assert g.db.size == 14
     go(g, "globe", n=1, trail=False, advance=0.3)
     (o,) = flying(g)
-    assert o.body.width == pytest.approx(25.5)
+    assert o.body.width == pytest.approx(21)
 
 
 def test_globe_breathes_and_draws_at_one_and_a_half_times_the_size(env):
@@ -404,7 +404,8 @@ def test_globe_breathes_and_draws_at_one_and_a_half_times_the_size(env):
 
 def test_pulse_off_keeps_the_globe_at_a_constant_size(env):
     g = make(env)
-    g.db.pulse = False
+    g.ns.SetOrbShape("globe")
+    g.ns.SetLook("pulse", False)
     go(g, "globe", n=1, trail=False, advance=0.0)
     (o,) = flying(g)
     sizes = []

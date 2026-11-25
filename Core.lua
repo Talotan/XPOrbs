@@ -40,13 +40,18 @@ ns.defaults = {
     popMode = "nameplate",
     flightPath = "smooth", -- how orbs fly: "smooth" (the plain curve), "chaos" (erratic) or "helix" (spiralling)
     orbShape = "starlight", -- how orbs are drawn: "starlight", "retro" (pixel art), "globe" or "crackle" (SHAPE_LABEL)
+    -- blend, pulse and sparkle are active values too (like size): the current shape's own, kept in shapeLook. The UI
+    -- only shows the ones that apply to a shape: Blend for retro/globe/crackle, Sparkle for retro, Pulsing for globe
+    blend = "natural", -- "natural" (additive glow) or "solid"
     pulse = true, -- Globe orbs gently swell and shrink
-    -- the look each orb shape remembers (see ns.SHAPE_LOOK_KEYS); a missing or broken entry gets these
+    sparkle = true,
+    -- the look each orb shape remembers (see ns.SHAPE_LOOK_KEYS); a missing or broken entry gets these. Retro's size
+    -- is "screen px per art pixel" (ns.RETRO_SIZE_RANGE), the others' is the orb size in px
     shapeLook = {
-        starlight = { size = 14, density = 100, opacity = 100 },
-        retro = { size = 12, density = 75, opacity = 100 },
-        globe = { size = 17, density = 100, opacity = 100 },
-        crackle = { size = 14, density = 100, opacity = 100 },
+        starlight = { size = 14, density = 100, opacity = 100, blend = "natural", pulse = true, sparkle = true },
+        retro = { size = 2, density = 75, opacity = 100, blend = "natural", pulse = true, sparkle = true },
+        globe = { size = 14, density = 100, opacity = 100, blend = "natural", pulse = true, sparkle = true },
+        crackle = { size = 14, density = 100, opacity = 100, blend = "natural", pulse = true, sparkle = true },
     },
     glow = true, -- arrival flash on/off
     -- "bar" (horizontal flash on the fill edge), "vertical" (the same flash upright, filling bottom to top) or "round"
@@ -126,7 +131,17 @@ ns.PATH_LABEL = { smooth = "Smooth", chaos = "Chaos", helix = "Helix" } -- the v
 ns.SHAPE_ORDER = { "starlight", "retro", "globe", "crackle" }
 ns.SHAPE_LABEL = { starlight = "Starlight", retro = "Retro", globe = "Globe", crackle = "Crackle" } -- valid db.orbShape
 ns.SHAPE_ALIAS = { power = "crackle", wisp = "globe" } -- the first names of these shapes, still accepted
-ns.SHAPE_LOOK_KEYS = { "size", "density", "opacity" } -- the settings each shape remembers for itself
+ns.SHAPE_LOOK_KEYS = { "size", "density", "opacity", "blend", "pulse", "sparkle" } -- what each shape remembers
+local RETRO_SIZE_RANGE = { 1, 7, 1 } -- Retro's size is px per art pixel, not an orb size
+ns.RETRO_SIZE_RANGE = RETRO_SIZE_RANGE
+
+-- { min, max, step } of a SHAPE_LOOK_KEYS key for a shape; nil for the non-numeric keys.
+function ns.ShapeRange(shape, key)
+    if shape == "retro" and key == "size" then
+        return RETRO_SIZE_RANGE
+    end
+    return ns.ranges[key]
+end
 
 -- The shape a name stands for (a current name or an old alias), or nil.
 function ns.CanonShape(name)
@@ -154,7 +169,7 @@ local function lookOf(db, shape)
     return db.shapeLook[shape]
 end
 
--- Stores the active size / density / opacity as `shape`'s own.
+-- Stores the active look (ns.SHAPE_LOOK_KEYS) as `shape`'s own.
 local function storeLook(db, shape)
     local look = lookOf(db, shape)
     for _, key in ipairs(ns.SHAPE_LOOK_KEYS) do
@@ -162,7 +177,7 @@ local function storeLook(db, shape)
     end
 end
 
--- Makes `shape`'s remembered size / density / opacity the active ones.
+-- Makes `shape`'s remembered look the active one.
 local function loadLook(db, shape)
     local look = lookOf(db, shape)
     for _, key in ipairs(ns.SHAPE_LOOK_KEYS) do
@@ -170,7 +185,7 @@ local function loadLook(db, shape)
     end
 end
 
--- Switches the orb shape (any name or alias; false when it is none): the active size / density / opacity go to the
+-- Switches the orb shape (any name or alias; false when it is none): the active look goes to the
 -- old shape's entry and the new shape's come in. The one way the Options dropdown and /xporbs shape change it.
 function ns.SetOrbShape(name)
     local shape = ns.CanonShape(name)
@@ -190,7 +205,7 @@ function ns.SetOrbShape(name)
     return true
 end
 
--- Writes one of ns.SHAPE_LOOK_KEYS: the active value and the current shape's entry (what the sliders do).
+-- Writes one of ns.SHAPE_LOOK_KEYS: the active value and the current shape's entry (what the controls do).
 function ns.SetLook(key, value)
     local db = ns.db
     db[key] = value
@@ -298,7 +313,7 @@ end
 
 local BOOLEANS = {
     "enabled", "classColor", "restedTint", "trail", "questBursts", "exploreBursts", "showAtMax", "debug", "glow",
-    "sound", "zoomAnchor", "zoomSpread", "setupDismissed", "pulse",
+    "sound", "zoomAnchor", "zoomSpread", "setupDismissed",
 }
 local ZOOM_RANGES = { zoomA = { -100, 300 }, zoomB = { 0, 3000 }, zoomMin = { 0.5, 10 } }
 ns.ZOOM_POINTS_MAX = ZOOM_POINTS_MAX
@@ -358,15 +373,27 @@ local function sanitize(db)
     end
     db.orbShape = ns.CanonShape(db.orbShape) or defaults.orbShape -- (maps the old names power and wisp)
     -- every shape's remembered look: missing, partial or broken entries fall back to that shape's defaults, values
-    -- are snapped to the slider ranges; then the current shape's entry becomes the active size / density / opacity
+    -- are snapped to the slider ranges (per shape: Retro's size has its own); then the current shape's entry becomes
+    -- the active look. This must stay AFTER the first loop above, which snaps db.size with the plain 8-32 range:
+    -- loadLook overwrites that with the shape's own value (and sets db.blend / pulse / sparkle).
     if type(db.shapeLook) ~= "table" then
         db.shapeLook = {}
     end
     for shape in pairs(ns.SHAPE_LABEL) do
         local look = lookOf(db, shape)
         for _, key in ipairs(ns.SHAPE_LOOK_KEYS) do
-            local range = ns.ranges[key]
-            look[key] = Snap(look[key], range[1], range[2], range[3]) or ns.ShapeDefault(shape, key)
+            local value, range = look[key], ns.ShapeRange(shape, key)
+            if range then
+                value = Snap(value, range[1], range[2], range[3])
+            elseif key == "blend" then
+                value = (value == "natural" or value == "solid") and value or nil
+            elseif type(value) ~= "boolean" then
+                value = nil -- pulse, sparkle
+            end
+            if value == nil then
+                value = ns.ShapeDefault(shape, key)
+            end
+            look[key] = value
         end
     end
     loadLook(db, db.orbShape)
@@ -427,6 +454,32 @@ local function sanitize(db)
     end
 end
 
+-- The look revision: 2 = per-shape blend / pulse / sparkle, Retro's size in px per art pixel, Globe's default 14.
+local LOOK_REV = 2
+
+-- Moves a save from before the look revision to it, once (db.lookRev records that; absent = 1). Runs before deepFill
+-- so a missing key isn't filled from the new defaults first. Values that older (unreleased) builds wrote are reset.
+local function migrateLook(db)
+    if type(db.lookRev) == "number" and db.lookRev >= LOOK_REV then
+        return
+    end
+    local looks = type(db.shapeLook) == "table" and db.shapeLook or nil
+    local retro, globe = looks and looks.retro, looks and looks.globe
+    if type(retro) == "table" and type(retro.size) == "number" and (retro.size < 1 or retro.size > 7) then
+        retro.size = 2 -- it was an orb size (12 by default), now px per art pixel
+    end
+    if type(globe) == "table" and globe.size == 17 then
+        globe.size = 14 -- the old untouched default
+    end
+    if type(db.pulse) == "boolean" then
+        local look = lookOf(db, "globe")
+        if look.pulse == nil then
+            look.pulse = db.pulse -- pulse was one global flag; only Globe used it
+        end
+    end
+    db.lookRev = LOOK_REV
+end
+
 function ns:InitDB()
     if type(XPOrbsDB) ~= "table" then
         XPOrbsDB = {}
@@ -441,6 +494,7 @@ function ns:InitDB()
     if XPOrbsDB.exploreBursts == nil and type(XPOrbsDB.questBursts) == "boolean" then
         XPOrbsDB.exploreBursts = XPOrbsDB.questBursts
     end
+    migrateLook(XPOrbsDB)
     deepFill(XPOrbsDB, ns.defaults)
     sanitize(XPOrbsDB)
     -- a save from a newer addon version keeps its number (stamping it down would make the next upgrade re-migrate)
@@ -590,11 +644,12 @@ end
 
 -- /xporbs test, style, pop, pick, setup and options are defined by Orbs.lua, Target.lua, Setup.lua and Options.lua.
 
--- Restore every setting to its default. The schema version, the debug flag and the log are kept.
+-- Restore every setting to its default. The schema version, the look revision, the debug flag and the log are kept.
 function commands.reset()
     local db = ns.db
     for key in pairs(db) do
-        if key ~= "version" and key ~= "log" and key ~= "debug" and key ~= "minimap" then
+        if key ~= "version" and key ~= "log" and key ~= "debug" and key ~= "minimap"
+            and key ~= "lookRev" then
             db[key] = nil
         end
     end

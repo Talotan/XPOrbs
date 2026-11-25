@@ -2073,17 +2073,18 @@ function ns.commands.shape(arg)
     ns.Print("orb shape: " .. (ns.SHAPE_LABEL[settings().orbShape] or ns.SHAPE_LABEL.starlight))
 end
 
--- /xporbs pulse on|off: the "Pulsing" tickbox (db.pulse): Globe orbs gently swell and shrink.
+-- /xporbs pulse on|off: the "Pulsing" tickbox (db.pulse, the current shape's own): Globe orbs gently swell and shrink.
 function ns.commands.pulse(arg)
     local word = string.match(arg or "", "%S+")
     if word == "on" or word == "off" then
-        settings().pulse = word == "on"
+        ns.SetLook("pulse", word == "on")
         refreshPanel()
     elseif word ~= nil then
         ns.Print("pulse: use on or off (now " .. (settings().pulse and "on" or "off") .. ")")
         return
     end
-    ns.Print("pulsing: " .. (settings().pulse and "on" or "off"))
+    ns.Print("pulsing: " .. (settings().pulse and "on" or "off")
+        .. (settings().orbShape ~= "globe" and " (Globe only)" or ""))
 end
 
 local function spreadState()
