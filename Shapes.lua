@@ -54,7 +54,7 @@ local SUB_NATURAL = { under = -1, trail = 0, body = 0, top = 1 } -- ARTWORK subl
 local SUB_SOLID = { under = -2, trail = -1, body = 0, top = 1 }
 
 -- Retro: the art is 8 x 8 "pixels" (cells). Retro's db.size is the px per cell (1..7); ns.OrbSize turns it into the
--- generic orb size (8 cells across), so st.base = OrbSize x the burst's scale and base * RETRO_K / 8 = the stored step x
+-- generic orb size (8 cells across), so st.base = OrbSize x the burst scale and base * RETRO_K / 8 = the stored step x
 -- the scale. One cell size serves a whole burst (no rested or pop multiplier), so every orb of it has the same pixels.
 local RETRO_K = ns.RETRO_K
 local RETRO_CELLS_MIN = 1 -- px per cell at the smallest
@@ -65,7 +65,7 @@ local RETRO_TWINKLE_WHITE = 0.5 -- twinkle tint = lerp(colour, white, this)
 local RETRO_BLINK = 0.25 -- seconds on, then seconds off
 local RETRO_TWINKLE_OFF = 2.5 -- cells from the orb centre (x left, y up): the middle of art cell (1, 1)
 local RETRO_TRAIL_BIG = { gap = 6, cells = 2, alpha = 0.70 } -- a 2 x 2 cell square: its near edge is on the body's rim
-local RETRO_TRAIL_SMALL = { gap = 9, cells = 1, alpha = 0.40 } -- a 1 cell square, a stable 1-2 cell gap behind the big one
+local RETRO_TRAIL_SMALL = { gap = 9, cells = 1, alpha = 0.40 } -- 1 cell, a stable 1-2 cell gap behind the big one
 -- A pop or bloom draws Retro at RETRO_GROW_FROM of the flight cell, growing to the full cell over the first
 -- RETRO_GROW_SPAN of the pop, in whole pixels: it pops in in steps and never gets bigger than in flight.
 local RETRO_GROW_FROM, RETRO_GROW_SPAN = 0.4, 0.4
