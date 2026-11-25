@@ -301,14 +301,15 @@ def test_scroll_frame_without_any_template_still_scrolls(env):
         ("soundVoice", 36),
         ("soundVolume", 64),
         ("density", 102),
-        ("cap", 366),
+        ("cap", 374),
         ("size", 70),
         ("flightTime", 76),
         ("flightMode", 42),
-        ("trail", 238),
-        ("color", 274),
-        ("restedTint", 302),
-        ("restedColor", 330),
+        ("trail", 240),
+        ("color", 308),
+        ("trailOpacity", 268),
+        ("restedTint", 338),
+        ("restedColor", 338),
         ("flightPath", 8),
         ("style_popstream", 134),
         ("popMode_nameplate", 176),
@@ -388,8 +389,7 @@ def test_label_rename(m):
         "Chime when orbs arrive",
         "Orb colour",
         "Class colour",
-        "Rested tint",
-        "Rested colour",
+        "Rested orb colour",
         "Show glow",
         "Target frame shape",
         "Horizontal",
@@ -484,12 +484,13 @@ def test_glow_shape_radios(m):
 def test_rested_colour_dims_with_rested_tint(m):
     show(m)
     row, sw = m.opt.rows["restedColor"], ctl(m, "restedColor")
-    assert row.alpha == 1 and sw.IsEnabled(sw)
+    assert sw.alpha == 1 and sw.IsEnabled(sw)
     m.stub.click(ctl(m, "restedTint"))
     assert m.db.restedTint is False
-    assert row.alpha == pytest.approx(0.4) and not sw.IsEnabled(sw)
+    # only the swatch dims: the row's label and tickbox stay bright (they turn it back on)
+    assert sw.alpha == pytest.approx(0.35) and not sw.IsEnabled(sw) and row.alpha in (None, 1)
     m.stub.click(ctl(m, "restedTint"))
-    assert row.alpha == 1 and sw.IsEnabled(sw)
+    assert sw.alpha == 1 and sw.IsEnabled(sw)
 
 
 def test_glow_shape_does_not_dim_with_show_glow(m):
@@ -508,7 +509,7 @@ def test_dimming_follows_slash_and_db_changes_on_show(m):
     m.db.restedTint = False
     show(m)
     assert m.opt.rows["glowIntensity"].alpha == pytest.approx(0.4)
-    assert m.opt.rows["restedColor"].alpha == pytest.approx(0.4)
+    assert ctl(m, "restedColor").alpha == pytest.approx(0.35)
 
 
 # ---------------------------------------------------------------- per-row reset buttons

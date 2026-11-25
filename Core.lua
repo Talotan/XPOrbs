@@ -22,6 +22,7 @@ ns.defaults = {
     restedTint = true,
     restedColor = { 0.15, 0.38, 1.00 },
     trail = true,
+    trailOpacity = 100, -- % of the normal trail alpha, every shape (0 draws no trail); dimmed in the UI with trail off
     questBursts = true, -- bursts for quest and other non-kill XP
     exploreBursts = true, -- bursts for exploration XP (a saved save without it copies questBursts, see InitDB)
     targetFrame = nil,
@@ -42,18 +43,24 @@ ns.defaults = {
     popMode = "nameplate",
     flightPath = "smooth", -- how orbs fly: "smooth" (the plain curve), "chaos" (erratic) or "helix" (spiralling)
     orbShape = "starlight", -- how orbs are drawn: "starlight", "retro" (pixel art), "globe" or "crackle" (SHAPE_LABEL)
-    -- blend, pulse and sparkle are active values too (like size): the current shape's own, kept in shapeLook. The UI
-    -- only shows the ones that apply to a shape: Blend for retro/globe/crackle, Sparkle for retro, Pulsing for globe
-    blend = "natural", -- "natural" (additive glow) or "solid"
+    -- blend, pulse, sparkle and crackleSpeed are active values too (like size): the current shape's own, kept in
+    -- shapeLook. The UI only shows the ones that apply to a shape: Outline (db.blend) for retro/globe/crackle, Sparkle
+    -- for retro, Pulsing for globe, Crackle speed for crackle
+    blend = "natural", -- the Outline option: "natural" (additive glow, no outline) or "solid" (opaque with a dark rim)
     pulse = false, -- Globe orbs gently swell and shrink
     sparkle = true,
+    crackleSpeed = 100, -- Crackle's bolt animation rate in % (200 = the bolts change twice as fast)
     -- the look each orb shape remembers (see ns.SHAPE_LOOK_KEYS); a missing or broken entry gets these. Retro's size
     -- is "screen px per art pixel" (ns.RETRO_SIZE_RANGE), the others' is the orb size in px
     shapeLook = {
-        starlight = { size = 14, density = 100, opacity = 100, blend = "natural", pulse = false, sparkle = true },
-        retro = { size = 2, density = 75, opacity = 100, blend = "natural", pulse = false, sparkle = true },
-        globe = { size = 14, density = 100, opacity = 100, blend = "natural", pulse = false, sparkle = true },
-        crackle = { size = 14, density = 100, opacity = 100, blend = "natural", pulse = false, sparkle = true },
+        starlight = { size = 14, density = 100, opacity = 100, blend = "natural", pulse = false, sparkle = true,
+            crackleSpeed = 100 },
+        retro = { size = 2, density = 75, opacity = 100, blend = "natural", pulse = false, sparkle = true,
+            crackleSpeed = 100 },
+        globe = { size = 14, density = 100, opacity = 100, blend = "natural", pulse = false, sparkle = true,
+            crackleSpeed = 100 },
+        crackle = { size = 14, density = 100, opacity = 100, blend = "natural", pulse = false, sparkle = true,
+            crackleSpeed = 100 },
     },
     glow = true, -- arrival flash on/off
     -- "bar" (horizontal flash on the fill edge), "vertical" (the same flash upright, filling bottom to top) or "round"
@@ -84,6 +91,8 @@ ns.ranges = {
     cap = { 5, 80, 1 },
     size = { 8, 32, 1 },
     opacity = { 20, 100, 5 },
+    crackleSpeed = { 50, 200, 10 },
+    trailOpacity = { 0, 100, 5 },
     flightTime = { 0.4, 1.5, 0.05 },
     flightSpeed = { 50, 250, 10 },
     glowOffsetX = { -100, 100, 1 },
@@ -134,7 +143,8 @@ ns.PATH_LABEL = { smooth = "Smooth", chaos = "Chaos", helix = "Helix" } -- the v
 ns.SHAPE_ORDER = { "starlight", "retro", "globe", "crackle" }
 ns.SHAPE_LABEL = { starlight = "Starlight", retro = "Retro", globe = "Globe", crackle = "Crackle" } -- valid db.orbShape
 ns.SHAPE_ALIAS = { power = "crackle", wisp = "globe" } -- the first names of these shapes, still accepted
-ns.SHAPE_LOOK_KEYS = { "size", "density", "opacity", "blend", "pulse", "sparkle" } -- what each shape remembers
+-- what each shape remembers
+ns.SHAPE_LOOK_KEYS = { "size", "density", "opacity", "blend", "pulse", "sparkle", "crackleSpeed" }
 local RETRO_SIZE_RANGE = { 1, 7, 1 } -- Retro's size is px per art pixel, not an orb size
 ns.RETRO_SIZE_RANGE = RETRO_SIZE_RANGE
 ns.RETRO_K = 24 / 14 -- Retro px per size unit: size 14 (Starlight's units) is a 24 px orb

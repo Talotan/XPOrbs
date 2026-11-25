@@ -87,8 +87,9 @@ back with `/xporbs minimap on` or the "Show minimap button" option).
 The panel has these sections, most-used first:
 
 - **General:** enable, orbs at max level, quest bursts, exploration bursts and the minimap button.
-- **Look:** orb quantity, maximum orbs per burst, orb size, orb opacity, trail, the orb shape dropdown, pulsing,
-  orb colour (or your class colour), rested tint and rested colour.
+- **Look:** the orb shape dropdown and, in a box under it, that shape's own size, quantity, opacity and extras
+  (Outline, Sparkle, Pulsing, Crackle speed); then the trail and its opacity, orb colour (or your class colour),
+  rested orb colour (a tickbox and a swatch in one row) and the maximum orbs per burst.
 - **Flight:** the Flight pathing dropdown, the Speed type dropdown (Constant speed, where orbs always move at the same
   speed, or Relative speed, where they always arrive after a set time) with its Flight speed or Flight time slider,
   the kill style and the zoom-scaled spread.
@@ -203,10 +204,15 @@ quantity and opacity are remembered per shape: tune Retro and Starlight keeps it
 - **Globe**: smooth, solid, glossy orbs with a small highlight up and to the left, breathing slightly (untick
   **Pulsing**, or `/xporbs pulse off`, to keep them steady), with a long four-ghost tail.
 - **Crackle**: a steady bright core with a bolt of lightning crackling round its edge that jumps to a new shape and
-  angle about every 80 ms.
+  angle about every 80 ms. **Crackle speed** (50 to 200 %) makes the lightning change slower or faster.
+
+**Outline** (Retro, Globe and Crackle): Glow is a soft glowing edge, so orbs brighten where they overlap;
+Solid is an opaque orb with a dark outline that stacks in front of its neighbours and keeps its colour on bright ground.
+Starlight has no outline.
 
 **Orb opacity** (Look section) fades every orb texture of every shape: flying orbs, pops, crossfade copies and their
-trails. The arrival glow has its own intensity setting.
+trails. The arrival glow has its own intensity setting. **Trail opacity** (just under the Trail tickbox, 0 to 100 %)
+fades only the trail, for every shape; 0 % draws none.
 
 **Flight pathing** (the dropdown in Options, or `/xporbs path`): how the orbs fly to the bar, for every style. The pops and
 the arrival glow don't change. Hover an option in the dropdown for a short description.

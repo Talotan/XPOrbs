@@ -192,7 +192,8 @@ XF_PROFILE.sp = SP_PROFILE -- reached through XF_PROFILE from Burst, which canno
 -- of this file: pooled textures, placement, the flight path) and `k` (the shared tunables). One table, reached through
 -- XF_PROFILE from Burst, which cannot take another upvalue.
 -- Every orb also carries orb.opacity (db.opacity / 100, taken per burst): the alpha computed once per orb is multiplied
--- by it, so every texture of every shape follows (a pop group has group.opacity). orb.base is db.size x the burst's
+-- by it, so every texture of every shape follows (a pop group has group.opacity). orb.trailK (db.trailOpacity / 100,
+-- also per burst) scales the alpha of every trail ghost, whatever the shape. orb.base is db.size x the burst's
 -- scale, before the rested multiplier: Retro's one cell size per burst comes from it.
 -- A shape table has: needTrail / needPlain (pool textures per flying orb with / without the trail), adjust(n, nPurple,
 -- scale) -> n, nPurple, scale (count and size multipliers), timeMul (flight time), build(orb, trail, red, green, blue)
@@ -730,7 +731,8 @@ local function drawOrb(orb, progress, dx, dy)
         shape.draw(orb, orb.elapsed, nil, orb.under, orb.body, orb.spark, orbX, orbY, size * sizeMul, alpha * alphaMul)
         if shape.trail then -- a trail of its own (Retro, Globe); Crackle keeps the Starlight ghosts below
             if orb.ghost1 then
-                shape.trail(orb, progress, dx, dy, control2X, control2Y, orbX, orbY, alpha * alphaMul)
+                shape.trail(orb, progress, dx, dy, control2X, control2Y, orbX, orbY,
+                    alpha * alphaMul * (orb.trailK or 1))
             end
             return
         end
@@ -742,6 +744,7 @@ local function drawOrb(orb, progress, dx, dy)
     end
     if orb.ghost1 then
         local ghostStep = orb.ghostStep or GHOST_STEP -- speed mode: a fixed lag in seconds (set at spawn)
+        alpha = alpha * (orb.trailK or 1) -- the ghosts only (the orb above is drawn already)
         local ghostProgress = progress - ghostStep
         if group and progress < fadeIn then
             -- crossfade B fading in: the ghosts sit behind it along -u, so it arrives "from" the implied path
@@ -1479,7 +1482,7 @@ function Orbs:Burst(params)
     -- Budget the texture pool. A full burst with trails needs 5 textures per orb; when that doesn't fit, the burst
     -- drops its trail ghosts (3 per orb), then draws fewer orbs. Every burst still gets min(n, 3) orbs while 9
     -- textures are free, so the later kills of an AoE pull are never starved by the earlier ones.
-    local trail = config.trail and true or false
+    local trail = (config.trail and (config.trailOpacity or 100) > 0) and true or false -- 0 %: no ghosts at all
     local needTrail, needPlain = 1 + EXTRAS, 3 -- orb + underlay + sparkle (+ 2 ghosts)
     if shape then
         needTrail, needPlain = shape.needTrail, shape.needPlain
@@ -1551,6 +1554,7 @@ function Orbs:Burst(params)
             local orb = newRec()
             orb.shape = shape
             orb.base, orb.opacity = ns.OrbSize(config) * scale, config.opacity / 100 -- (see SHAPES)
+            orb.trailK = (config.trailOpacity or 100) / 100
             building, buildingLive = orb, false
             local controlScale, staggerScale, pathJitterLow, pathJitterSpan = OrbMath.PathShape(burstPath)
             orb.group, orb.hold, orb.easeWeight, orb.profile = nil, 0, nil, nil

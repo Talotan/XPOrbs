@@ -20,13 +20,13 @@ LOOK_ORDER = [
     "blend",
     "shapeExtra",
     "trail",
+    "trailOpacity",
     "color",
     "restedTint",
-    "restedColor",
     "cap",
 ]
-BOX_ROWS = ["size", "density", "opacity", "blend", "shapeExtra"]
-NOTE = "No blend or extras: Starlight is always a soft glow with a spinning sparkle."
+BOX_ROWS = ["size", "density", "opacity", "blend", "shapeExtra", "crackleSpeed"]
+NOTE = "No outline or extras: Starlight is always a soft glow with a spinning sparkle."
 
 
 @pytest.fixture
@@ -86,12 +86,14 @@ def shown_options(m):
 def test_row_order(m):
     ys = [row_y(m, k) for k in LOOK_ORDER]
     assert ys[0] == 8 and ys == sorted(ys) and len(set(ys)) == len(ys)
-    assert ys[1:6] == [70, 102, 134, 166, 194]
+    assert ys[1:6] == [70, 102, 134, 166, 196]
     # the global rows are grouped: trail | colours | cap (flight speed/time live on the Flight tab)
-    assert [row_y(m, k) for k in ("trail", "color", "restedTint", "restedColor", "cap")] == [
-        238, 274, 302, 330, 366,
+    assert [row_y(m, k) for k in ("trail", "trailOpacity", "color", "restedTint", "cap")] == [
+        240, 268, 308, 338, 374,
     ]
-    assert m.opt.tabHeights.Look == 414
+    assert same(m, m.opt.rows.restedTint, m.opt.rows.restedColor)  # one row holds the tickbox and the swatch
+    assert row_y(m, "crackleSpeed") == row_y(m, "shapeExtra") - 2  # the 32 px slider row, centred on the 28 px slot
+    assert m.opt.tabHeights.Look == 422
     for key in ("flightSpeed", "flightTime"):
         assert same(m, m.opt.rows[key].createdParent, m.opt.tabChildren.Flight), key
         assert not in_chain(m, m.opt.rows[key].createdParent, m.opt.tabChildren.Look), key
@@ -111,7 +113,7 @@ def test_box_geometry_and_indented_labels(m):
     box = m.opt.shapeBox
     pt = box.points[1]
     assert (pt[1], pt[4], pt[5]) == ("TOPLEFT", 32, -42)
-    assert (box.width, box.height) == (536, 186)
+    assert (box.width, box.height) == (536, 188)
     # the rows' labels are indented 16 px from the other tabs' column
     labels = {
         key: [
@@ -131,7 +133,7 @@ def test_box_geometry_and_indented_labels(m):
     cap = m.opt.rows["cap"]
     assert row_y(m, "cap") + 32 + 16 == m.opt.tabHeights.Look
     # box rows' resets end 4 px inside the border (x 544), global rows keep 548
-    for key in ("size", "density", "opacity", "blend", "shapeExtra"):
+    for key in ("size", "density", "opacity", "blend", "shapeExtra", "crackleSpeed"):
         assert m.opt.resets[key].points[1][4] == 544, key
     assert m.opt.resets["cap"].points[1][4] == 548 and cap is not None
     assert m.opt.resets["trail"].points[1][4] == 548
@@ -189,7 +191,7 @@ def test_the_extra_checkbox_sits_like_a_standard_checkbox_row(m):
             if f.kind == "FontString" and f.text == text and f.points[1][4] == 48
         )
         assert label is not None
-    assert row_y(m, "shapeExtra") == row_y(m, "blend") + 28
+    assert row_y(m, "shapeExtra") == row_y(m, "blend") + 30
 
 
 def test_the_starlight_note_is_centred_across_both_rows(m):
@@ -312,7 +314,7 @@ def test_the_two_option_resets_are_separate_and_per_shape(m):
     m.stub.click(c.sparkle)
     assert extra_btn.shown
     m.stub.hover(blend_btn)
-    assert str(m.stub.tooltip.text) == "Reset to default: Blend natural"
+    assert str(m.stub.tooltip.text) == "Reset to default: Outline glow"
     m.stub.hover(extra_btn)
     assert str(m.stub.tooltip.text) == "Reset to default: Sparkle on"
     pick(m, "globe")
@@ -342,7 +344,7 @@ def test_starlight_and_crackle_have_no_extra_to_reset(m):
 
 
 def test_the_cap_comes_last_with_its_tooltip(m):
-    assert row_y(m, "cap") > row_y(m, "restedColor")
+    assert row_y(m, "cap") > row_y(m, "restedColor")  # restedColor is the Rested orb colour row
     m.stub.hover(ctl(m, "cap"))
     assert (
         str(m.stub.tooltip.text)

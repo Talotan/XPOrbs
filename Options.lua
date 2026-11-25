@@ -1034,24 +1034,27 @@ end
 local BOX_X, BOX_W = LABEL_X, HEADER_X + RULE_W - LABEL_X -- left edge on the other tabs' label column, right edge on the rule's
 local BOX_LABEL_X = LABEL_X + 16 -- inner padding 16
 local BOX_RESET_X = RESET_X - 4 -- the reset buttons end 4 px inside the border
-local BOX_TOP_PAD, BOX_BOTTOM_PAD = 28, 6
-local BOX_H = BOX_TOP_PAD + 32 * 3 + 28 * 2 + BOX_BOTTOM_PAD
+local BOX_TOP_PAD, BOX_BOTTOM_PAD = 28, 8
+local BOX_H = BOX_TOP_PAD + 32 * 3 + 28 * 2 + BOX_BOTTOM_PAD -- (bottom pad 8: the option slot sits 2 px lower)
 local BOX_GAP = 10 -- under the box
 local GROUP_GAP = 8 -- between the global groups (flight / colours / cap)
-local BLEND_TIP = {
-    natural = "Orbs glow and blend into each other, brightening where they overlap.",
-    solid = "Orbs are opaque and stack in front of each other; colours stay true on bright ground.",
+local BLEND_TIP = { -- the Outline option (db.blend)
+    natural = "Soft glowing edge: orbs blend into each other, brightening where they overlap.",
+    solid = "A dark outline round opaque orbs that stack in front of each other; colours stay true on bright ground.",
 }
-local BLEND_NAME = { natural = "Natural", solid = "Solid" }
-local STARLIGHT_NOTE = "No blend or extras: Starlight is always a soft glow with a spinning sparkle."
+local BLEND_NAME = { natural = "Glow", solid = "Solid" }
+local STARLIGHT_NOTE = "No outline or extras: Starlight is always a soft glow with a spinning sparkle."
 local PIXEL_TIP = "The size of each art pixel."
--- Which shapes each option applies to (Core.lua: Starlight has no blend, only Retro sparkles, only Globe pulses)
+-- Which shapes each option applies to (Core.lua: Starlight has no outline, only Retro sparkles, only Globe pulses,
+-- only Crackle has a speed)
 local OPTION_SHAPES = {
     blend = { retro = true, globe = true, crackle = true },
     sparkle = { retro = true },
     pulse = { globe = true },
+    crackleSpeed = { crackle = true },
 }
-local OPTION_NAME = { blend = "Blend", sparkle = "Sparkle", pulse = "Pulsing" }
+local OPTION_NAME = { blend = "Outline", sparkle = "Sparkle", pulse = "Pulsing", crackleSpeed = "Crackle speed" }
+local CRACKLE_SPEED_TIP = "How fast the lightning round each orb changes. 200% is twice as fast."
 
 local function currentShape()
     return ns.CanonShape(settings().orbShape) or ns.defaults.orbShape
@@ -1105,7 +1108,7 @@ local function optionDescribe(keys)
     end
 end
 
--- Option row A: "Blend" with the Natural / Solid radios (Starlight: a grey note instead, centred across both rows).
+-- Option row A: "Outline" with the Natural / Solid radios (Starlight: a grey note instead, centred across both rows).
 local function blendRow(y)
     local row = newRow(y, 28)
     Options.rows.blend = row
@@ -1113,7 +1116,7 @@ local function blendRow(y)
     note:SetTextColor(GREY, GREY, GREY)
     note:ClearAllPoints()
     note:SetPoint("LEFT", row, "LEFT", BOX_LABEL_X, -14)
-    local blendLabel = label(row, "Blend", BOX_LABEL_X)
+    local blendLabel = label(row, OPTION_NAME.blend, BOX_LABEL_X)
     local radios = {}
     for i, kind in ipairs({ "natural", "solid" }) do
         local radio = newRadio(row, CTRL_X + (i - 1) * 100, BLEND_NAME[kind])
@@ -1146,7 +1149,8 @@ local function blendRow(y)
     addReset(row, "blend", { "blend" }, optionDescribe({ "blend" }), optionResetSpec(), BOX_RESET_X)
 end
 
--- Option row B: the shape's extra, a standard checkbox row (Sparkle on Retro, Pulsing on Globe); empty otherwise.
+-- Option row B: the shape's extra, a standard checkbox row (Sparkle on Retro, Pulsing on Globe); Crackle's speed
+-- slider sits in the same slot (see buildShapeBox); empty on Starlight.
 local function extraRow(y)
     local row = newRow(y, 28)
     Options.rows.shapeExtra, Options.rows.sparkle, Options.rows.pulse = row, row, row
@@ -1251,7 +1255,13 @@ local function buildShapeBox(y)
     slider(ry + 32, "density", "Orb quantity", "%d%%", "%", nil, { labelX = BOX_LABEL_X, resetX = BOX_RESET_X })
     slider(ry + 64, "opacity", "Orb opacity", "%d%%", "%", nil, { labelX = BOX_LABEL_X, resetX = BOX_RESET_X })
     blendRow(ry + 96)
-    extraRow(ry + 124)
+    extraRow(ry + 126)
+    -- Crackle's slider takes the extra row's slot: its 32 px row sits 2 px higher so the centre lines match
+    slider(ry + 124, "crackleSpeed", OPTION_NAME.crackleSpeed, "%d%%", "%", nil,
+        { labelX = BOX_LABEL_X, resetX = BOX_RESET_X, tip = CRACKLE_SPEED_TIP })
+    postRefresh[#postRefresh + 1] = function()
+        showIf(Options.rows.crackleSpeed, optionApplies("crackleSpeed"))
+    end
     rowParent = nil
     return y + BOX_H + BOX_GAP
 end
@@ -1260,7 +1270,12 @@ local function buildLook(y)
     y = choiceRow(SHAPE_DROPDOWN, y)
     y = buildShapeBox(y)
     checkbox(y, "trail", "Trail")
-    y = y + 28 + GROUP_GAP
+    y = y + 28
+    slider(y, "trailOpacity", "Trail opacity", "%d%%", "%", nil, { labelX = LABEL_X + 16 })
+    postRefresh[#postRefresh + 1] = function()
+        setDim(Options.rows.trailOpacity, { Options.controls.trailOpacity }, settings().trail)
+    end
+    y = y + 32 + GROUP_GAP
 
     -- Orb colour: swatch + "Class colour" checkbox; one reset button resets both
     local colourRow = newRow(y, 28)
@@ -1289,21 +1304,32 @@ local function buildLook(y)
         colourLabel:Hide() -- no colour picker on this client: the colour can't be edited, class colour still works
     end
 
-    y = y + 28
-    checkbox(y, "restedTint", "Rested tint")
-    y = y + 28
+    -- Rested orb colour: the tickbox (db.restedTint) and its swatch (db.restedColor) in one row; the swatch sits under
+    -- the Class colour tickbox above and dims while the tickbox is off. One reset button resets both.
+    y = y + 30
     local restedRow = newRow(y, 28)
-    Options.rows.restedColor = restedRow
-    local restedLabel = label(restedRow, "Rested colour", LABEL_X + 24)
-    local restedSwatch = swatch(restedRow, "restedColor", CTRL_X)
-    addReset(restedRow, "restedColor", { "restedColor" }, function()
-        return hex(ns.defaults.restedColor)
+    Options.rows.restedTint, Options.rows.restedColor = restedRow, restedRow
+    local restedLabel = label(restedRow, "Rested orb colour", LABEL_X)
+    local restedCheck = newCheck(restedRow, CTRL_X - 3)
+    restedCheck:SetScript("OnClick", function(self)
+        settings().restedTint = self:GetChecked() and true or false
+        changed()
+    end)
+    refreshers[#refreshers + 1] = function()
+        restedCheck:SetChecked(settings().restedTint and true or false)
+    end
+    Options.controls.restedTint = restedCheck
+    local restedSwatch = swatch(restedRow, "restedColor", 298)
+    addReset(restedRow, "restedTint", { "restedTint", "restedColor" }, function()
+        return onOff(ns.defaults.restedTint) .. ", " .. hex(ns.defaults.restedColor)
     end)
     if not restedSwatch:IsShown() then
-        restedLabel:Hide()
+        restedLabel:SetText("Rested tint") -- no colour picker on this client: only the tickbox is left
     end
     postRefresh[#postRefresh + 1] = function()
-        setDim(restedRow, { restedSwatch }, settings().restedTint)
+        local on = settings().restedTint and true or false
+        enable(restedSwatch, on)
+        restedSwatch:SetAlpha(on and 1 or SWATCH_OFF_ALPHA)
     end
     y = y + 28 + GROUP_GAP
     slider(y, "cap", "Max orbs per burst", "%d", "", nil, { tip = CAP_TIP })

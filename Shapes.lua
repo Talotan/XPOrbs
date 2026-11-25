@@ -349,7 +349,7 @@ function CRACKLE.setup(under, body, spark, st, red, green, blue)
     local sl = styleBody(body, st, CRACKLE_CORE_TEX, CRACKLE_CORE_SOLID_TEX, red, green, blue)
     under:SetTexture(ORB_TEX)
     style(under, sl.under, "BLEND", red * UNDER_K, green * UNDER_K, blue * UNDER_K)
-    st.boltEvery = CRACKLE_TICK_MIN + random() * CRACKLE_TICK_SPAN
+    st.boltEvery = (CRACKLE_TICK_MIN + random() * CRACKLE_TICK_SPAN) * 100 / (ns.db.crackleSpeed or 100)
     st.boltAt = random() * st.boltEvery -- a random phase, so a burst's bolts don't change in step
     st.boltFrame = floor(random() * 4) + 1
     st.boltTurn = random() * TWO_PI
@@ -375,7 +375,8 @@ function CRACKLE.build(orb, trail, red, green, blue)
 end
 
 -- A steady core in a dark bed, wrapped in a bolt layer that jumps to another frame, angle and brightness every 70-90
--- ms. (The ghosts are drawn by Orbs.lua, as for Starlight.)
+-- ms (divided by db.crackleSpeed / 100, read when the orb is set up). (The ghosts are drawn by Orbs.lua, as for
+-- Starlight.)
 function CRACKLE.draw(st, t, rel, under, body, spark, x, y, size, alpha)
     local bodySize = size * GLOW
     if t >= st.boltAt then
