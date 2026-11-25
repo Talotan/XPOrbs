@@ -186,12 +186,12 @@ function ShapePreview.Pattern(n, cluster)
 end
 
 -- The biggest visible disc's diameter in px for the current look (rested orbs are bigger when Rested tint is on).
--- Retro: 8 cells, the cell of the biggest orb.
+-- Retro: 8 cells of the burst's one cell size (every Retro orb is drawn on it, rested ones too).
 local function visibleFor(db, normal)
-    local rested = not normal and db.restedTint and ns.OrbShapes.k.restedSize or 1
     if db.orbShape == "retro" then
-        return 8 * math.max(1, math.floor(db.size * rested + 0.5))
+        return 8 * db.size
     end
+    local rested = not normal and db.restedTint and ns.OrbShapes.k.restedSize or 1
     local share = normal and CLUSTER_VISIBLE[db.orbShape] or VISIBLE[db.orbShape] or VISIBLE.starlight
     return share * ns.OrbSize(db) * rested
 end
@@ -264,8 +264,8 @@ end
 local function signature(db, red, green, blue)
     local rested = db.restedColor
     return table.concat({ db.orbShape, db.size, ns.OrbSize(db), ShapePreview.Count(db.density), tostring(db.blend),
-        tostring(db.sparkle), tostring(db.pulse), db.restedTint and 1 or 0, db.previewCluster and 1 or 0, red,
-        green, blue, rested[1], rested[2], rested[3] }, "|")
+        tostring(db.sparkle), tostring(db.pulse), tostring(db.crackleSpeed), db.restedTint and 1 or 0,
+        db.previewCluster and 1 or 0, red, green, blue, rested[1], rested[2], rested[3] }, "|")
 end
 
 -- ---------------------------------------------------------------- the window

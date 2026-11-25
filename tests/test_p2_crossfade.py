@@ -101,6 +101,21 @@ def test_copy_b_duration_is_040_of_the_flight_time_with_narrow_jitter(env):
     assert all(0.94 * 0.40 - 1e-9 <= o.dur <= 1.06 * 0.40 + 1e-9 for o in live_recs(g2))
 
 
+def test_copy_b_in_speed_mode_follows_its_own_short_arc_without_the_040_factor(env):
+    g = make(env)
+    g.db.flightMode, g.db.flightSpeed = "speed", 100
+    fire(g, "crossfade")
+    (o,) = live_recs(g)
+    dx, dy = tuple(g.ns.Target.GetDestination(g.ns.Target, False, False))[:2]
+    arc = g.ns.OrbMath.ArcLength(
+        o.x0, o.y0, o.control1X, o.control1Y, dx, dy, o.flightDist, o.bowX, o.bowY, o.screenW, o.screenH, o.clampMargin
+    )
+    base = min(2.5, max(0.35, arc / 1000))
+    assert o.dur == pytest.approx(base)  # random pinned at 0.5 -> jitter factor 1.0
+    assert o.dur >= 0.35 * 0.94
+    settle(g)
+
+
 def test_b_fades_in_over_80_ms_and_there_is_no_ab_crossfade(env):
     g = make(env)
     fire(g, "crossfade")

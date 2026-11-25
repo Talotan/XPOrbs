@@ -530,6 +530,11 @@ local function buildWindow()
     Preview.window, Preview.model, Preview.plate, Preview.popAnchor = window, model, plate, popAnchor
     loadModel()
     buildButton(frame)
+    -- the button covers part of the window, so the mouse can leave the window from it without the window's OnLeave
+    -- seeing it; hook (the template keeps its own OnLeave) rather than replace
+    if Preview.testButton and not pcall(Preview.testButton.HookScript, Preview.testButton, "OnLeave", leaveWindow) then
+        Preview.testButton:SetScript("OnLeave", leaveWindow)
+    end
     buildMoveHandle(frame)
 end
 

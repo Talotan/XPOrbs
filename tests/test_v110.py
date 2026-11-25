@@ -1169,7 +1169,7 @@ def test_sound_tooltip_describes_all_voices(env):
         "Pixel: a retro chip-tune ding.",
     ):
         assert clause in tip
-    assert "Off by default." in tip
+    assert "On by default." in tip
 
 
 # ---- the radio fallback (no dropdown template, or SetupMenu missing)

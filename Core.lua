@@ -14,7 +14,8 @@ ns.defaults = {
     size = 14,
     opacity = 100, -- orb opacity in % (every orb texture except the arrival flash)
     flightTime = 1.0, -- seconds; used when flightMode is "time"
-    flightMode = "speed", -- "speed" (orbs fly at a constant speed, so a longer way takes longer) or "time" (a fixed time)
+    -- "speed" (orbs fly at a constant speed, so a longer way takes longer) or "time" (a fixed time)
+    flightMode = "speed",
     flightSpeed = 100, -- % of Orbs.lua's reference speed; used when flightMode is "speed"
     -- the Forever XP bar is purple (blue when rested); orbs are additive, so these are full-brightness versions
     color = { 0.72, 0.28, 1.00 },
@@ -47,7 +48,8 @@ ns.defaults = {
     -- blend, pulse, sparkle and crackleSpeed are active values too (like size): the current shape's own, kept in
     -- shapeLook. The UI only shows the ones that apply to a shape: Outline (db.blend) for retro/globe/crackle, Sparkle
     -- for retro, Pulsing for globe, Crackle speed for crackle
-    blend = "natural", -- the Outline option: "natural" (additive glow, no outline) or "solid" (opaque with a dark rim)
+    -- the Outline option: "natural" (shown as "Glow" in the UI: additive, no outline) or "solid" (opaque, dark rim)
+    blend = "natural",
     pulse = false, -- Globe orbs gently swell and shrink
     sparkle = true,
     crackleSpeed = 100, -- Crackle's bolt animation rate in % (200 = the bolts change twice as fast)
@@ -229,11 +231,30 @@ function ns.SetOrbShape(name)
     return true
 end
 
+-- Writes one of ns.SHAPE_LOOK_KEYS into `shape`'s own entry, and into the active value when it is the current shape.
+function ns.SetShapeLook(shape, key, value)
+    local db = ns.db
+    shape = ns.CanonShape(shape) or ns.defaults.orbShape
+    lookOf(db, shape)[key] = value
+    if shape == (ns.CanonShape(db.orbShape) or ns.defaults.orbShape) then
+        db[key] = value
+    end
+end
+
 -- Writes one of ns.SHAPE_LOOK_KEYS: the active value and the current shape's entry (what the controls do).
 function ns.SetLook(key, value)
-    local db = ns.db
-    db[key] = value
-    lookOf(db, ns.CanonShape(db.orbShape) or ns.defaults.orbShape)[key] = value
+    ns.SetShapeLook(ns.db.orbShape, key, value)
+end
+
+-- What `shape` remembers for one of ns.SHAPE_LOOK_KEYS (its default when nothing is saved).
+function ns.GetShapeLook(shape, key)
+    shape = ns.CanonShape(shape) or ns.defaults.orbShape
+    local look = type(ns.db.shapeLook) == "table" and ns.db.shapeLook[shape]
+    local value = type(look) == "table" and look[key]
+    if value == nil then
+        return ns.ShapeDefault(shape, key)
+    end
+    return value
 end
 
 -- The renderer's own style for a style name (any alias) and a popMode: "popstream" (pop on the nameplate),

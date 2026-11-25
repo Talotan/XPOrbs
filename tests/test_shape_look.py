@@ -445,14 +445,33 @@ def test_the_pulse_slash_command(env):
     assert any("/xporbs pulse on|off" in line for line in m.say())
 
 
-def test_the_pulse_command_off_globe_says_it_is_globe_only(env):
+def test_the_pulse_command_off_globe_sets_globes_own_look(env):
     m = build(env)
-    m.slash("shape globe")
+    m.slash("shape starlight")
     m.slash("pulse on")
+    assert m.say()[-1].endswith("pulsing: on (Globe only)")
+    assert m.db.shapeLook.globe.pulse is True
+    assert m.db.pulse is False and m.db.shapeLook.starlight.pulse is False  # Starlight's own look is untouched
+    m.slash("shape globe")
+    assert m.db.pulse is True
     m.slash("shape retro")
     m.slash("pulse off")
     assert m.say()[-1].endswith("pulsing: off (Globe only)")
-    assert m.db.shapeLook.retro.pulse is False and m.db.shapeLook.globe.pulse is True
+    assert m.db.shapeLook.retro.pulse is False and m.db.shapeLook.globe.pulse is False
+    m.slash("shape globe")
+    assert m.db.pulse is False
+
+
+def test_the_pulse_command_with_no_argument_reports_globes_value(env):
+    m = build(env)
+    m.slash("shape globe")
+    m.slash("pulse on")
+    m.slash("shape crackle")
+    m.slash("pulse")
+    assert m.say()[-1].endswith("pulsing: on (Globe only)")
+    m.slash("shape globe")
+    m.slash("pulse")
+    assert m.say()[-1].endswith("pulsing: on") and not m.say()[-1].endswith("(Globe only)")
 
 
 def test_the_pulsing_checkbox_follows_the_shape_dropdown(env):
@@ -977,10 +996,10 @@ def test_the_spacing_is_per_shape(env):
         assert sp.SpacingFor(db) == pytest.approx(visible + max(3, 0.12 * visible))
     # Rested tint: the rested orbs are 1.15 x bigger and the spacing allows for them
     assert sp.VisibleFor(db_of(m, "globe", 14, rested=True)) == pytest.approx(1.08 * 14 * 1.15)
-    # Retro: the disc is 8 cells, the gap 2 cells (the biggest orb's cell)
+    # Retro: the disc is 8 cells, the gap 2 cells; every orb is drawn on the one cell, so Rested tint changes nothing
     assert sp.SpacingFor(db_of(m, "retro", 2)) == 20
     assert sp.SpacingFor(db_of(m, "retro", 3)) == 30
-    assert sp.SpacingFor(db_of(m, "retro", 4, rested=True)) == 50  # rested cell 5: 8 + 2 cells of 5
+    assert sp.SpacingFor(db_of(m, "retro", 4, rested=True)) == 40  # still 8 + 2 cells of 4
 
 
 def test_the_fit_is_separate_in_x_and_y_and_has_a_floor(env):
@@ -1108,6 +1127,17 @@ def test_the_preview_follows_the_shape(env, shape):
         } <= set(BOLTS)
     if shape == "retro":
         assert all(str(t.calls["SetTexture"][4]) == "NEAREST" for t in preview_orbs(m))
+
+
+def test_the_preview_follows_the_crackle_speed(env):
+    m = build(env)
+    up(m)
+    m.slash("shape crackle")
+    tick(m)
+    assert 0.07 <= float(m.ns.ShapePreview.box.st[1].boltEvery) <= 0.09  # 70-90 ms at 100 %
+    m.ns.SetLook("crackleSpeed", 200)
+    m.ns.ShapePreview.Sync(m.ns.ShapePreview)
+    assert 0.035 <= float(m.ns.ShapePreview.box.st[1].boltEvery) <= 0.045  # set up again: twice as fast
 
 
 def test_the_preview_uses_the_same_sizes_as_real_orbs(env):

@@ -47,7 +47,8 @@ local GHOST_KEY = { "ghost1", "ghost2", "ghost3", "ghost4" }
 -- Solid (db.blend == "solid", Retro / Globe / Crackle only): the body is an opaque BLEND texture whose RGB carries the
 -- shading, so orbs layer over each other instead of adding up. The underlay and the trails move below the bodies:
 -- every underlay, then every trail, then every body, then the glint / bolts / twinkle. The drawn sizes are the Natural
--- ones: the solid discs were cut to sit where each Natural body is seen. Trails stay additive. Natural keeps its own.
+-- ones: the solid discs were cut to sit where each Natural body is seen. Trails stay additive except for dark orbs
+-- (BLEND, see SHAPES.trailBlend). Natural keeps its own.
 local SOLID_LIFT = 0.06 -- BLEND shows the raw vertex colour (ADD brightens), so it is lightened by this much
 local CRACKLE_SOLID_UNDER, CRACKLE_SOLID_UNDER_ALPHA = 1.25, 0.40 -- x body, alpha (Natural: CRACKLE_UNDER, _ALPHA)
 local SUB_NATURAL = { under = -1, trail = 0, body = 0, top = 1 } -- ARTWORK sublayers
@@ -211,6 +212,7 @@ function RETRO.setup(under, body, spark, st, red, green, blue)
     style(spark, sl.top, "ADD", lerp(red, 1, RETRO_TWINKLE_WHITE), lerp(green, 1, RETRO_TWINKLE_WHITE),
         lerp(blue, 1, RETRO_TWINKLE_WHITE))
     st.phase = random() * 2 * RETRO_BLINK -- where in the on / off blink this orb starts
+    st.sparkle = ns.db.sparkle ~= false -- fixed at set-up: a shape switch mid-flight must not change a flying orb
 end
 
 -- A trail square: a colour texture (no art), ADD (BLEND for a dark orb, see SHAPES.trailBlend), tinted by the orb
@@ -245,7 +247,7 @@ function RETRO.draw(st, t, rel, under, body, spark, x, y, size, alpha, grow)
     local gridX, gridY = floor(x / cell + 0.5) * cell, floor(y / cell + 0.5) * cell
     putAt(under, rel, gridX, gridY, 10 * cell, alpha * RETRO_UNDER_ALPHA)
     putAt(body, rel, gridX, gridY, 8 * cell, alpha)
-    if ns.db.sparkle ~= false and (t + st.phase) % (2 * RETRO_BLINK) < RETRO_BLINK then
+    if st.sparkle and (t + st.phase) % (2 * RETRO_BLINK) < RETRO_BLINK then
         putAt(spark, rel, gridX - RETRO_TWINKLE_OFF * cell, gridY + RETRO_TWINKLE_OFF * cell, 3 * cell, alpha)
     else
         hideTex(spark)
@@ -286,6 +288,7 @@ function GLOBE.setup(under, body, spark, st, red, green, blue)
     style(spark, sl.top, "ADD", lerp(red, 1, GLOBE_GLINT_WHITE), lerp(green, 1, GLOBE_GLINT_WHITE),
         lerp(blue, 1, GLOBE_GLINT_WHITE))
     st.phase = random() * TWO_PI
+    st.pulse = ns.db.pulse ~= false -- fixed at set-up (see RETRO.setup)
 end
 
 function GLOBE.build(orb, trail, red, green, blue)
@@ -303,10 +306,10 @@ function GLOBE.build(orb, trail, red, green, blue)
 end
 
 -- A solid ball with a faint dark disc under it and a small glint up and to the left, breathing slowly (unless
--- db.pulse is off). The glint breathes with the body.
+-- st.pulse is off). The glint breathes with the body.
 function GLOBE.draw(st, t, rel, under, body, spark, x, y, size, alpha)
     local drawn = size * GLOBE_BODY
-    if ns.db.pulse ~= false then
+    if st.pulse then
         drawn = drawn * (1 + GLOBE_BREATH * sin(TWO_PI * GLOBE_RATE * t + st.phase))
     end
     st.bodySize = drawn

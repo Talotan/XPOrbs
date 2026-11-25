@@ -418,9 +418,29 @@ def test_pulse_off_keeps_the_globe_at_a_constant_size(env):
         if o.body.width:
             sizes.append(o.body.width)
     assert len(sizes) > 10 and all(s == pytest.approx(o.size * 1.5) for s in sizes)
-    g.db.pulse = True  # live: the next frames breathe again
+    g.db.pulse = True  # an orb already flying keeps the look it was set up with (a shape switch changes db.pulse)
     g.tick(0.02, 12)
-    assert o.body.width != pytest.approx(o.size * 1.5)
+    assert o.body.width == pytest.approx(o.size * 1.5)
+    g.tick(5)  # the burst lands; the next one is set up with pulsing on and breathes
+    go(g, "globe", n=1, trail=False, advance=0.0)
+    (o,) = flying(g)
+    sizes = set()
+    for _ in range(12):
+        g.tick(0.02, 1)
+        if o.body.width:
+            sizes.add(round(float(o.body.width), 3))
+    assert len(sizes) > 3
+
+
+def test_retro_sparkle_is_fixed_when_the_orb_is_set_up(env):
+    g = make(env)
+    g.db.sparkle = False
+    go(g, "retro", n=1, trail=False, advance=0.05)
+    (o,) = flying(g)
+    g.db.sparkle = True  # e.g. the shape was switched mid-flight: this orb is not affected
+    for _ in range(14):
+        g.tick(0.05, 1)
+        assert not o.spark.shown
 
 
 def test_globe_glint_sits_up_and_left_and_breathes_with_the_body(env):

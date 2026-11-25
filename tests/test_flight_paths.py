@@ -458,9 +458,9 @@ def test_junk_flight_path_resets_to_the_default(env, bad):
 def test_path_command(env):
     g = make(env)
     g.slash("path")
-    assert "flight style: Smooth" in chat_lines(g)[-1]
+    assert "flight pathing: Smooth" in chat_lines(g)[-1]
     g.slash("path chaos")
-    assert g.db.flightPath == "chaos" and "flight style: Chaos" in chat_lines(g)[-1]
+    assert g.db.flightPath == "chaos" and "flight pathing: Chaos" in chat_lines(g)[-1]
     g.slash("path helix")
     assert g.db.flightPath == "helix"
     g.slash("path bogus")
@@ -468,7 +468,7 @@ def test_path_command(env):
         g.db.flightPath == "helix" and "use smooth, chaos or helix" in chat_lines(g)[-1]
     )
     g.slash("path")
-    assert "flight style: Helix" in chat_lines(g)[-1]
+    assert "flight pathing: Helix" in chat_lines(g)[-1]
     g.slash("help")
     assert any("/xporbs path smooth|chaos|helix" in line for line in chat_lines(g))
 

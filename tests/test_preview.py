@@ -465,6 +465,22 @@ def test_the_move_cross_is_hidden_until_the_mouse_is_over_the_window(env):
     assert handle.shown
 
 
+def test_the_move_cross_hides_when_the_mouse_leaves_from_the_test_kill_button(env):
+    m = make(env)
+    show(m)
+    pv = m.ns.Preview
+    win, handle, button = pv.window, pv.moveHandle, pv.testButton
+    win.scripts.OnEnter(win)
+    assert handle.shown
+    win.left, win.bottom, win.width, win.height = 100, 100, 200, 286
+    m.stub.cursor.x, m.stub.cursor.y = 150, 110  # the button is a child: still inside the window
+    button.scripts.OnLeave(button)
+    assert handle.shown
+    m.stub.cursor.x, m.stub.cursor.y = 900, 900  # off the button and out of the window
+    button.scripts.OnLeave(button)
+    assert not handle.shown
+
+
 def test_the_move_cross_drags_the_window_and_has_a_tooltip(env):
     m = make(env)
     show(m)

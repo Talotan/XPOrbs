@@ -1685,9 +1685,10 @@ function Orbs:Burst(params)
             local arcLen = OrbMath.ArcLength(orb.x0, orb.y0, orb.control1X, orb.control1Y, dx, dy, orb.flightDist, bowX,
                 bowY, orb.screenW, orb.screenH, orb.clampMargin)
             if flightSpeed then
-                baseDur = math.min(2.5, math.max(0.35, arcLen / flightSpeed))
+                baseDur = math.min(2.5, math.max(0.35, arcLen / flightSpeed)) -- B's short arc is already a short time
+            else
+                baseDur = baseDur * (orb.group and flightScale or 1)
             end
-            baseDur = baseDur * (orb.group and flightScale or 1)
             orb.dur = max(MIN_DUR, baseDur * (jitterLow + random() * jitterSpan))
             if i == 1 then
                 ns:Log("FLIGHT mode=%s dist=%d dur=%.2f", flightSpeed and "speed" or "time", floor((arcLen or 0) + 0.5),
@@ -2125,7 +2126,7 @@ function ns.commands.path(arg)
         settings().flightPath = word
         refreshPanel()
     end
-    ns.Print("flight style: " .. (ns.PATH_LABEL[settings().flightPath] or "Smooth"))
+    ns.Print("flight pathing: " .. (ns.PATH_LABEL[settings().flightPath] or "Smooth"))
 end
 
 -- /xporbs shape starlight|retro|globe|crackle: how the orbs are drawn (db.orbShape; the old names power and wisp still
@@ -2143,17 +2144,19 @@ function ns.commands.shape(arg)
     ns.Print("orb shape: " .. (ns.SHAPE_LABEL[settings().orbShape] or ns.SHAPE_LABEL.starlight))
 end
 
--- /xporbs pulse on|off: the "Pulsing" tickbox (db.pulse, the current shape's own): Globe orbs gently swell and shrink.
+-- /xporbs pulse on|off: the "Pulsing" tickbox, always Globe's own look (shapeLook.globe.pulse): its orbs gently swell
+-- and shrink.
 function ns.commands.pulse(arg)
     local word = string.match(arg or "", "%S+")
+    settings()
     if word == "on" or word == "off" then
-        ns.SetLook("pulse", word == "on")
+        ns.SetShapeLook("globe", "pulse", word == "on") -- Globe's own look, whichever shape is active
         refreshPanel()
     elseif word ~= nil then
-        ns.Print("pulse: use on or off (now " .. (settings().pulse and "on" or "off") .. ")")
+        ns.Print("pulse: use on or off (now " .. (ns.GetShapeLook("globe", "pulse") and "on" or "off") .. ")")
         return
     end
-    ns.Print("pulsing: " .. (settings().pulse and "on" or "off")
+    ns.Print("pulsing: " .. (ns.GetShapeLook("globe", "pulse") and "on" or "off")
         .. (settings().orbShape ~= "globe" and " (Globe only)" or ""))
 end
 

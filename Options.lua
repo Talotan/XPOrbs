@@ -67,7 +67,7 @@ local SHAPE_TIP = {
 }
 local QUEST_TIP = "Orbs for quest turn-ins and other XP that is not a kill or exploration."
 local EXPLORE_TIP = "Orbs for the XP you get from discovering a new area."
-local FLIGHT_STYLE_DESC = {
+local FLIGHT_PATH_DESC = {
     smooth = "A clean arc from the mob to your XP bar.",
     chaos = "Orbs dart and weave like fireflies on the way.",
     helix = "Orbs spiral around each other in pairs.",
@@ -75,7 +75,7 @@ local FLIGHT_STYLE_DESC = {
 local ORB_SHAPE_DESC = {
     starlight = "Soft glowing orbs with a spinning sparkle.",
     retro = "Chunky pixel-art orbs that move in blocky steps.",
-    globe = "Smooth glossy orbs that gently pulse and trail a long soft tail.",
+    globe = "Smooth glossy orbs with a long soft tail; they can gently pulse.",
     crackle = "A bright core with lightning crackling round its edge.",
 }
 local PULSE_TIP = "Globe orbs gently swell and shrink."
@@ -83,7 +83,7 @@ local CAP_TIP = "Lowering the cap can improve performance on less powerful compu
 local MAX_TIP = "At max level, each kill sends a small burst of orbs to your portrait."
 local SOUND_TIP = "Glass: a glassy tink. Coin: a soft coin clink. Swish: a soft brushed whoosh. "
     .. "Pixel: a retro chip-tune ding. "
-    .. "One per arriving orb (up to six per burst). Off by default."
+    .. "One per arriving orb (up to six per burst). On by default."
 local PLAY_X = 156 -- px right of CTRL_X: just past the 150 px voice dropdown
 local PLAY_ATLAS = "voicechat-icon-speaker"
 local PLAY_FALLBACK = "Interface\\Common\\VoiceChat-Speaker"
@@ -103,7 +103,8 @@ for _, lookKey in ipairs(ns.SHAPE_LOOK_KEYS) do
     LOOK[lookKey] = true
 end
 local child -- the scroll child every row hangs off
-local rowParent -- when set, newRow hangs rows off this frame instead (the Look tab's shape box); positions stay child-relative
+-- when set, newRow hangs rows off this frame instead (the Look tab's shape box); positions stay child-relative
+local rowParent
 Options.controls = {} -- key -> the widget (checkbox, slider, swatch, radio)
 Options.rows = {} -- key -> the row frame (dimming and layout)
 Options.resets = {} -- key -> the per-row reset button
@@ -524,7 +525,8 @@ local function attachValueEdit(row, key, val, range, unit, hint)
         local lo, hi = range()
         local u = type(unit) == "function" and unit() or unit
         local extra = hint and hint()
-        showTip(hit, string.format("Right-click to type a value (%g%s%g%s)", lo, EN_DASH, hi, u) .. (extra and ("\n" .. extra) or ""))
+        local rangeTip = string.format("Right-click to type a value (%g%s%g%s)", lo, EN_DASH, hi, u)
+        showTip(hit, rangeTip .. (extra and ("\n" .. extra) or ""))
     end)
     hit:SetScript("OnLeave", function()
         val:SetTextColor(1, 0.82, 0)
@@ -990,7 +992,7 @@ end
 -- (button text, tooltips, radios) the plain name.
 local FLIGHT_DROPDOWN = {
     key = "flightPath", text = "Flight pathing", order = ns.PATH_ORDER, labels = ns.PATH_LABEL,
-    desc = FLIGHT_STYLE_DESC, field = "flightDropdown", radioX = { 0, 140, 230 }, -- px right of CTRL_X (the first
+    desc = FLIGHT_PATH_DESC, field = "flightDropdown", radioX = { 0, 140, 230 }, -- px right of CTRL_X (the first
     -- label is the long one)
 }
 -- The "Speed type" dropdown (db.flightMode): whether the Flight tab's one slider row is a speed or a time.
@@ -1120,7 +1122,8 @@ end
 
 -- The Look tab's boxed group: the settings that belong to the current orb shape. Its height is fixed (two option rows
 -- always, even when empty), so switching shape never moves what is below. Rows inside hang off the box frame.
-local BOX_X, BOX_W = LABEL_X, HEADER_X + RULE_W - LABEL_X -- left edge on the other tabs' label column, right edge on the rule's
+-- left edge on the other tabs' label column, right edge on the rule's
+local BOX_X, BOX_W = LABEL_X, HEADER_X + RULE_W - LABEL_X
 local BOX_LABEL_X = LABEL_X + 16 -- inner padding 16
 local BOX_RESET_X = RESET_X - 4 -- the reset buttons end 4 px inside the border
 local BOX_TOP_PAD, BOX_BOTTOM_PAD = 28, 8
@@ -1197,7 +1200,7 @@ local function optionDescribe(keys)
     end
 end
 
--- Option row A: "Outline" with the Natural / Solid radios (Starlight: a grey note instead, centred across both rows).
+-- Option row A: "Outline" with the Glow / Solid radios (Starlight: a grey note instead, centred across both rows).
 local function blendRow(y)
     local row = newRow(y, 28)
     Options.rows.blend = row
@@ -1272,7 +1275,8 @@ local function extraRow(y)
         end
     end
     -- one reset button for whichever extra the shape has
-    addReset(row, "shapeExtra", { "sparkle", "pulse" }, optionDescribe({ "sparkle", "pulse" }), optionResetSpec(), BOX_RESET_X)
+    addReset(row, "shapeExtra", { "sparkle", "pulse" }, optionDescribe({ "sparkle", "pulse" }), optionResetSpec(),
+        BOX_RESET_X)
     Options.resets.sparkle, Options.resets.pulse = Options.resets.shapeExtra, Options.resets.shapeExtra
 end
 
@@ -1611,7 +1615,7 @@ local function buildSound(y)
     return y + 32
 end
 
-local function buildAdvanced(y)
+local function buildDebug(y)
     checkbox(y, "debug", "Debug log")
     return y + 28
 end
@@ -1624,7 +1628,7 @@ end
 local TAB_NAMES = { "General", "Sound", "Look", "Flight", "Arrival" }
 local TAB_BUILDERS = {
     General = function(y)
-        return buildAdvanced(buildGeneral(y) + 12)
+        return buildDebug(buildGeneral(y) + 12)
     end,
     Sound = buildSound, Look = buildLook, Flight = buildFlight, Arrival = buildArrival,
 }
