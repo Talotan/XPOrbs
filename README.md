@@ -86,7 +86,7 @@ back with `/xporbs minimap on` or the "Show minimap button" option).
 
 The panel has these sections, most-used first:
 
-- **General:** enable, orbs at max level, quest bursts, exploration bursts and the minimap button.
+- **General:** enable, orbs at max level, quest bursts, exploration bursts, the minimap button and the debug log.
 - **Look:** the orb shape dropdown and, in a box under it, that shape's own size, quantity, opacity and extras
   (Outline, Sparkle, Pulsing, Crackle speed); then the trail and its opacity, orb colour (or your class colour),
   rested orb colour (a tickbox and a swatch in one row) and the maximum orbs per burst.
@@ -96,13 +96,14 @@ The panel has these sections, most-used first:
 - **Arrival:** the XP bar frame and its picker, the shape of the target frame, a landing offset, and the arrival glow
   with its intensity.
 - **Sound:** the arrival chime with its sound (Glass, Coin, Swish or Pixel) and volume.
-- **Advanced:** the debug log.
 
 The panel also has a reset button. To try your settings, use the Test Kill button on the test target, below.
 
-While the XP Orbs options are open, a stand-in mob (Hogger, or Gamon for Horde characters) stands in a small window to
-the right of them. Test Kill makes it die and fires a burst from it with your current settings, so you can tune the look
-without finding a mob. Drag the model to rotate it.
+While the XP Orbs options are open, two small windows sit to the right of them. The Preview shows a few orbs with your
+current look; tick **Cluster** to pile them up the way they look right after a kill. Under it, a stand-in mob (Hogger,
+or Gamon for Horde characters) waits with a Test Kill button: it makes the mob die and fires a burst from it with your
+current settings, so you can tune the look without finding a mob. Drag the model to rotate it, or drag the window (the
+move cross in its corner) to put it anywhere; it goes back next to the panel when you close the options.
 
 The default colours are a purple for normal orbs and a blue for rested ones, picked to match the Forever XP bar. If
 you had kept the old default colours or the old 0.75 s flight time, they update to the new ones automatically; colours
