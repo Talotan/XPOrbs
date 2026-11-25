@@ -3,13 +3,14 @@ local ADDON, ns = ...
 
 -- Orb preview window: a framed window like the "Test target" one (Preview.lua), docked to the right of the settings
 -- panel with the test target window hung under it. It shows a cluster of stationary orbs of the current shape: the
--- count follows Quantity (n = round(5 * density / 100), 2..12; 5 at the default 100%) in a fixed pattern (pair,
--- triangle, diamond, cross, a centre with a ring, a centre with two rings), the last 2/5 of them rested when Rested
--- tint is on. The shape's own animation runs (Starlight's spinning sparkle, Retro's blinking twinkle on its grid,
+-- count follows Quantity (n = round(6 * density / 100), 2..12; 6 at the default 100%) in a fixed pattern (pair,
+-- triangle, 2 x 2, pentagon, honeycomb rows), the last 2/5 of them rested when Rested tint is on. The orbs are spaced
+-- so their visible discs just do not touch; the "Cluster" tickbox (db.previewCluster) packs them into an overlapping
+-- cloud instead, like orbs piled up after a kill, with the rested ones mixed in. The shape's own animation runs
+-- (Starlight's spinning sparkle, Retro's blinking twinkle on its grid,
 -- Globe's breathing and glint, Crackle's bolt swaps), no trail. It is drawn by the same shape code as real orbs (the
 -- shape's setup and draw with the orb area as the frame), from 36 textures of its own, and follows the shape, size,
--- quantity, blend, opacity, pulsing and colour settings as they change. The pattern's spacing scales with the orb's
--- size, so overlap shows Natural against Solid honestly.
+-- quantity, blend, opacity, pulsing and colour settings as they change. The spacing scales with the orb's size.
 --
 -- The window is built on first need and shown and hidden with the options panel (Options.lua calls Sync(true) from the
 -- panel's OnShow, Sync() after every change and Sync(false) from OnHide); its OnUpdate runs only while it is up. Every
@@ -20,24 +21,40 @@ local ADDON, ns = ...
 local ShapePreview = {}
 ns.ShapePreview = ShapePreview
 
-local WINDOW_W, WINDOW_H = 200, 164 -- px; the width matches the test target window
+local WINDOW_W, WINDOW_H = 200, 120 -- px; the width matches the test target window
+local CLUSTER_TIP = "Pile the orbs up, overlapping, as they look right after a kill."
+local CHECK = 20 -- px: the Cluster tickbox
 local PAD, TITLE_H = 8, 28 -- px: the window's side/bottom padding and the room for the title above the orb area
 local AREA_W, AREA_H = WINDOW_W - 2 * PAD, WINDOW_H - TITLE_H - PAD
 local MIN_ORBS, MAX_ORBS, SLOTS = 2, 12, 36 -- 12 orbs x 3 textures
--- Neighbour distance per px of orb size, per shape (Retro: RETRO_CELLS of its cells, see spacingFor).
-local SPACING = { starlight = 1.0, globe = 0.9, crackle = 1.0 }
-local RETRO_CELLS = 7 -- neighbouring Retro orbs share one column of cells
+-- The visible disc's diameter per px of orb size, per shape: the drawn quad times the share of it that is seen (about
+-- 0.6 of Starlight's 2 x quad once the glow is discounted, the Globe body's plateau is 0.72 of its 1.5 x quad,
+-- Crackle's core 0.4 of its 2.3 x quad plus a little for the bolts). Retro's disc is 8 cells.
+local VISIBLE = { starlight = 1.15, globe = 1.08, crackle = 1.35 } -- (Crackle: the bolts need room in the tidy layout)
+local CLUSTER_VISIBLE = { crackle = 1.15 } -- the unit of the pile where it differs from VISIBLE
+local GAP_K, GAP_MIN = 0.12, 3 -- the gap between neighbouring discs: this share of the diameter, at least this many px
+local RETRO_GAP = 2 -- cells between neighbouring Retro discs (the grid snap eats up to one)
 local FLOOR = 0.75 -- the spacing is squeezed to this fraction at most to fit the area, then the area clips
 local ROW_H = math.sqrt(3) / 2 -- honeycomb row height, in neighbour distances
-local ROWS = { [7] = { 2, 3, 2 }, [8] = { 3, 2, 3 }, [9] = { 3, 3, 3 }, [10] = { 3, 4, 3 }, [11] = { 4, 3, 4 },
-    [12] = { 4, 4, 4 } }
+local ROWS = { [6] = { 3, 3 }, [7] = { 2, 3, 2 }, [8] = { 3, 2, 3 }, [9] = { 3, 3, 3 }, [10] = { 3, 4, 3 },
+    [11] = { 4, 3, 4 }, [12] = { 4, 4, 4 } }
+-- The cluster: a loose overlapping pile in the manner of the cloud piles in the art sheets, in units of a NORMAL
+-- orb's visible diameter (y up), in growth order: n orbs are the first n entries, re-centred on their mean. The
+-- first is the heart of the pile. CLUSTER_SCALE stretches it per shape (Starlight's glow reads tighter).
+local CLUSTER = { { 0, 0 }, { 0.75, 0.34 }, { -0.15, 0.49 }, { 0.30, -0.19 }, { -0.75, -0.04 }, { 0.39, 0.70 },
+    { -0.72, 0.65 }, { -0.39, -0.54 }, { 0.90, -0.32 }, { 0.10, 1.03 }, { -1.36, 0.23 }, { 1.39, 0.23 } }
+local CLUSTER_SCALE = { starlight = 1.3 }
+-- Which growth indices of a pile of n are rested (blue), when Rested tint is on; the heart (1) is always purple.
+local CLUSTER_RESTED = { [2] = { 2 }, [3] = { 2 }, [4] = { 2, 3 }, [5] = { 2, 3 }, [6] = { 2, 3 }, [7] = { 2, 4, 7 },
+    [8] = { 2, 4, 7 }, [9] = { 2, 4, 7, 8 }, [10] = { 2, 4, 7, 8 }, [11] = { 2, 4, 7, 8 }, [12] = { 2, 4, 7, 8, 10 } }
 local ORB_TEX = "Interface\\AddOns\\XPOrbs\\media\\orb"
 local SPARKLE_TEX = "Interface\\AddOns\\XPOrbs\\media\\sparkle"
 local TWO_PI = math.pi * 2
 local random = math.random
 
 ShapePreview.WINDOW_W, ShapePreview.WINDOW_H = WINDOW_W, WINDOW_H
-ShapePreview.SPACING, ShapePreview.RETRO_CELLS, ShapePreview.FLOOR = SPACING, RETRO_CELLS, FLOOR
+ShapePreview.VISIBLE, ShapePreview.FLOOR = VISIBLE, FLOOR
+ShapePreview.CLUSTER_SCALE = CLUSTER_SCALE
 
 local window, box -- the window, and the orb area inside it (box.tex holds the 36 textures, box.st the per-orb state)
 local looks -- what the orbs are currently set up with (see signature), to spot a change
@@ -56,13 +73,61 @@ end
 
 -- Orbs shown for a Quantity setting (percent).
 function ShapePreview.Count(density)
-    local n = round(5 * (tonumber(density) or 100) / 100)
+    local n = round(6 * (tonumber(density) or 100) / 100)
     return math.max(MIN_ORBS, math.min(MAX_ORBS, n))
 end
 
--- How many of the n orbs are rested (the last ones) when Rested tint is on.
+-- How many of the n orbs are rested when Rested tint is on.
 function ShapePreview.RestedCount(n)
     return round(n * 2 / 5)
+end
+
+-- The growth index of the orb in each slot of a pile of n, and the pile's offsets by growth index re-centred on the
+-- mean. Slots run outermost first (by distance from the mean) with the heart last, so it is drawn on top.
+local function clusterOrder(n)
+    local sumX, sumY = 0, 0
+    for i = 1, n do
+        sumX, sumY = sumX + CLUSTER[i][1], sumY + CLUSTER[i][2]
+    end
+    local centred, order = {}, {}
+    for i = 1, n do
+        centred[i] = { CLUSTER[i][1] - sumX / n, CLUSTER[i][2] - sumY / n }
+        order[i] = i
+    end
+    table.sort(order, function(a, b)
+        if a == 1 or b == 1 then
+            return b == 1 and a ~= 1
+        end
+        local da = centred[a][1] ^ 2 + centred[a][2] ^ 2
+        local db = centred[b][1] ^ 2 + centred[b][2] ^ 2
+        if da ~= db then
+            return da > db
+        end
+        return a < b
+    end)
+    return order, centred
+end
+
+-- Which slots (1..n) are rested, as a table of booleans. Tidy layout: the last ones, so they form the bottom row.
+-- Cluster: CLUSTER_RESTED by growth index, so blue is mixed into the pile.
+function ShapePreview.RestedSlots(n, cluster)
+    local rested = {}
+    if cluster then
+        local order = clusterOrder(n)
+        local blue = {}
+        for _, growth in ipairs(CLUSTER_RESTED[n] or {}) do
+            blue[growth] = true
+        end
+        for slot, growth in ipairs(order) do
+            rested[slot] = blue[growth] or nil
+        end
+        return rested
+    end
+    local count = ShapePreview.RestedCount(n)
+    for j = 1, count do
+        rested[n - count + j] = true
+    end
+    return rested
 end
 
 local function ring(points, count, radius)
@@ -72,50 +137,81 @@ local function ring(points, count, radius)
     end
 end
 
--- The pattern for n orbs as unit offsets from the centre (x right, y up; 1 = the neighbour distance): 2 a pair, 3 a
--- triangle, 4 a diamond, 5 a cross, 6 a centre and a ring of five, 7-12 honeycomb rows (y = +-0.866 and 0) in which
--- every neighbour is one unit away (equal rows are shifted +-0.25 so they interlock). The slots run top row first, so
--- the last ones (the rested orbs) form the bottom row.
-function ShapePreview.Pattern(n)
+-- The honeycomb rows for 6-12 orbs as unit offsets (1 = the neighbour distance): every neighbour is one unit away
+-- (three equal rows are shifted +-0.25 so they interlock; 6 is a plain 3 x 2 grid), rows centred on y = 0, top row
+-- first.
+local function honeycomb(rows)
     local points = {}
-    if n <= 2 then
-        points = { { -0.5, 0 }, { 0.5, 0 } }
-    elseif n == 3 then
-        ring(points, 3, 0.58)
-    elseif n == 4 then
-        points = { { 0, 0.7 }, { 0.7, 0 }, { 0, -0.7 }, { -0.7, 0 } }
-    elseif n == 5 then
-        points = { { 0, 0 }, { 0, 1 }, { 0, -1 }, { -1, 0 }, { 1, 0 } }
-    elseif n == 6 then
-        points[1] = { 0, 0 }
-        ring(points, 5, 1)
-    else
-        local rows = ROWS[n]
-        local equal = rows[1] == rows[2] and rows[2] == rows[3]
-        for r, count in ipairs(rows) do
-            local shift = equal and (r % 2 == 1 and 0.25 or -0.25) or 0
-            for c = 1, count do
-                points[#points + 1] = { c - (count + 1) / 2 + shift, (2 - r) * ROW_H }
-            end
+    local equal = rows[1] == rows[2] and rows[2] == (rows[3] or rows[2])
+    local pitch = #rows == 2 and 1 or ROW_H -- two rows of three sit on a grid, a pitch of one unit
+    for r, count in ipairs(rows) do
+        local shift = equal and #rows > 2 and (r % 2 == 1 and 0.25 or -0.25) or 0
+        for c = 1, count do
+            points[#points + 1] = { c - (count + 1) / 2 + shift, ((#rows + 1) / 2 - r) * pitch }
         end
     end
     return points
 end
 
--- Neighbour distance in px for the current look: per-shape spacing times the orb size; Retro 7 of its cells.
-local function spacingFor(db)
-    if db.orbShape == "retro" then
-        return RETRO_CELLS * db.size
+-- The cluster for n orbs as offsets in normal visible diameters, in slot order (see clusterOrder).
+local function clusterPoints(n)
+    local order, centred = clusterOrder(n)
+    local points = {}
+    for slot, growth in ipairs(order) do
+        points[slot] = centred[growth]
     end
-    return (SPACING[db.orbShape] or SPACING.starlight) * ns.OrbSize(db)
+    return points
+end
+
+-- The layout for n orbs as offsets from the centre (x right, y up). Tidy (the default): unit 1 = the neighbour
+-- distance, no two closer than 1: 2 a pair, 3 a triangle, 4 a 2 x 2 square, 5 a pentagon, 6-12 honeycomb rows (6 is
+-- two rows of three, then three rows). The slots run top row first, so the last ones (the rested orbs) form the bottom
+-- row. Cluster: unit 1 = the visible diameter, a fixed overlapping pile (see CLUSTER).
+function ShapePreview.Pattern(n, cluster)
+    local points = {}
+    if cluster then
+        return clusterPoints(n)
+    elseif n <= 2 then
+        points = { { -0.5, 0 }, { 0.5, 0 } }
+    elseif n == 3 then
+        ring(points, 3, 1 / math.sqrt(3))
+    elseif n == 4 then
+        points = { { -0.5, 0.5 }, { 0.5, 0.5 }, { -0.5, -0.5 }, { 0.5, -0.5 } }
+    elseif n == 5 then
+        ring(points, 5, 1 / (2 * math.sin(math.pi / 5)))
+    else
+        points = honeycomb(ROWS[n])
+    end
+    return points
+end
+
+-- The biggest visible disc's diameter in px for the current look (rested orbs are bigger when Rested tint is on).
+-- Retro: 8 cells, the cell of the biggest orb.
+local function visibleFor(db, normal)
+    local rested = not normal and db.restedTint and ns.OrbShapes.k.restedSize or 1
+    if db.orbShape == "retro" then
+        return 8 * math.max(1, math.floor(db.size * rested + 0.5))
+    end
+    local share = normal and CLUSTER_VISIBLE[db.orbShape] or VISIBLE[db.orbShape] or VISIBLE.starlight
+    return share * ns.OrbSize(db) * rested
+end
+ShapePreview.VisibleFor = visibleFor
+
+-- Neighbour distance in px for the tidy layout: the visible disc plus a small gap (Retro: two cells).
+local function spacingFor(db)
+    local visible = visibleFor(db)
+    if db.orbShape == "retro" then
+        return visible + RETRO_GAP * visible / 8
+    end
+    return visible + math.max(GAP_MIN, GAP_K * visible)
 end
 ShapePreview.SpacingFor = spacingFor
 
--- The spacing in px for a pattern: the wanted spacing, fitted to the area in x and y separately (an orb's half-extent
--- is its OrbSize, times the rested scale when Rested tint is on), squeezed to FLOOR at most (what is left is cropped by
--- the area's clipping), and for Retro kept on whole cells.
-local function radiusFor(points, db)
-    local want = spacingFor(db)
+-- The unit in px for a layout: the wanted one (spacingFor, or for the cluster the visible diameter), fitted to the
+-- area in x and y separately (an orb's half-extent is its OrbSize, times the rested scale when Rested tint is on),
+-- squeezed to FLOOR at most (what is left is cropped by the area's clipping), and for Retro kept on whole cells.
+local function radiusFor(points, db, cluster)
+    local want = cluster and visibleFor(db, true) * (CLUSTER_SCALE[db.orbShape] or 1) or spacingFor(db)
     local size = ns.OrbSize(db)
     if db.restedTint then
         size = size * ns.OrbShapes.k.restedSize
@@ -127,7 +223,8 @@ local function radiusFor(points, db)
     local fit = math.min((AREA_W / 2 - size) / reachX, (AREA_H / 2 - size) / reachY)
     local radius = math.max(FLOOR * want, math.min(want, fit))
     if db.orbShape == "retro" then
-        radius = round(radius / db.size) * db.size
+        local cells = radius / db.size
+        radius = (radius >= want and math.ceil(cells - 1e-6) or round(cells)) * db.size
     end
     return math.max(radius, 0)
 end
@@ -167,8 +264,8 @@ end
 local function signature(db, red, green, blue)
     local rested = db.restedColor
     return table.concat({ db.orbShape, db.size, ns.OrbSize(db), ShapePreview.Count(db.density), tostring(db.blend),
-        tostring(db.sparkle), tostring(db.pulse), db.restedTint and 1 or 0, red, green, blue, rested[1], rested[2],
-        rested[3] }, "|")
+        tostring(db.sparkle), tostring(db.pulse), db.restedTint and 1 or 0, db.previewCluster and 1 or 0, red,
+        green, blue, rested[1], rested[2], rested[3] }, "|")
 end
 
 -- ---------------------------------------------------------------- the window
@@ -199,7 +296,32 @@ local function build()
         tex.xoShown = false
         box.tex[i] = tex
     end
-    ShapePreview.window, ShapePreview.box = window, box
+    -- the Cluster tickbox in the bottom right corner (small, its label to its left)
+    local check = CreateFrame("CheckButton", nil, frame, "UICheckButtonTemplate")
+    check:SetSize(CHECK, CHECK)
+    check:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -4, 3)
+    local text = frame:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+    text:SetPoint("RIGHT", check, "LEFT", 0, 1)
+    text:SetText("Cluster")
+    pcall(check.SetHitRectInsets, check, -50, 0, 0, 0) -- the label is part of the target
+    check:SetScript("OnEnter", function(self)
+        pcall(function()
+            GameTooltip:SetOwner(self, "ANCHOR_TOP")
+            GameTooltip:SetText(CLUSTER_TIP, nil, nil, nil, nil, true)
+        end)
+    end)
+    check:SetScript("OnLeave", function()
+        pcall(function()
+            GameTooltip:Hide()
+        end)
+    end)
+    check:SetScript("OnClick", function(self)
+        if ns.db then
+            ns.db.previewCluster = self:GetChecked() and true or false
+        end
+        ShapePreview:Sync()
+    end)
+    ShapePreview.window, ShapePreview.box, ShapePreview.check = window, box, check
 end
 
 -- build threw part-way: hide the half-built window, drop every reference and remember the failure.
@@ -209,7 +331,7 @@ local function abandon()
         pcall(window.Hide, window)
     end
     window, box, looks = nil, nil, nil
-    ShapePreview.window, ShapePreview.box = nil, nil
+    ShapePreview.window, ShapePreview.box, ShapePreview.check = nil, nil, nil
 end
 
 local function dock()
@@ -222,7 +344,8 @@ local function configure(db, red, green, blue)
     local shape = ns.OrbShapes.by[db.orbShape] -- nil: Starlight
     local setup = shape and shape.setup or starlightSetup
     local n = ShapePreview.Count(db.density)
-    local restedFrom = n - (db.restedTint and ShapePreview.RestedCount(n) or 0) + 1
+    local cluster = db.previewCluster == true
+    local rested = db.restedTint and ShapePreview.RestedSlots(n, cluster) or {}
     local restedColour = db.restedColor
     box.n = n
     for i = 1, MAX_ORBS do
@@ -235,7 +358,7 @@ local function configure(db, red, green, blue)
             tex.xoShown = false
         end
         if i <= n then
-            local colour = i >= restedFrom and restedColour or { red, green, blue }
+            local colour = rested[i] and restedColour or { red, green, blue }
             local st = { base = ns.OrbSize(db) } -- Retro's one cell size comes from base
             box.st[i] = st
             setup(box.tex[first + 1], box.tex[first + 2], box.tex[first + 3], st, colour[1], colour[2], colour[3])
@@ -243,7 +366,7 @@ local function configure(db, red, green, blue)
             box.st[i] = nil
         end
     end
-    box.pattern, box.restedFrom = ShapePreview.Pattern(n), restedFrom
+    box.pattern, box.rested, box.cluster = ShapePreview.Pattern(n, cluster), rested, cluster
 end
 
 local function draw(db)
@@ -252,10 +375,10 @@ local function draw(db)
     local alpha = db.opacity / 100
     local restedSize = ns.OrbShapes.k.restedSize
     local base = ns.OrbSize(db)
-    local radius = radiusFor(box.pattern, db)
+    local radius = radiusFor(box.pattern, db, box.cluster)
     for i = 1, box.n do
         local first = (i - 1) * 3
-        local size = base * (db.restedTint and i >= box.restedFrom and restedSize or 1)
+        local size = base * (box.rested[i] and restedSize or 1)
         local p = box.pattern[i]
         draws(box.st[i], box.time, box, box.tex[first + 1], box.tex[first + 2], box.tex[first + 3], p[1] * radius,
             p[2] * radius, size, alpha)
@@ -283,6 +406,7 @@ local function configureIfChanged()
         looks = now
         configure(db, red, green, blue)
     end
+    ShapePreview.check:SetChecked(db.previewCluster == true)
 end
 
 local function ready()

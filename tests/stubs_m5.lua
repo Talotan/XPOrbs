@@ -510,6 +510,9 @@ end
 function fm:GetFrameLevel()
     return self.level or 0
 end
+function fm:SetFrameLevel(level)
+    self.level = level
+end
 function fm:GetParentKey()
     return self.parentKey
 end

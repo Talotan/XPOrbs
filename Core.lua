@@ -32,6 +32,7 @@ ns.defaults = {
     soundVoice = "glass",
     soundVolume = 100, -- chime volume in percent: pre-rendered files per level, see ns.ranges and tools/make_sounds.py
     debug = false,
+    previewCluster = false, -- the orb preview window's "Cluster" tickbox: orbs pile up overlapping instead of tidy
     -- where orbs start when the mob's position is unknown: "wide" (a zoom-scaled oval) or "off" (one point, kept for
     -- future quest/exploration streams); Orbs.lua UNKNOWN. Not an Options control.
     unknownOrigin = "wide",
@@ -336,7 +337,7 @@ end
 
 local BOOLEANS = {
     "enabled", "classColor", "restedTint", "trail", "questBursts", "exploreBursts", "showAtMax", "debug", "glow",
-    "sound", "zoomAnchor", "zoomSpread", "setupDismissed",
+    "sound", "zoomAnchor", "zoomSpread", "setupDismissed", "previewCluster",
 }
 local ZOOM_RANGES = { zoomA = { -100, 300 }, zoomB = { 0, 3000 }, zoomMin = { 0.5, 10 } }
 ns.ZOOM_POINTS_MAX = ZOOM_POINTS_MAX

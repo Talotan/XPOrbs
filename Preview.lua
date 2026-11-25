@@ -7,8 +7,11 @@ local ADDON, ns = ...
 -- and Crossfade pop on it) and the model's body centre is the mob estimate, reported as located. Why: a Test Kill
 -- otherwise starts from an unknown point, which makes Direct Stream and Popstream (Direct) use the wide "unknown
 -- origin" spread and misrepresents the common case, where the mob is located and has a nameplate. The model dies when
--- Test is pressed and gets up again a few seconds later. The "Test Kill" button lives in a small frame under the
--- window. Dragging on the model turns it around its vertical axis. The window is ours, unnamed, built on first show;
+-- Test is pressed and gets up again a few seconds later. The "Test Kill" button sits inside the window, under the
+-- model. Dragging on the model turns it around its vertical axis; the rest of the window (the plate area, the title
+-- strip) and the move cross shown in its top right corner while the mouse is over it drag the window itself, anywhere
+-- on screen. It goes back to its dock under the orb preview the next time the options panel opens.
+-- The window is ours, unnamed, built on first show;
 -- every model call is pcall'd because the model API differs between clients (a missing method just means a blank or
 -- static model). An OnUpdate exists only during the death sequence and, on the model, while the mouse button is held
 -- for a drag.
@@ -16,7 +19,12 @@ local ADDON, ns = ...
 local Preview = {}
 ns.Preview = Preview
 
-local WINDOW_W, WINDOW_H = 200, 260
+local WINDOW_W = 200
+local BUTTON_W, BUTTON_H = 100, 22 -- the Test Kill button, bottom centre of the window
+-- px from the window's bottom edge to the model area's: the button row (the window's padding, the button, a gap)
+local BOTTOM_H = 8 + BUTTON_H + 4
+local HANDLE_ALPHA = 0.6 -- the move cross while the window is hovered; 1 while the cross itself is
+local MOVE_ICON = 16 -- px: the move cross in the window's top right corner
 local GAP = 4 -- px between the settings panel and the window
 local PAD = 8
 local PLATE_TOP_Y = 12 -- px from the window's top to the plate's top (the mob's name sits there)
@@ -70,7 +78,8 @@ local REVIVE_AT = 3.0
 local standIn = STAND_INS.Alliance
 local HEALTH_CENTRE_Y = PLATE_TOP_Y + PLATE_H - HEALTH_H / 2
 local MODEL_TOP_Y = PLATE_TOP_Y + PLATE_H + MODEL_GAP
-local MODEL_AREA_H = WINDOW_H - PAD - MODEL_TOP_Y
+local MODEL_AREA_H = 192
+local WINDOW_H = MODEL_TOP_Y + MODEL_AREA_H + BOTTOM_H
 local MODEL_CENTRE_Y = MODEL_TOP_Y + MODEL_AREA_H / 2
 local ANCHOR_FRACTION = 0.6
 local ANCHOR_Y = HEALTH_CENTRE_Y + ANCHOR_FRACTION * (MODEL_CENTRE_Y - HEALTH_CENTRE_Y)
@@ -83,10 +92,10 @@ local function originRise()
     return ORIGIN_BASE_RISE + (standIn.raise or 0) * MODEL_AREA_H
 end
 local ANCHOR_SIZE = 1
-local BUTTON_FRAME_W, BUTTON_FRAME_H = 120, 34
 Preview.ANCHOR_SIZE = ANCHOR_SIZE
 Preview.modelAreaHeight = MODEL_AREA_H -- exposed for tests
 Preview.originRise = originRise -- function: px above the model centre for the current stand-in (exposed for tests)
+Preview.WINDOW_H, Preview.BOTTOM_H = WINDOW_H, BOTTOM_H -- (exposed for tests)
 Preview.anchorY = -ANCHOR_Y -- offset of the pop anchor's BOTTOM from the window's TOP (exposed for tests)
 
 local BACKDROP = {
@@ -98,7 +107,7 @@ local BACKDROP = {
     insets = { left = 4, right = 4, top = 4, bottom = 4 },
 }
 
-local window, model, plate, healthFill, popAnchor, buttonFrame
+local window, model, plate, healthFill, popAnchor, moveHandle
 local modelLoaded = false
 local buildFailed = false -- buildWindow threw once: do not try again this session (every attempt would leak a frame)
 local loadCheckPending = false -- a C_Timer.After for the load fallback is in flight
@@ -386,26 +395,98 @@ local function dockWindow()
     end
 end
 
--- The "Test Kill" button, in its own small frame centred under the window (the same backdrop, narrower, 2 px gap).
--- It does what the old footer button did: the same orbs a kill would make, rested ones too when Rested tint is on.
-local function buildButtonFrame(parent)
-    local created, frame = pcall(CreateFrame, "Frame", nil, parent, "BackdropTemplate")
-    if not (created and frame) then
-        frame = CreateFrame("Frame", nil, parent)
-    end
-    buttonFrame = frame
-    frame:SetSize(BUTTON_FRAME_W, BUTTON_FRAME_H)
-    frame:SetPoint("TOP", parent, "BOTTOM", 0, -2)
-    frame:EnableMouse(true)
-    addBackground(frame)
-    local button = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-    button:SetSize(100, 22)
-    button:SetPoint("CENTER", frame, "CENTER", 0, 0)
+-- The "Test Kill" button, bottom centre inside the window, below the model area. It does what the old footer button
+-- did: the same orbs a kill would make, rested ones too when Rested tint is on.
+local function buildButton(parent)
+    local button = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
+    button:SetSize(BUTTON_W, BUTTON_H)
+    button:SetPoint("BOTTOM", parent, "BOTTOM", 0, PAD)
     button:SetText("Test Kill")
     button:SetScript("OnClick", function()
         pcall(ns.TestKill, ns.db and ns.db.restedTint and "5 rested" or "5")
     end)
-    Preview.buttonFrame, Preview.testButton = frame, button
+    Preview.testButton = button
+end
+
+-- ---------------------------------------------------------------- moving the window
+
+-- The move cross, drawn from plain colour textures (a "+" of two 2 px bars with a stepped arrowhead at each end), so
+-- it never depends on an art file: { x, y, w, h } in px from the icon's top left, a 16 x 16 box.
+local MOVE_RECTS = {
+    { 7, 3, 2, 10 }, { 3, 7, 10, 2 }, -- the bars
+    { 7, 0, 2, 1 }, { 6, 1, 4, 1 }, { 5, 2, 6, 1 }, -- up
+    { 7, 15, 2, 1 }, { 6, 14, 4, 1 }, { 5, 13, 6, 1 }, -- down
+    { 0, 7, 1, 2 }, { 1, 6, 1, 4 }, { 2, 5, 1, 6 }, -- left
+    { 15, 7, 1, 2 }, { 14, 6, 1, 4 }, { 13, 5, 1, 6 }, -- right
+}
+
+local function startMove()
+    if window then
+        pcall(window.StartMoving, window)
+    end
+end
+
+local function stopMove()
+    if window then
+        pcall(window.StopMovingOrSizing, window)
+    end
+end
+
+-- Shown while the mouse is over the window (or the cross itself), hidden otherwise. A child frame taking the mouse
+-- ends the window's own OnEnter, so the leave handlers check whether the mouse is still inside the window.
+local function showHandle(shown)
+    if moveHandle then
+        if shown then
+            moveHandle:SetAlpha(HANDLE_ALPHA)
+            moveHandle:Show()
+        elseif not (window and window:IsMouseOver()) then
+            moveHandle:Hide()
+        end
+    end
+end
+
+local function enterWindow()
+    showHandle(true)
+end
+
+local function leaveWindow()
+    showHandle(false)
+end
+
+local function buildMoveHandle(parent)
+    local handle = CreateFrame("Button", nil, parent)
+    handle:SetSize(MOVE_ICON, MOVE_ICON)
+    handle:SetPoint("TOPRIGHT", parent, "TOPRIGHT", -8, -8)
+    handle:SetFrameLevel(parent:GetFrameLevel() + 10) -- over the model and the plate
+    for _, r in ipairs(MOVE_RECTS) do
+        local tex = handle:CreateTexture(nil, "OVERLAY")
+        tex:SetPoint("TOPLEFT", handle, "TOPLEFT", r[1], -r[2])
+        tex:SetSize(r[3], r[4])
+        tex:SetColorTexture(0.85, 0.85, 0.9, 0.9)
+    end
+    handle:SetScript("OnMouseDown", function(_, button)
+        if button == nil or button == "LeftButton" then
+            startMove()
+        end
+    end)
+    handle:SetScript("OnMouseUp", stopMove)
+    handle:SetScript("OnEnter", function(self)
+        self:SetAlpha(1)
+        pcall(function()
+            GameTooltip:SetOwner(self, "ANCHOR_LEFT")
+            GameTooltip:SetText("Drag to move")
+        end)
+    end)
+    handle:SetScript("OnLeave", function(self)
+        self:SetAlpha(HANDLE_ALPHA)
+        pcall(function()
+            GameTooltip:Hide()
+        end)
+        leaveWindow()
+    end)
+    handle:Hide() -- shown on mouseover of the window
+    moveHandle = handle
+    Preview.moveHandle = handle
 end
 
 local function buildWindow()
@@ -420,6 +501,15 @@ local function buildWindow()
     -- MEDIUM, below the orbs overlay (HIGH): the stream and pops draw over the window and the settings panel
     frame:SetFrameStrata("MEDIUM")
     frame:EnableMouse(true)
+    -- movable anywhere (left-drag on the window; the model keeps left-drag for turning the mob), kept on screen
+    frame:SetMovable(true)
+    frame:SetClampedToScreen(true)
+    frame:RegisterForDrag("LeftButton")
+    frame:SetScript("OnDragStart", startMove)
+    frame:SetScript("OnDragStop", stopMove)
+    frame:SetScript("OnEnter", enterWindow)
+    frame:SetScript("OnLeave", leaveWindow)
+    frame:SetScript("OnHide", stopMove)
     addBackground(frame)
     plate = buildPlate(frame)
     model = createModel(frame)
@@ -428,8 +518,10 @@ local function buildWindow()
         model:SetScript("OnMouseDown", startDrag)
         model:SetScript("OnMouseUp", stopDrag)
         model:SetScript("OnHide", stopDrag)
+        model:SetScript("OnEnter", enterWindow)
+        model:SetScript("OnLeave", leaveWindow)
         model:SetPoint("TOPLEFT", frame, "TOPLEFT", PAD, -MODEL_TOP_Y)
-        model:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -PAD, PAD)
+        model:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -PAD, BOTTOM_H)
     end
     -- the pop anchor: an invisible 1x1 frame the burst hangs its pop from (placed by TestTarget)
     popAnchor = CreateFrame("Frame", nil, frame)
@@ -437,7 +529,8 @@ local function buildWindow()
     popAnchor:SetPoint("BOTTOM", frame, "TOP", 0, -ANCHOR_Y)
     Preview.window, Preview.model, Preview.plate, Preview.popAnchor = window, model, plate, popAnchor
     loadModel()
-    buildButtonFrame(frame)
+    buildButton(frame)
+    buildMoveHandle(frame)
 end
 
 -- buildWindow threw part-way. Frames cannot be destroyed, so hide the half-built window (its model and plate go with
@@ -448,10 +541,10 @@ local function abandonBuild()
     if window then
         pcall(window.Hide, window)
     end
-    window, model, plate, healthFill, popAnchor, buttonFrame = nil, nil, nil, nil, nil, nil
+    window, model, plate, healthFill, popAnchor, moveHandle = nil, nil, nil, nil, nil, nil
     modelLoaded = false
     Preview.window, Preview.model, Preview.plate, Preview.popAnchor = nil, nil, nil, nil
-    Preview.buttonFrame, Preview.testButton = nil, nil
+    Preview.testButton, Preview.moveHandle = nil, nil
 end
 
 -- Options.panel OnShow (show = true) / OnHide (false). Idempotent. Returns true when the window is up (the options
@@ -477,6 +570,9 @@ function Preview:Sync(show)
         stopSequence()
         stopDrag()
         window:Hide()
+        if moveHandle then
+            moveHandle:Hide()
+        end
         setIdle()
         setHealth(1)
     end
