@@ -232,7 +232,7 @@ def retro_twinkle():
 # ---------------------------------------------------------------------------
 
 
-def build_shaded(size, shade_fn, radius):
+def build_shaded(size, shade_fn, radius, ramp=0.05):
     """RGBA of `size` px: alpha = hard disc of `radius` (in half-widths); RGB = shade_fn(u, v) grey, held at the rim's
     value outside the disc so scaling never bleeds a bright fringe."""
     w, h = size
@@ -244,7 +244,7 @@ def build_shaded(size, shade_fn, radius):
             v = (j + 0.5) / h * 2 - 1
             r = math.hypot(u, v)
             edge = max(
-                0.0, min(1.0, (radius - r) / 0.05 + 0.5)
+                0.0, min(1.0, (radius - r) / ramp + 0.5)
             )  # ~1.6 px ramp at 64 px
             if r > radius:
                 u, v = u * radius / r, v * radius / r
@@ -255,51 +255,8 @@ def build_shaded(size, shade_fn, radius):
 
 GLOBE_SOLID_R = 0.72  # the globe body's plateau radius
 CRACKLE_SOLID_R = 0.40  # smaller than the core's visible edge (~0.5), which restores the dark gap before the bolts
-SOLID_RIM, SOLID_RIM_SHADE = (
-    0.07,
-    0.6,
-)  # a baked dark rim, ~1 drawn px: shade x 0.6 where r > R - 0.07
 _LIGHT = (-0.5, 0.5, 0.7)  # towards the light: up, left, front
 _LIGHT_LEN = math.sqrt(sum(c * c for c in _LIGHT))
-
-
-def globe_solid_shade(u, v):
-    """A lit sphere: min(1, 0.50 + 0.65 * lambert), light from up-left-front (image v grows downwards), with a dark rim."""
-    x, y = u / GLOBE_SOLID_R, -v / GLOBE_SOLID_R
-    z = math.sqrt(max(0.0, 1 - x * x - y * y))
-    lambert = max(0.0, (x * _LIGHT[0] + y * _LIGHT[1] + z * _LIGHT[2]) / _LIGHT_LEN)
-    shade = min(1.0, 0.50 + 0.65 * lambert)
-    return (
-        shade * SOLID_RIM_SHADE
-        if math.hypot(u, v) > GLOBE_SOLID_R - SOLID_RIM
-        else shade
-    )
-
-
-def crackle_core_solid_shade(u, v):
-    """Hot white centre falling to 0.7 at the rim, with a dark rim."""
-    r = math.hypot(u, v)
-    shade = 1.0 - 0.3 * min(1.0, r / CRACKLE_SOLID_R) ** 2
-    return shade * SOLID_RIM_SHADE if r > CRACKLE_SOLID_R - SOLID_RIM else shade
-
-
-def retro_solid():
-    """retro() with alpha 1.0 everywhere and the old alpha rings as grey levels (stepped shading in RGB)."""
-    levels = {}
-    for c, r in OCTAGON:
-        dx, dy = c - 3.5, r - 3.5
-        if max(abs(dx), abs(dy)) <= 1.5:
-            levels[(c, r)] = 1.00  # core
-        elif math.hypot(dx, dy) < 3.2:
-            levels[(c, r)] = 0.78  # ring
-        else:
-            levels[(c, r)] = 0.50  # outer
-    levels[(2, 2)] = levels[(3, 2)] = 1.0  # shine
-    img = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
-    for (c, r), lv in levels.items():
-        g = round(lv * 255)
-        img.paste((g, g, g, 255), (c * CELL, r * CELL, (c + 1) * CELL, (r + 1) * CELL))
-    return img
 
 
 def preview(imgs):
@@ -675,14 +632,19 @@ def blend_tex(canvas, img, col, cx, cy, size, amul=1.0, nearest=False):
     canvas.paste(Image.composite(tint, canvas.crop(box), a), box[:2])
 
 
-def orb_ops(kind, mode, imgs, col, x, y, ux, uy, t, rnd, trail=True, solid_trail=False):
+def orb_ops(
+    kind, mode, imgs, col, x, y, ux, uy, t, rnd, trail=True, solid_trail=False, opt=None
+):
     """The draw calls of one orb as [(sublayer, fn(canvas))]; sorted (stable) by sublayer across a whole panel.
     Natural keeps today's order; Solid draws underlays, trails, bodies, then the top layer. solid_trail: Solid's
-    trails are opaque (BLEND, lifted colour, same alpha ladder) instead of glowing (ADD)."""
+    trails are opaque (BLEND, lifted colour, same alpha ladder) instead of glowing (ADD). opt (Solid only, dev sheet):
+    lift, under (x the underlay alpha), extra (x the additive glint / bolts / twinkle alpha)."""
+    opt = opt or {}
+    under_k, extra_k = opt.get("under", 1.0), opt.get("extra", 1.0)
     tex = _alphas(imgs)
     solid = mode == "solid"
     sl = SOLID_SUBLAYERS if solid else NATURAL_SUBLAYERS
-    body_col = lighten(col, SOLID_LIFT) if solid else col
+    body_col = lighten(col, opt.get("lift", SOLID_LIFT)) if solid else col
     dim = tuple(c * 0.25 for c in col)
     ops = []
     SIZE = SIZES[kind]
@@ -771,7 +733,9 @@ def orb_ops(kind, mode, imgs, col, x, y, ux, uy, t, rnd, trail=True, solid_trail
         ops.append(
             (
                 sl["under"],
-                lambda c: blend_layer(c, under, dim, gx, gy, 10 * cell, 0.9, True),
+                lambda c: blend_layer(
+                    c, under, dim, gx, gy, 10 * cell, min(1.0, 0.9 * under_k), True
+                ),
             )
         )
         if solid:
@@ -804,7 +768,7 @@ def orb_ops(kind, mode, imgs, col, x, y, ux, uy, t, rnd, trail=True, solid_trail
                         gx - 2.5 * cell,
                         gy - 2.5 * cell,
                         3 * cell,
-                        1.0,
+                        min(1.0, extra_k),
                         True,
                     ),
                 )
@@ -822,7 +786,9 @@ def orb_ops(kind, mode, imgs, col, x, y, ux, uy, t, rnd, trail=True, solid_trail
         ops.append(
             (
                 sl["under"],
-                lambda c: blend_layer(c, tex["globe_under"], dim, x, y, body, 0.80),
+                lambda c: blend_layer(
+                    c, tex["globe_under"], dim, x, y, body, min(1.0, 0.80 * under_k)
+                ),
             )
         )
         if solid:
@@ -846,7 +812,7 @@ def orb_ops(kind, mode, imgs, col, x, y, ux, uy, t, rnd, trail=True, solid_trail
                     x - 0.20 * body,
                     y - 0.20 * body,
                     body * 0.30,
-                    0.55,
+                    min(1.0, 0.55 * extra_k),
                 ),
             )
         )
@@ -866,7 +832,7 @@ def orb_ops(kind, mode, imgs, col, x, y, ux, uy, t, rnd, trail=True, solid_trail
                         x,
                         y,
                         body * CRACKLE_SOLID_UNDER,
-                        CRACKLE_SOLID_UNDER_ALPHA,
+                        min(1.0, CRACKLE_SOLID_UNDER_ALPHA * under_k),
                     ),
                 )
             )
@@ -900,7 +866,14 @@ def orb_ops(kind, mode, imgs, col, x, y, ux, uy, t, rnd, trail=True, solid_trail
             (
                 sl["top"],
                 lambda c: add_layer(
-                    c, bolt, lighten(col, 0.15), x, y, body * 1.30, bolt_a, rot=bolt_rot
+                    c,
+                    bolt,
+                    lighten(col, 0.15),
+                    x,
+                    y,
+                    body * 1.30,
+                    min(1.0, bolt_a * extra_k),
+                    rot=bolt_rot,
                 ),
             )
         )
@@ -929,7 +902,9 @@ def sheet_ground(ground, w, h):
     return _background(ground, w, h, 0)
 
 
-def pile_panel(kind, mode, imgs, ground, w, h, cx, cy, stream=False, solid_trail=False):
+def pile_panel(
+    kind, mode, imgs, ground, w, h, cx, cy, stream=False, solid_trail=False, opt=None
+):
     """One panel: the pile centred at (cx, cy) and, if stream, a 3-orb stream (trails on) to its right."""
     panel = sheet_ground(ground, w, h)
     rnd = random.Random(7)
@@ -949,6 +924,7 @@ def pile_panel(kind, mode, imgs, ground, w, h, cx, cy, stream=False, solid_trail
             rnd.uniform(0, 2),
             rnd,
             trail=False,
+            opt=opt,
         )
     if stream:
         ux, uy = math.cos(0.12), -math.sin(0.12)
@@ -967,6 +943,7 @@ def pile_panel(kind, mode, imgs, ground, w, h, cx, cy, stream=False, solid_trail
                 rnd,
                 trail=True,
                 solid_trail=solid_trail,
+                opt=opt,
             )
     for _, fn in sorted(ops, key=lambda o: o[0]):
         fn(panel)
@@ -1115,9 +1092,218 @@ def preview_blend(imgs):
     sheet.save(PREVIEW / "blend.png")
 
 
-def main():
-    MEDIA.mkdir(exist_ok=True)
-    imgs = {
+# --- Solid look variants (dev comparison sheet; nothing here writes media/) --------------------------------------------
+# One parameterised shading family per shape. Variant "B" is the shipped bake (these tables ARE the Solid textures and
+# the sheet asserts it); "A" is the old baseline kept for reference. To adopt another variant, point _default_solid at
+# it and copy its lift (SOLID_LIFT here and in Shapes.lua) and underlay/extra alphas.
+# Per-variant "opt" feeds orb_ops: lift, under (x underlay alpha), extra (x additive glint / bolts / twinkle alpha).
+
+GLOBE_VARIANTS = {
+    "A": dict(name="old", base=0.50, gain=0.65, wrap=0.0, rim=0.07, rim_shade=0.6, ramp=0.05,
+              lift=0.06, under=1.0, extra=1.0),
+    "B": dict(name="softer terminator (DEFAULT)", base=0.70, gain=0.30, wrap=0.6, rim=0.07, rim_shade=0.6, ramp=0.05,
+              lift=0.06, under=1.0, extra=1.0),
+    "C": dict(name="no baked rim", base=0.50, gain=0.65, wrap=0.0, rim=0.0, rim_shade=1.0, ramp=0.09,
+              lift=0.06, under=1.0, extra=1.0),
+    "D": dict(name="inner glow", radial=(1.0, 0.38, 2.2), rim=0.0, rim_shade=1.0, ramp=0.07,
+              lift=0.14, under=1.0, extra=1.0),
+    "E": dict(name="flat + soft edge", base=0.92, gain=0.08, wrap=0.0, rim=0.0, rim_shade=1.0, ramp=0.26, radius=0.78,
+              lift=0.06, under=0.8, extra=1.5),
+    "F": dict(name="higher lift, gentle", base=0.80, gain=0.20, wrap=0.3, rim=0.07, rim_shade=0.85, ramp=0.05,
+              lift=0.18, under=1.0, extra=1.0),
+}  # fmt: skip
+CRACKLE_VARIANTS = {
+    "A": dict(name="old", fall=0.30, power=2.0, rim=0.07, rim_shade=0.6, ramp=0.05,
+              lift=0.06, under=1.0, extra=1.0),
+    "B": dict(name="softer falloff (DEFAULT)", fall=0.15, power=2.0, rim=0.07, rim_shade=0.8, ramp=0.05,
+              lift=0.06, under=1.0, extra=1.0),
+    "C": dict(name="no baked rim", fall=0.30, power=2.0, rim=0.0, rim_shade=1.0, ramp=0.09,
+              lift=0.06, under=1.0, extra=1.0),
+    "D": dict(name="inner glow", fall=0.50, power=2.6, rim=0.0, rim_shade=1.0, ramp=0.07,
+              lift=0.20, under=1.0, extra=1.0),
+    "E": dict(name="flat + soft edge", fall=0.05, power=2.0, rim=0.0, rim_shade=1.0, ramp=0.22, radius=0.48,
+              lift=0.06, under=0.8, extra=1.3),
+    "F": dict(name="higher lift, gentle", fall=0.20, power=2.0, rim=0.07, rim_shade=0.85, ramp=0.05,
+              lift=0.18, under=1.0, extra=1.0),
+}  # fmt: skip
+# Retro: levels = (core 4x4, ring, outer); core2 = optional brighter 2x2 core inside the 4x4; drop_outer removes the
+# outer cells (the underlay alone outlines it). The two shine cells are always 1.0.
+RETRO_VARIANTS = {
+    "A": dict(name="old", levels=(1.00, 0.78, 0.50), core2=None, drop_outer=False,
+              lift=0.06, under=1.0, extra=1.0),
+    "B": dict(name="softer steps (DEFAULT)", levels=(1.00, 0.88, 0.72), core2=None, drop_outer=False,
+              lift=0.06, under=1.0, extra=1.0),
+    "C": dict(name="no outer level", levels=(1.00, 0.78, 0.78), core2=None, drop_outer=True,
+              lift=0.06, under=1.0, extra=1.0),
+    "D": dict(name="inner glow", levels=(0.94, 0.80, 0.64), core2=1.00, drop_outer=False,
+              lift=0.18, under=1.0, extra=1.0),
+    "E": dict(name="two levels", levels=(1.00, 0.90, 0.90), core2=None, drop_outer=False,
+              lift=0.06, under=0.8, extra=1.3),
+    "F": dict(name="higher lift, gentle", levels=(1.00, 0.90, 0.80), core2=None, drop_outer=False,
+              lift=0.18, under=1.0, extra=1.0),
+}  # fmt: skip
+
+
+def _rim(r, R, p, shade):
+    return shade * p["rim_shade"] if p["rim"] and r > R - p["rim"] else shade
+
+
+def globe_variant_shade(p):
+    R = p.get("radius", GLOBE_SOLID_R)
+
+    def fn(u, v):
+        r = math.hypot(u, v)
+        if "radial" in p:  # inner glow: brightest at the centre, smooth falloff to a coloured edge
+            top, drop, power = p["radial"]
+            return _rim(r, R, p, top - drop * min(1.0, r / R) ** power)
+        x, y = u / R, -v / R
+        z = math.sqrt(max(0.0, 1 - x * x - y * y))
+        d = (x * _LIGHT[0] + y * _LIGHT[1] + z * _LIGHT[2]) / _LIGHT_LEN
+        lam = max(0.0, min(1.0, (d + p["wrap"]) / (1 + p["wrap"])))
+        return _rim(r, R, p, min(1.0, p["base"] + p["gain"] * lam))
+
+    return fn, R
+
+
+def crackle_variant_shade(p):
+    R = p.get("radius", CRACKLE_SOLID_R)
+
+    def fn(u, v):
+        r = math.hypot(u, v)
+        return _rim(r, R, p, 1.0 - p["fall"] * min(1.0, r / R) ** p["power"])
+
+    return fn, R
+
+
+def retro_variant(p):
+    core, ring, outer = p["levels"]
+    img = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
+    for c, r in OCTAGON:
+        dx, dy = c - 3.5, r - 3.5
+        box = max(abs(dx), abs(dy))
+        if box <= 1.5:
+            lv = p["core2"] if (p["core2"] and box <= 0.5) else core
+        elif math.hypot(dx, dy) < 3.2:
+            lv = ring
+        elif p["drop_outer"]:
+            continue
+        else:
+            lv = outer
+        if (c, r) in ((2, 2), (3, 2)):
+            lv = 1.0  # shine
+        g = round(lv * 255)
+        img.paste((g, g, g, 255), (c * CELL, r * CELL, (c + 1) * CELL, (r + 1) * CELL))
+    return img
+
+
+def variant_imgs(kind, p, imgs):
+    out = dict(imgs)
+    if kind == "Retro":
+        out["retro_solid"] = retro_variant(p)
+    elif kind == "Globe":
+        fn, R = globe_variant_shade(p)
+        out["globe_solid"] = build_shaded((64, 64), fn, R, p["ramp"])
+    else:
+        fn, R = crackle_variant_shade(p)
+        out["crackle_core_solid"] = build_shaded((64, 64), fn, R, p["ramp"])
+    return out
+
+
+def _params_line(kind, p):
+    if kind == "Retro":
+        c, r, o = p["levels"]
+        lv = f"{c:.2f}/{r:.2f}/{'-' if p['drop_outer'] else format(o, '.2f')}"
+        if p["core2"]:
+            lv = f"2x2 {p['core2']:.2f}, " + lv
+        s = f"levels {lv}"
+    elif kind == "Globe":
+        if "radial" in p:
+            t, d, e = p["radial"]
+            s = f"radial {t:.2f} - {d:.2f}*r^{e:g}"
+        else:
+            s = f"{p['base']:.2f} + {p['gain']:.2f}*lambert (wrap {p['wrap']:g})"
+    else:
+        s = f"1 - {p['fall']:.2f}*r^{p['power']:g}"
+    if kind != "Retro":
+        s += f", rim {format(p['rim_shade'], 'g') if p['rim'] else 'none'}, edge ramp {p['ramp']:g}"
+        if "radius" in p:
+            s += f", R {p['radius']:g}"
+    return f"{s} | lift {p['lift']:g}, underlay x{p['under']:g}, extra x{p['extra']:g}"
+
+
+def _render_rows(kind, title, rows, path):
+    """rows = (label, params line, mode, imgs, opt); columns dark / grass / sand, each a 1x pile + 3x nearest zoom."""
+    grounds = ["dark", "grass", "sand"]
+    pw, ph, Z, gut, left = 90, 62, 3, 8, 330
+    colw = pw + gut + pw * Z
+    W = left + 3 * (colw + 14) + 10
+    head, rowh = 64, ph * Z + gut
+    ink, dim, accent = (240, 240, 244), (165, 165, 178), (255, 214, 120)
+    big, font, small = _font(26), _font(15), _font(13)
+    sheet = Image.new("RGB", (W, head + len(rows) * rowh + 16), (30, 30, 36))
+    dr = ImageDraw.Draw(sheet)
+    dr.text((10, 8), title, fill=ink, font=_font(22))
+    dr.text((330, 14), "5-orb pile (4 purple + 1 rested blue), 1x then 3x nearest; glint/bolts/twinkle as in game",
+            fill=dim, font=small)
+    for gi, g in enumerate(grounds):
+        dr.text((left + gi * (colw + 14), 42), g, fill=ink, font=font)
+    y = head
+    for label, params, mode, im, p in rows:
+        dr.text((10, y + 6), label, fill=accent if mode == "solid" else ink, font=big)
+        line, ly = "", y + 44
+        for word in params.split(" "):
+            if len(line) + len(word) > 38:
+                dr.text((10, ly), line, fill=dim, font=small)
+                line, ly = "", ly + 16
+            line += word + " "
+        dr.text((10, ly), line, fill=dim, font=small)
+        for gi, g in enumerate(grounds):
+            panel = pile_panel(kind, mode, im, g, pw, ph, pw // 2, ph // 2, opt=p)
+            x0 = left + gi * (colw + 14)
+            sheet.paste(panel, (x0, y))
+            sheet.paste(panel.resize((pw * Z, ph * Z), Image.Resampling.NEAREST), (x0 + pw + gut, y))
+        y += rowh
+    path.parent.mkdir(parents=True, exist_ok=True)
+    sheet.save(path)
+    print(f"wrote {path} {sheet.size}")
+
+
+def solid_variants_sheet(imgs, out):
+    """Per shape: a Natural reference row then A-F (B = the shipped default)."""
+    tables = {"Retro": RETRO_VARIANTS, "Globe": GLOBE_VARIANTS, "Crackle": CRACKLE_VARIANTS}
+    for kind, key in (("Retro", "retro_solid"), ("Globe", "globe_solid"), ("Crackle", "crackle_core_solid")):
+        b = variant_imgs(kind, tables[kind]["B"], imgs)[key]  # variant B must equal the shipped bake
+        assert b.tobytes() == imgs[key].tobytes(), f"{kind} variant B differs from the shipped Solid bake"
+    out = Path(out)
+    for kind, table in tables.items():
+        rows = [("Natural (Glow)", "reference: the additive look", "natural", imgs, None)]
+        for letter, p in table.items():
+            rows.append((f"{letter}  {p['name']}", _params_line(kind, p), "solid", variant_imgs(kind, p, imgs), p))
+        path = out.with_name(f"{out.stem}-{kind.lower()}{out.suffix or '.png'}")
+        _render_rows(kind, f"{kind} - Solid variants", rows, path)
+
+
+def globe_rim_compare(imgs, out):
+    """Globe Solid B with the wired rim (0.6) against B with a milder rim (0.8), with Glow and the old A for reference."""
+    G = GLOBE_VARIANTS
+    rows = [
+        ("Natural (Glow)", "reference", "natural", imgs, None),
+        ("A  old", _params_line("Globe", G["A"]), "solid", variant_imgs("Globe", G["A"], imgs), G["A"]),
+        ("B  rim 0.6 (wired)", _params_line("Globe", G["B"]), "solid", variant_imgs("Globe", G["B"], imgs), G["B"]),
+    ]
+    p8 = dict(G["B"], rim_shade=0.8)
+    rows.append(("B  rim 0.8", _params_line("Globe", p8), "solid", variant_imgs("Globe", p8, imgs), p8))
+    _render_rows("Globe", "Globe Solid B: rim 0.6 vs 0.8", rows, Path(out))
+
+
+def _default_solid(kind, key):
+    """The shipped Solid texture: variant B of the tables above."""
+    table = {"Retro": RETRO_VARIANTS, "Globe": GLOBE_VARIANTS, "Crackle": CRACKLE_VARIANTS}[kind]
+    return variant_imgs(kind, table["B"], {})[key]
+
+
+def build_imgs():
+    return {
         "orb": build((64, 64), orb),
         "sparkle": build((64, 64), sparkle),
         "flash": build((128, 32), flash),
@@ -1131,16 +1317,29 @@ def main():
         "globe_glint": build((64, 64), globe_glint),
         "crackle_core": build((64, 64), crackle_core),
         # Solid blend variants (hard alpha mask, RGB shading)
-        "globe_solid": build_shaded((64, 64), globe_solid_shade, GLOBE_SOLID_R),
-        "crackle_core_solid": build_shaded(
-            (64, 64), crackle_core_solid_shade, CRACKLE_SOLID_R
-        ),
-        "retro_solid": retro_solid(),
+        "globe_solid": _default_solid("Globe", "globe_solid"),
+        "crackle_core_solid": _default_solid("Crackle", "crackle_core_solid"),
+        "retro_solid": _default_solid("Retro", "retro_solid"),
         "bolt1": bolt_ring(301, 2, 1),
         "bolt2": bolt_ring(302, 1, 1),
         "bolt3": bolt_ring(303, 2, 0),
         "bolt4": bolt_ring(309, 3, 0),
     }
+
+
+def main():
+    if "--solid-variants" in sys.argv:  # dev sheet only: builds in memory, never writes media/
+        i = sys.argv.index("--solid-variants")
+        if i + 1 >= len(sys.argv):
+            sys.exit("usage: make_textures.py --solid-variants <out.png>")
+        solid_variants_sheet(build_imgs(), Path(sys.argv[i + 1]))
+        return
+    if "--globe-rim-compare" in sys.argv:
+        i = sys.argv.index("--globe-rim-compare")
+        globe_rim_compare(build_imgs(), Path(sys.argv[i + 1]))
+        return
+    MEDIA.mkdir(exist_ok=True)
+    imgs = build_imgs()
     for name, img in imgs.items():
         save_tga(img, MEDIA / f"{name}.tga")
         print(f"wrote media/{name}.tga {img.size}")
