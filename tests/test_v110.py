@@ -94,7 +94,7 @@ def test_new_default_colours_and_flight_time(env):
     env.load_addon()
     d = env.ns.defaults
     assert rgb(d.color) == PURPLE and rgb(d.restedColor) == BLUE
-    assert d.flightTime == 1.0 and d.sound is False and d.soundVoice == "glass"
+    assert d.flightTime == 1.0 and d.sound is True and d.soundVoice == "glass"
     assert (env.ns.ranges.flightTime[1], env.ns.ranges.flightTime[2]) == (
         0.4,
         1.5,
@@ -622,9 +622,10 @@ def play(g, n=6, seconds=3.0, step=0.01):
         g.stub.tick(step)
 
 
-def test_sound_is_off_by_default(env):
+def test_sound_is_on_by_default(env):
     g = make(env, probe=False)
-    assert g.db.sound is False
+    assert g.db.sound is True
+    g.db.sound = False  # the chime can still be turned off
     play(g)
     assert sounds(g) == []
 
@@ -749,6 +750,20 @@ def test_sound_command_toggles_and_clears_a_shutdown(env):
 
 def test_sound_setting_is_sanitised(env):
     env.G.XPOrbsDB = env.lua.table_from({"version": 5, "sound": "yes"})
+    env.load_addon()
+    env.ns.fire("ADDON_LOADED", "XPOrbs")
+    assert env.G.XPOrbsDB.sound is True  # junk falls back to the default (on)
+
+
+def test_a_fresh_install_has_the_chime_on(env):
+    env.load_addon()
+    env.ns.fire("ADDON_LOADED", "XPOrbs")
+    assert env.G.XPOrbsDB.sound is True
+
+
+def test_a_saved_chime_off_stays_off(env):
+    # 1.3.0 saved the chime choice explicitly: turning the default on must not switch it back on
+    env.G.XPOrbsDB = env.lua.table_from({"version": 7, "sound": False})
     env.load_addon()
     env.ns.fire("ADDON_LOADED", "XPOrbs")
     assert env.G.XPOrbsDB.sound is False
@@ -997,7 +1012,7 @@ def test_switching_voice_mid_session_takes_effect_on_the_next_burst(env):
 
 def test_slash_voice_choices_turn_sound_on_and_report_state(env):
     g = make(env, probe=False)
-    assert g.db.sound is False
+    g.db.sound = False
     g.slash("sound glass")
     assert g.db.sound is True and g.db.soundVoice == "glass"
     assert "chime: on, glass" in last_chat(g)
@@ -1086,7 +1101,7 @@ def test_picking_from_the_dropdown_sets_the_voice_and_previews_one_note(env):
 
 def test_preview_plays_even_with_the_chime_off(env):
     m = opts(env)
-    assert m.db.sound is False
+    m.db.sound = False
     m.stub.pickMenu(m.opt.soundDropdown, "Glass")  # the menu callback itself
     assert m.db.soundVoice == "glass" and len(m.stub.sounds) == 1
     assert m.db.sound is False  # choosing in the panel does not turn the chime on
@@ -1124,7 +1139,7 @@ def test_reset_all_returns_the_voice_to_glass(env):
     m = opts(env)
     m.slash("sound coin")
     m.slash("reset")
-    assert m.db.soundVoice == "glass" and m.db.sound is False
+    assert m.db.soundVoice == "glass" and m.db.sound is True  # the chime default is on
     assert entries(m.opt.soundDropdown) == [
         ("Glass", True),
         ("Coin", False),
@@ -1136,8 +1151,8 @@ def test_reset_all_returns_the_voice_to_glass(env):
 def test_dropdown_stays_enabled_with_the_chime_off(env):
     m = opts(env)
     row, dd = m.opt.rows["soundVoice"], m.opt.soundDropdown
+    m.db.sound = False
     show(m)
-    assert m.db.sound is False
     assert row.alpha in (None, 1) and dd.IsEnabled(
         dd
     )  # never dimmed: the player can preview the voices before turning the chime on
@@ -1305,6 +1320,7 @@ def test_slash_sound_picks_each_voice(env, word, voice):
 
 def test_slash_sound_rejects_junk_and_keeps_the_voice(env):
     g = make(env, probe=False)
+    g.db.sound = False
     g.slash("sound bell")
     assert g.db.soundVoice == "glass" and g.db.sound is False
     assert "use on, off, glass, coin, swish, pixel or volume N" in last_chat(g)

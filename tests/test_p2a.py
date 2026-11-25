@@ -227,13 +227,13 @@ def test_minimap_pos_survives_sanitize(env):
 def test_reset_restores_default_and_keeps_table(m):
     table = m.db.minimap
     m.slash("minimap off")
-    table.minimapPos = 10
+    table.minimapPos = 10  # LibDBIcon's own key: reset must leave it where the player dragged it
     refreshes = m.p2a.refreshes
     m.slash("reset")
     assert m.lua.eval("rawequal")(
         m.db.minimap, table
     )  # LibDBIcon still holds this table
-    assert m.db.minimap.hide is False and m.db.minimap.minimapPos is None
+    assert m.db.minimap.hide is False and m.db.minimap.minimapPos == 10
     assert m.p2a.shown[NAME] is True and m.p2a.refreshes == refreshes + 1
 
 

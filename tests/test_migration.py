@@ -84,7 +84,7 @@ def test_fresh_db_defaults(env):
 
 def test_fresh_db_has_the_new_defaults(env):
     db = load(env)
-    assert db.version == 6 and db.flightTime == 1.0 and db.sound is False
+    assert db.version == 6 and db.flightTime == 1.0 and db.sound is True
     assert rgb(db.color) == (0.72, 0.28, 1.00) and rgb(db.restedColor) == (0.15, 0.38, 1.00)
 
 

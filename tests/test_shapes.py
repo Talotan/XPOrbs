@@ -392,6 +392,7 @@ def test_globe_default_size_draws_a_21_px_ball(env):
 
 def test_globe_breathes_and_draws_at_one_and_a_half_times_the_size(env):
     g = make(env)
+    g.ns.SetLook("pulse", True)  # Pulsing starts off
     go(g, "globe", n=2, trail=False, advance=0.0)
     (o, _) = flying(g)[:2]
     sizes = []

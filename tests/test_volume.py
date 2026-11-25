@@ -336,9 +336,9 @@ def test_reset_button_puts_it_back_to_100(env):
 
 def test_the_row_dims_with_the_chime_off_but_stays_usable(env):
     m = opts(env)
+    m.db.sound = False
     show(m)
     row, s = m.opt.rows["soundVolume"], ctl(m, "soundVolume")
-    assert m.db.sound is False
     assert row.alpha == pytest.approx(0.4) and s.IsEnabled(s)
     m.stub.slide(s, 175)
     assert m.db.soundVolume == 175  # still works while dimmed

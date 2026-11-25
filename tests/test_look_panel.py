@@ -229,12 +229,12 @@ def test_sparkle_and_pulse_checkboxes_write_per_shape(m):
     assert m.db.sparkle is False and m.db.shapeLook.retro.sparkle is False
     assert m.db.shapeLook.globe.sparkle is True
     pick(m, "globe")
-    assert c.pulse.checked is True
+    assert c.pulse.checked is False  # Pulsing starts off
     m.stub.hover(c.pulse)
     assert str(m.stub.tooltip.text) == "Globe orbs gently swell and shrink."
     m.stub.click(c.pulse)
-    assert m.db.pulse is False and m.db.shapeLook.globe.pulse is False
-    assert m.db.shapeLook.retro.pulse is True
+    assert m.db.pulse is True and m.db.shapeLook.globe.pulse is True
+    assert m.db.shapeLook.retro.pulse is False
 
 
 def size_label(m):
@@ -318,9 +318,9 @@ def test_the_two_option_resets_are_separate_and_per_shape(m):
     m.stub.click(c.pulse)
     assert extra_btn.shown
     m.stub.hover(extra_btn)
-    assert str(m.stub.tooltip.text) == "Reset to default: Pulsing on"
+    assert str(m.stub.tooltip.text) == "Reset to default: Pulsing off"
     m.stub.click(extra_btn)
-    assert m.db.pulse is True and not extra_btn.shown
+    assert m.db.pulse is False and not extra_btn.shown
     # Retro's own entry is untouched
     assert m.db.shapeLook.retro.blend == "solid" and m.db.shapeLook.retro.sparkle is False
     pick(m, "retro")

@@ -26,7 +26,7 @@ ns.defaults = {
     exploreBursts = true, -- bursts for exploration XP (a saved save without it copies questBursts, see InitDB)
     targetFrame = nil,
     showAtMax = false, -- at max level: a small burst of orbs flies to the portrait when an engaged hostile dies
-    sound = false, -- chime as orbs arrive
+    sound = true, -- chime as orbs arrive (new installs; a save keeps what it stored)
     -- which chime: "glass", "coin", "swish" or "pixel" (media/chime/<volume>/<voice>1-6.ogg)
     soundVoice = "glass",
     soundVolume = 100, -- chime volume in percent: pre-rendered files per level, see ns.ranges and tools/make_sounds.py
@@ -45,15 +45,15 @@ ns.defaults = {
     -- blend, pulse and sparkle are active values too (like size): the current shape's own, kept in shapeLook. The UI
     -- only shows the ones that apply to a shape: Blend for retro/globe/crackle, Sparkle for retro, Pulsing for globe
     blend = "natural", -- "natural" (additive glow) or "solid"
-    pulse = true, -- Globe orbs gently swell and shrink
+    pulse = false, -- Globe orbs gently swell and shrink
     sparkle = true,
     -- the look each orb shape remembers (see ns.SHAPE_LOOK_KEYS); a missing or broken entry gets these. Retro's size
     -- is "screen px per art pixel" (ns.RETRO_SIZE_RANGE), the others' is the orb size in px
     shapeLook = {
-        starlight = { size = 14, density = 100, opacity = 100, blend = "natural", pulse = true, sparkle = true },
-        retro = { size = 2, density = 75, opacity = 100, blend = "natural", pulse = true, sparkle = true },
-        globe = { size = 14, density = 100, opacity = 100, blend = "natural", pulse = true, sparkle = true },
-        crackle = { size = 14, density = 100, opacity = 100, blend = "natural", pulse = true, sparkle = true },
+        starlight = { size = 14, density = 100, opacity = 100, blend = "natural", pulse = false, sparkle = true },
+        retro = { size = 2, density = 75, opacity = 100, blend = "natural", pulse = false, sparkle = true },
+        globe = { size = 14, density = 100, opacity = 100, blend = "natural", pulse = false, sparkle = true },
+        crackle = { size = 14, density = 100, opacity = 100, blend = "natural", pulse = false, sparkle = true },
     },
     glow = true, -- arrival flash on/off
     -- "bar" (horizontal flash on the fill edge), "vertical" (the same flash upright, filling bottom to top) or "round"
@@ -470,28 +470,20 @@ local function sanitize(db)
     end
 end
 
--- The look revision: 2 = per-shape blend / pulse / sparkle, Retro's size in px per art pixel, Globe's default 14.
+-- The look revision: 2 = per-shape look (size / density / opacity / blend / pulse / sparkle). A save without a
+-- shapeLook is the released 1.3.0 (Starlight only, no orbShape): its size, density and opacity become Starlight's look
+-- and every other shape starts from its defaults (a save that does name a shape gives its look to that one).
+-- db.lookRev records that this ran, so it happens once. Runs before deepFill so a missing key isn't filled first.
 local LOOK_REV = 2
 
--- Moves a save from before the look revision to it, once (db.lookRev records that; absent = 1). Runs before deepFill
--- so a missing key isn't filled from the new defaults first. Values that older (unreleased) builds wrote are reset.
 local function migrateLook(db)
     if type(db.lookRev) == "number" and db.lookRev >= LOOK_REV then
         return
     end
-    local looks = type(db.shapeLook) == "table" and db.shapeLook or nil
-    local retro, globe = looks and looks.retro, looks and looks.globe
-    if type(retro) == "table" and type(retro.size) == "number" and (retro.size < 1 or retro.size > 7) then
-        retro.size = 2 -- it was an orb size (12 by default), now px per art pixel
-    end
-    if type(globe) == "table" and globe.size == 17 then
-        globe.size = 14 -- the old untouched default
-    end
-    if type(db.pulse) == "boolean" then
-        local look = lookOf(db, "globe")
-        if look.pulse == nil then
-            look.pulse = db.pulse -- pulse was one global flag; only Globe used it
-        end
+    if db.shapeLook == nil then
+        local shape = ns.CanonShape(db.orbShape) or "starlight" -- 1.3.0 saved no orbShape: Starlight only
+        db.orbShape = shape
+        db.shapeLook = { [shape] = { size = db.size, density = db.density, opacity = db.opacity } }
     end
     db.lookRev = LOOK_REV
 end
@@ -511,11 +503,6 @@ function ns:InitDB()
         XPOrbsDB = {}
     end
     migrate(XPOrbsDB)
-    -- a save from before the per-shape look: its size and density become the current shape's own
-    if XPOrbsDB.shapeLook == nil then
-        local shape = ns.CanonShape(XPOrbsDB.orbShape) or ns.defaults.orbShape
-        XPOrbsDB.shapeLook = { [shape] = { size = XPOrbsDB.size, density = XPOrbsDB.density } }
-    end
     -- exploreBursts was split off questBursts: a save that predates it keeps what the player chose for both
     if XPOrbsDB.exploreBursts == nil and type(XPOrbsDB.questBursts) == "boolean" then
         XPOrbsDB.exploreBursts = XPOrbsDB.questBursts
@@ -680,11 +667,9 @@ function commands.reset()
             db[key] = nil
         end
     end
-    -- LibDBIcon holds the minimap table itself, so it is emptied in place rather than replaced
+    -- LibDBIcon holds the minimap table itself and writes its own minimapPos in it: only hide is reset, in place
     if type(db.minimap) == "table" then
-        for key in pairs(db.minimap) do
-            db.minimap[key] = nil
-        end
+        db.minimap.hide = nil
     else
         db.minimap = nil
     end
