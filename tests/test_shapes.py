@@ -36,7 +36,7 @@ GHOST_ART = {
     "crackle": PRE + "crackle_core",
 }
 # pool textures per flying orb: (with the trail, without)
-NEED = {"starlight": (5, 3), "retro": (5, 3), "globe": (7, 3), "crackle": (5, 3)}
+NEED = {"starlight": (6, 3), "retro": (5, 3), "globe": (7, 3), "crackle": (6, 3)}
 
 
 def path_of(tex):
@@ -319,7 +319,7 @@ def test_the_ceiling_fits_a_full_burst_of_every_shape(env, shape):
     g.db.trail = True
     cap = int(g.db.cap)
     ceiling = g.orbs.Info(g.orbs)[3]
-    per_orb = max(5, NEED[shape][0])
+    per_orb = max(6, NEED[shape][0])
     assert ceiling == cap * per_orb * 2 + 8
     count = cap
     fire(g, "stream", n=cap)
@@ -332,7 +332,7 @@ def test_the_ceiling_fits_a_full_burst_of_every_shape(env, shape):
 
 def test_starlights_ceiling_is_unchanged(env):
     g = make(env)
-    assert g.orbs.Info(g.orbs)[3] == 40 * 5 * 2 + 8
+    assert g.orbs.Info(g.orbs)[3] == 40 * 6 * 2 + 8
 
 
 def test_a_tight_pool_drops_the_trail_per_shapes_plain_need(env):
@@ -590,7 +590,7 @@ def test_retro_trail_is_two_squares_on_the_grid(env):
     bx, by = o.body.points[1][4], o.body.points[1][5]
     d_big = math.hypot(big.points[1][4] - bx, big.points[1][5] - by) / cell
     d_small = math.hypot(small.points[1][4] - bx, small.points[1][5] - by) / cell
-    assert 4 <= d_big <= 8 and 8 <= d_small <= 12  # about 6 and 10 cells behind
+    assert 5 <= d_big <= 7.5 and 8 <= d_small <= 10.5  # about 6 and 9 cells behind (the big one touches the rim)
     assert tuple(big.calls["SetColorTexture"].values())[:3] == pytest.approx(
         tuple(g.db.color.values())[:3], abs=1
     )
@@ -791,7 +791,7 @@ def test_a_recycled_record_never_keeps_the_old_shape(env):
     g.tick(0.05, 60)
     go(g, "starlight", n=2, advance=0.1)
     for o in flying(g):
-        assert o.shape is None and o.ghost3 is None and o.spark is not None
+        assert o.shape is None and o.ghost4 is None and o.spark is not None
 
 
 # ---------------------------------------------------------------- Test burst, portrait bursts, textures all returned
@@ -1078,7 +1078,7 @@ def test_solid_layers_underlay_minus_two_trail_minus_one_top_plus_one(env, shape
         assert layer_of(o.under) == -2 and mode_of(o.under) == "BLEND"
         assert layer_of(o.spark) == 1 and mode_of(o.spark) == "ADD"
         ghosts = ghosts_of(o)
-        assert len(ghosts) == {"retro": 2, "globe": 4, "crackle": 2}[shape]
+        assert len(ghosts) == {"retro": 2, "globe": 4, "crackle": 3}[shape]
         assert all(layer_of(t) == -1 and mode_of(t) == "ADD" for t in ghosts)
 
 

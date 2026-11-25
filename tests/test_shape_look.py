@@ -591,7 +591,7 @@ def test_crackle_has_no_count_size_or_time_multiplier(env):
         4,
         1.0,
     )
-    assert shape.needTrail == 5 and shape.needPlain == 3
+    assert shape.needTrail == 6 and shape.needPlain == 3
 
 
 def test_crackle_bolts_are_tighter_and_the_core_fuller(env):

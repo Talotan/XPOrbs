@@ -242,10 +242,10 @@ def test_trail_opacity_dims_with_the_trail_tickbox(m):
 
 
 BASE = {
-    "starlight": [0.55, 0.30],
+    "starlight": [0.55, 0.30, 0.15],
     "retro": [0.70, 0.40],
     "globe": [0.52, 0.36, 0.22, 0.12],
-    "crackle": [0.55, 0.30],
+    "crackle": [0.55, 0.30, 0.15],
 }
 
 

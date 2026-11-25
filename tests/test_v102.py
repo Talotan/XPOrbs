@@ -225,9 +225,9 @@ def test_burst_error_after_a_pop_started_releases_the_frame(env, style, fn):
 def test_ceiling_holds_two_full_bursts(env):
     g = make(env)
     burst(g, n=1, x=1, y=1, kind="kill")
-    assert g.orbs.Info(g.orbs)[3] == 40 * 5 * 2 + 8
+    assert g.orbs.Info(g.orbs)[3] == 40 * 6 * 2 + 8
     g.db.cap = 10
-    assert g.orbs.Info(g.orbs)[3] == 10 * 5 * 2 + 8
+    assert g.orbs.Info(g.orbs)[3] == 10 * 6 * 2 + 8
 
 
 def test_ten_aoe_bursts_all_get_orbs(env):
@@ -259,9 +259,9 @@ def test_overfull_pool_drops_trails_then_trims_but_keeps_three_orbs(env):
         assert g.orbs.Info(g.orbs)[1] <= ceiling
         seen.append(got)
         g.tick(0.02)
-    assert seen[0] == 40 * 5  # the first burst is drawn in full, with trails
+    assert seen[0] == 40 * 6  # the first burst is drawn in full, with trails
     assert any(
-        x == 0 or x % 3 == 0 and x < 40 * 5 for x in seen[2:]
+        x == 0 or x % 3 == 0 and x < 40 * 6 for x in seen[2:]
     )  # later ones were trimmed or lost trails
     g.tick(0.05, 200)
     assert g.orbs.Info(g.orbs)[1] == 0 and not g.orbs.Info(g.orbs)[0]
@@ -702,7 +702,7 @@ def test_perf_command_reports_all_counters(env):
     assert float(m.group(2)) == pytest.approx(0.25) and float(
         m.group(3)
     ) == pytest.approx(0.25)
-    assert re.search(r"textures created=\d+ in use=0 ceiling=408", text)
+    assert re.search(r"textures created=\d+ in use=0 ceiling=488", text)
     assert re.search(r"pop frames created=\d+", text) and "live orbs=0" in text
 
 

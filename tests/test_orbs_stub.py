@@ -60,7 +60,7 @@ def test_ten_bursts_never_exceed_ceiling(m2):
     for _ in range(10):
         m2.burst(x=300, y=600, n=40)
     _, in_use, created, ceiling = m2.info()
-    assert ceiling == 40 * 5 * 2 + 8  # cap * (1 + EXTRAS) * 2 + 8, EXTRAS = 4 (room for two full-cap bursts, v1.0.2)
+    assert ceiling == 40 * 6 * 2 + 8  # cap * (1 + EXTRAS) * 2 + 8, EXTRAS = 5 (room for two full-cap bursts, v1.0.2)
     assert created <= ceiling
     assert m2.stub.allTextures() <= ceiling
     peak = 0
@@ -141,8 +141,8 @@ def test_destination_unreadable_geometry_falls_back(m2):
 
 
 def shown_orb_count(m2):
-    # each orb with trail on is underlay+orb+sparkle+2 ghosts = 5 textures
-    return m2.info()[1] // 5
+    # each orb with trail on is underlay+orb+sparkle+3 ghosts = 6 textures
+    return m2.info()[1] // 6
 
 
 @pytest.mark.parametrize(
@@ -191,7 +191,7 @@ def test_underlay_is_blend_below_orb_and_dark(m2):
     assert tuple(under[0].calls["SetVertexColor"].values()) == pytest.approx((0.72 * 0.25, 0.28 * 0.25, 0.25))
     assert under[0].calls["SetDrawLayer"][2] == -1
     layers = sorted(f.calls["SetDrawLayer"][2] for f in texs)
-    assert layers == [-1, 0, 0, 0, 1]  # underlay, orb + 2 ghosts, sparkle
+    assert layers == [-1, 0, 0, 0, 0, 1]  # underlay, orb + 3 ghosts, sparkle
 
 
 def _sparkle_widths(m2):

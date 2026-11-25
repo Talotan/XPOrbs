@@ -1,7 +1,9 @@
 """Flight speed mode (db.flightMode "speed", the default): the duration follows the length of the flight, the trail
 follows the speed, the saved-flight-time migration, the /xporbs flightmode switch, the Flight tab's Speed type dropdown and slider."""
 
+import math
 import re
+from itertools import pairwise
 
 import pytest
 from test_m5 import build
@@ -11,7 +13,7 @@ from test_v013 import no_template
 from test_v09 import make
 
 REF = 1000.0  # OrbShapes.k.refSpeed
-LAG = 0.015  # OrbShapes.k.ghostLag
+GAP_K = 0.3  # OrbShapes.k.ghostGapK: ghost spacing in drawn diameters
 NEAR = (700, 300)
 FAR = (150, 1000)
 CORNER = (1450, 1050)  # the longest way on the test screen: 1000 px/s at 50 % only clamps past ~1250 px
@@ -58,7 +60,7 @@ def g(env):
 
 def test_constants_are_exposed(g):
     k = g.ns.OrbShapes.k
-    assert k.refSpeed == REF and k.ghostLag == LAG
+    assert k.refSpeed == REF and k.ghostGapK == GAP_K and k.ghostLag is None
 
 
 def test_100_percent_is_1000_px_per_second(g):
@@ -114,44 +116,106 @@ def test_time_mode_duration_ignores_the_distance(g):
 # ---------------------------------------------------------------- trail
 
 
-def test_starlight_ghost_lag_is_seconds_in_speed_mode(g):
+def test_trail_progress_per_px_is_one_over_the_path_length_in_both_modes(g):
     o = stream(g, FAR)[0]
-    assert o.ghostStep == pytest.approx(LAG / o.dur)
+    assert o.pxToProgress == pytest.approx(1 / arc(g, o)) and o.ghostStep is None
     land(g)
     g.db.flightMode = "time"
     g.db.flightTime = 1.0
-    assert stream(g, FAR)[0].ghostStep is None  # drawOrb falls back to GHOST_STEP
-    assert g.ns.OrbShapes.k.ghostStep == 0.015
+    o = stream(g, FAR)[0]
+    assert o.pxToProgress == pytest.approx(1 / arc(g, o))
 
 
-@pytest.mark.parametrize("shape", ["retro", "globe"])
-def test_trail_gap_in_px_is_the_same_at_any_distance_and_scales_with_speed(g, shape):
+def at_half(g, shape, speed, mode="speed"):
+    """One orb of `shape` flying FAR at `speed` %, ticked to half way; (orb record, body texture, ghost textures)."""
     g.db.orbShape = shape
     g.db.size = 2 if shape == "retro" else 14
-    gaps = {}
-    for speed in (100, 200):
-        g.db.flightSpeed = speed
-        for name, origin in (("near", (300, 700)), ("far", CORNER)):
-            o = stream(g, origin)[0]
-            # a trail point `gap` px behind sits gap * pxToProgress of the flight back; times the arc = px along it
-            gaps[speed, name] = o.pxToProgress * arc(g, o)
-            assert o.dur * REF * speed / 100 == pytest.approx(
-                arc(g, o)
-            )  # nothing was clamped
-            land(g)
-    assert gaps[100, "near"] == pytest.approx(1.0) and gaps[
-        100, "far"
-    ] == pytest.approx(1.0)
-    assert gaps[200, "near"] == pytest.approx(2.0) and gaps[
-        200, "far"
-    ] == pytest.approx(2.0)
+    g.db.trail = True
+    g.db.flightMode, g.db.flightSpeed = mode, speed
+    (o,) = stream(g, FAR)
+    while (o.elapsed - o.delay) / o.dur < 0.5:
+        g.stub.tick(0.004)
+    ghosts = [t for t in (o.ghost1, o.ghost2, o.ghost3, o.ghost4) if t is not None]
+    assert ghosts and all(t.shown for t in ghosts)
+    return o, o.body, ghosts
 
 
-def test_time_mode_trail_keeps_the_share_of_the_way(g):
-    g.db.flightMode = "time"
-    g.db.orbShape = "globe"
-    o = stream(g, FAR)[0]
-    assert o.pxToProgress is None and o.ghostStep is None
+def xy(t):
+    return t.points[1][4], t.points[1][5]
+
+
+def chain_gaps(body, ghosts):
+    pts = [xy(body)] + [xy(t) for t in ghosts]
+    return [math.dist(a, b) for a, b in pairwise(pts)]
+
+
+@pytest.mark.parametrize("shape", ["starlight", "crackle", "globe"])
+@pytest.mark.parametrize("mode", ["speed", "time"])
+def test_ghost_spacing_in_px_does_not_grow_with_flight_speed(g, shape, mode):
+    if mode == "time":
+        g.db.flightTime = 1.0
+    slow = at_half(g, shape, 50, mode)
+    slow_gaps, slow_d = chain_gaps(slow[1], slow[2]), slow[1].width
+    land(g)
+    fast = at_half(g, shape, 250, mode)
+    fast_gaps, fast_d = chain_gaps(fast[1], fast[2]), fast[1].width
+    assert slow_d == pytest.approx(fast_d, rel=0.1)
+    assert fast_gaps == pytest.approx(slow_gaps, rel=0.2, abs=1.5)  # 2.5x faster, the same px
+
+
+@pytest.mark.parametrize("shape", ["starlight", "crackle", "globe"])
+@pytest.mark.parametrize("speed", [50, 100, 250])
+def test_consecutive_ghosts_overlap_at_any_speed(g, shape, speed):
+    _, body, ghosts = at_half(g, shape, speed)
+    gap = GAP_K * body.width
+    for dist, tex in zip(chain_gaps(body, ghosts), ghosts):
+        assert 0.5 * gap < dist <= gap * 1.2 + 1.5  # about ghostGapK diameters (the ease changes the pace a little)
+        assert dist < tex.width * 0.6  # so each ghost covers the last one: a smear, not echoes
+
+
+@pytest.mark.parametrize("shape", ["starlight", "crackle"])
+def test_third_ghost_sits_three_gaps_behind_and_overlaps_the_second(g, shape):
+    o, body, ghosts = at_half(g, shape, 100)
+    assert len(ghosts) == 3
+    gap = GAP_K * body.width
+    to_third = math.dist(xy(body), xy(o.ghost3))
+    assert 0.5 * 3 * gap < to_third <= 3 * gap * 1.2 + 2  # ~3 gaps along the path (the path bends a little)
+    g1, g2, g3 = ghosts
+    k = g.ns.OrbShapes.k  # sizes and alphas are relative to the ghost art's own scale, so compare with ghost 1
+    assert g3.width / g1.width == pytest.approx(k.ghost3Size / k.ghost1Size)
+    assert g3.alpha / g1.alpha == pytest.approx(k.ghost3Alpha / k.ghost1Alpha, rel=0.05)
+    assert math.dist(xy(g2), xy(g3)) < (g2.width + g3.width) / 2  # the circles overlap: no bead gap
+
+
+def test_ghost3_is_released_with_the_burst_and_trail_off_draws_none(g):
+    at_half(g, "starlight", 100)
+    third = [f for f in g.stub.frames.values() if f.kind == "Texture" and f.shown]
+    assert third
+    land(g)
+    assert g.orbs.Info(g.orbs)[1] == 0 and g.stub.shownTextures() == 0
+    g.db.trailOpacity = 0
+    (o,) = stream(g, FAR)
+    assert o.ghost1 is None and o.ghost3 is None
+
+
+@pytest.mark.parametrize("speed", [50, 100, 250])
+def test_retro_trail_squares_stay_on_the_grid_and_in_reach_of_the_body(g, speed):
+    o, body, ghosts = at_half(g, "retro", speed)
+    cell = o.cell
+    assert len(ghosts) == 2
+    for t in ghosts:
+        x, y = xy(t)
+        assert (x / cell) % 1 in (0, 0.5) and (y / cell) % 1 in (0, 0.5)  # snapped to cells (or half cells if odd)
+    big, small = chain_gaps(body, ghosts)
+    assert big <= 5 * cell * 1.5 + cell and small <= 3 * cell + cell  # touching the body, then the big square
+
+
+def test_retro_trail_does_not_lengthen_with_speed(g):
+    o, body, ghosts = at_half(g, "retro", 50)
+    slow = math.dist(xy(body), xy(ghosts[1]))
+    land(g)
+    o, body, ghosts = at_half(g, "retro", 250)
+    assert math.dist(xy(body), xy(ghosts[1])) == pytest.approx(slow, abs=3 * o.cell)
 
 
 # ---------------------------------------------------------------- migration and sanitising

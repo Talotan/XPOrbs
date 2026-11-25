@@ -3,6 +3,7 @@ commands and the options radios."""
 
 import math
 import random
+from itertools import pairwise
 from types import SimpleNamespace
 
 import pytest
@@ -207,20 +208,15 @@ def trace(env, path=None, style="stream", ticks=12, dt=0.07, switch=None, **extr
     return g, out
 
 
-# Recorded on the code before flight paths existed (git HEAD 5859978): ticks 4 and 9 of trace() on Direct Stream.
+# Ticks 4 and 9 of trace() on Direct Stream. The orb's own textures were recorded before flight paths existed (git
+# 5859978); the three ghosts per orb were re-recorded when the trail became px-spaced (ghostGapK).
 GOLDEN_SMOOTH = [
-    [(359.5754, 243.8802, 35, 0.45), (359.5754, 243.8802, 28, 1), (359.5754, 243.8802, 26.6, 0.6),
-     (356.6285, 244.9512, 23.8, 0.55), (353.4804, 245.5834, 19.6, 0.3),
-     (240.7766, 214.5773, 35, 0.45), (240.7766, 214.5773, 28, 1), (240.7766, 214.5773, 26.6, 0.6),
-     (240.762, 216.2474, 23.8, 0.55), (241.1661, 217.6412, 19.6, 0.3),
-     (333.6046, 151.1264, 35, 0.45), (333.6046, 151.1264, 28, 1), (333.6046, 151.1264, 26.6, 0.6),
-     (331.2988, 154.0935, 23.8, 0.55), (328.9272, 157.1365, 19.6, 0.3)],
-    [(393.8561, 159.0603, 35, 0.45), (393.8561, 159.0603, 28, 1), (393.8561, 159.0603, 26.6, 0.6),
-     (393.2091, 163.7371, 23.8, 0.55), (392.5168, 168.3777, 19.6, 0.3),
-     (299.4706, 138.9241, 35, 0.45), (299.4706, 138.9241, 28, 1), (299.4706, 138.9241, 26.6, 0.6),
-     (295.9111, 142.7892, 23.8, 0.55), (292.3887, 146.6319, 19.6, 0.3),
-     (373.2224, 95.322, 35, 0.45), (373.2224, 95.322, 28, 1), (373.2224, 95.322, 26.6, 0.6),
-     (371.9387, 97.4295, 23.8, 0.55), (370.6277, 99.5447, 19.6, 0.3)],
+    [(359.5754, 243.8802, 35, 0.45), (359.5754, 243.8802, 28, 1), (359.5754, 243.8802, 26.6, 0.6), (354.8639, 245.3674, 23.8, 0.55), (349.6366, 245.7097, 19.6, 0.3), (343.8337, 244.7125, 15.4, 0.15),
+     (240.7766, 214.5773, 35, 0.45), (240.7766, 214.5773, 28, 1), (240.7766, 214.5773, 26.6, 0.6), (240.9077, 216.976, 23.8, 0.55), (242.0247, 218.7222, 19.6, 0.3), (244.2821, 219.7063, 15.4, 0.15),
+     (333.6046, 151.1264, 35, 0.45), (333.6046, 151.1264, 28, 1), (333.6046, 151.1264, 26.6, 0.6), (327.2234, 159.3187, 23.8, 0.55), (320.3381, 168.1214, 19.6, 0.3), (312.9112, 177.6343, 15.4, 0.15)],
+    [(393.8561, 159.0603, 35, 0.45), (393.8561, 159.0603, 28, 1), (393.8561, 159.0603, 26.6, 0.6), (392.8211, 166.3808, 23.8, 0.55), (391.671, 173.6064, 19.6, 0.3), (390.3951, 180.7201, 15.4, 0.15),
+     (299.4706, 138.9241, 35, 0.45), (299.4706, 138.9241, 28, 1), (299.4706, 138.9241, 26.6, 0.6), (294.1569, 144.7005, 23.8, 0.55), (288.9309, 150.4247, 19.6, 0.3), (283.808, 156.0891, 15.4, 0.15),
+     (373.2224, 95.322, 35, 0.45), (373.2224, 95.322, 28, 1), (373.2224, 95.322, 26.6, 0.6), (369.6911, 101.0344, 23.8, 0.55), (365.9466, 106.8327, 19.6, 0.3), (361.9647, 112.7632, 15.4, 0.15)],
 ]  # fmt: skip
 
 
@@ -283,20 +279,29 @@ def test_ghosts_trace_the_same_path_a_step_earlier(env, path):
     g.db.flightTime = 1.0
     g.db.flightPath = path
     burst(g, n=1, x=300, y=200, kind="kill", style="stream")
-    # fixed random: dur = 1 s (a helix too, 0.97 + 0.06 / 2), so a tick of 0.015 s is one GHOST_STEP of progress
-    step = 0.015
-    bodies, ghost1s, ghost2s = [], [], []
-    for _ in range(50):
-        g.tick(step)
+    # the ghosts are px behind the orb (ghostGapK drawn diameters), so a ghost is where the body was a few frames ago:
+    # fine ticks, then each ghost must sit on the polyline the body traced
+    bodies, ghosts = [], {}
+    for _ in range(400):
+        g.tick(0.002)
         texs = stream_textures(g)
-        if len(texs) == 5:
+        if len(texs) >= 2:
             bodies.append((texs[1].points[1][4], texs[1].points[1][5]))
-            ghost1s.append((texs[3].points[1][4], texs[3].points[1][5]))
-            ghost2s.append((texs[4].points[1][4], texs[4].points[1][5]))
-    assert len(bodies) > 20
-    for k in range(2, len(bodies)):
-        assert math.dist(ghost1s[k], bodies[k - 1]) < 1e-6
-        assert math.dist(ghost2s[k], bodies[k - 2]) < 1e-6
+        if len(texs) == 6:
+            ghosts[len(bodies)] = [(t.points[1][4], t.points[1][5]) for t in texs[3:]]
+    assert len(ghosts) > 100
+
+    def off_path(p, k):
+        best = 1e9
+        for a, b in pairwise(bodies[:k]):
+            seg = (b[0] - a[0], b[1] - a[1])
+            n2 = seg[0] ** 2 + seg[1] ** 2 or 1e-9
+            u = max(0, min(1, ((p[0] - a[0]) * seg[0] + (p[1] - a[1]) * seg[1]) / n2))
+            best = min(best, math.dist(p, (a[0] + u * seg[0], a[1] + u * seg[1])))
+        return best
+
+    for k, three in ghosts.items():
+        assert all(off_path(p, k) < 0.5 for p in three), (k, three)
 
 
 def test_helix_orbs_swing_in_size_and_chaos_orbs_do_not(env):

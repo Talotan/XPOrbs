@@ -345,17 +345,17 @@ def test_lowering_cap_with_live_orbs_drains_cleanly(m5):
     _, in_use, created, _ = m5.orbs.Info(m5.orbs)
     assert in_use > 0
     m5.stub.slide(ctl(m5, "cap"), 5)
-    assert m5.orbs.Info(m5.orbs)[3] == 5 * 5 * 2 + 8
+    assert m5.orbs.Info(m5.orbs)[3] == 5 * 6 * 2 + 8
     m5.slash("test 400")  # over the new ceiling: draws nothing new, must not error
     m5.run(0.5)
-    assert m5.orbs.Info(m5.orbs)[1] <= max(in_use, 5 * 5 * 2 + 7)
+    assert m5.orbs.Info(m5.orbs)[1] <= max(in_use, 5 * 6 * 2 + 7)
     m5.run(4)
     active, in_use, created2, _ = m5.orbs.Info(m5.orbs)
     assert in_use == 0 and not active
-    assert created2 <= created + 5 * 5 * 2 + 8  # nothing leaked past the old pool
+    assert created2 <= created + 5 * 6 * 2 + 8  # nothing leaked past the old pool
     m5.slash("test 5")  # fresh bursts respect the new, lower ceiling
     m5.run(0.1)
-    assert m5.orbs.Info(m5.orbs)[1] <= 5 * 5 * 2 + 7
+    assert m5.orbs.Info(m5.orbs)[1] <= 5 * 6 * 2 + 7
     m5.run(4)
     assert m5.orbs.Info(m5.orbs)[1] == 0
 

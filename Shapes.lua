@@ -64,8 +64,8 @@ local RETRO_TWINKLE_UV = 24 / 32 -- the 3-cell art in the 32 px texture
 local RETRO_TWINKLE_WHITE = 0.5 -- twinkle tint = lerp(colour, white, this)
 local RETRO_BLINK = 0.25 -- seconds on, then seconds off
 local RETRO_TWINKLE_OFF = 2.5 -- cells from the orb centre (x left, y up): the middle of art cell (1, 1)
-local RETRO_TRAIL_BIG = { gap = 6, cells = 2, alpha = 0.70 } -- a 2 x 2 cell square, 0.75 x the body behind the orb
-local RETRO_TRAIL_SMALL = { gap = 10, cells = 1, alpha = 0.40 } -- a 1 cell square, body + 2 cells behind
+local RETRO_TRAIL_BIG = { gap = 6, cells = 2, alpha = 0.70 } -- a 2 x 2 cell square: its near edge is on the body's rim
+local RETRO_TRAIL_SMALL = { gap = 9, cells = 1, alpha = 0.40 } -- a 1 cell square, a stable 1-2 cell gap behind the big one
 -- A pop or bloom draws Retro at RETRO_GROW_FROM of the flight cell, growing to the full cell over the first
 -- RETRO_GROW_SPAN of the pop, in whole pixels: it pops in in steps and never gets bigger than in flight.
 local RETRO_GROW_FROM, RETRO_GROW_SPAN = 0.4, 0.4
@@ -74,7 +74,7 @@ local RETRO_GROW_FROM, RETRO_GROW_SPAN = 0.4, 0.4
 local GLOBE_BODY = 1.5 -- drawn size = size * this (the art has a solid rim, so no GLOW)
 local GLOBE_UNDER_ALPHA = 0.80
 local GLOBE_BREATH, GLOBE_RATE = 0.06, 2.5 -- size x (1 + GLOBE_BREATH * sin(2 pi GLOBE_RATE t + phase)), if db.pulse
-local GLOBE_GAP = { 10, 20, 30, 40 } -- px of trail between the orb and each ghost
+local GLOBE_GAP = { 1, 2, 3, 4 } -- ghost i sits i x ghostGapK drawn diameters behind the orb
 local GLOBE_GHOST_ALPHA = { 0.52, 0.36, 0.22, 0.12 }
 local GLOBE_GHOST_SIZE = { 0.87, 0.75, 0.65, 0.55 }
 -- the glint, a small highlight up and to the left of the centre that makes it read as a sphere: quad = body * SIZE,
@@ -158,8 +158,8 @@ local function behind(orb, progress, gap, dx, dy, control2X, control2Y, orbX, or
     if orb.group and progress < orb.fadeIn then
         return orbX - orb.ux * gap, orbY - orb.uy * gap, 1, 1
     end
-    -- speed mode: the px gap is a time at the reference speed (orb.pxToProgress, set at spawn); else a share of the way
-    local earlier = progress - (orb.pxToProgress and gap * orb.pxToProgress or gap / max(orb.flightDist, 60))
+    -- the px gap is a share of the path length (orb.pxToProgress, set at spawn), so it is the same at any speed
+    local earlier = progress - gap * (orb.pxToProgress or 1 / max(orb.flightDist, 60))
     if earlier <= 0 then
         return nil
     end
@@ -314,11 +314,13 @@ function GLOBE.draw(st, t, rel, under, body, spark, x, y, size, alpha)
         alpha * GLOBE_GLINT_ALPHA)
 end
 
--- Four ghosts at fixed gaps behind the orb, each smaller and fainter.
+-- Four ghosts behind the orb, each smaller and fainter, ghostGapK drawn diameters apart (overlapping at any speed).
 function GLOBE.trail(orb, progress, dx, dy, control2X, control2Y, orbX, orbY, alpha)
+    local step = k.ghostGapK * orb.bodySize
     for i = 1, 4 do
         local tex = orb[GHOST_KEY[i]]
-        local x, y, sizeMul, alphaMul = behind(orb, progress, GLOBE_GAP[i], dx, dy, control2X, control2Y, orbX, orbY)
+        local x, y, sizeMul, alphaMul = behind(orb, progress, GLOBE_GAP[i] * step, dx, dy, control2X, control2Y, orbX,
+            orbY)
         if x then
             place(tex, x, y, orb.bodySize * sizeMul * GLOBE_GHOST_SIZE[i], alpha * alphaMul * GLOBE_GHOST_ALPHA[i])
         else
@@ -329,7 +331,7 @@ end
 
 -- ---------------------------------------------------------------- Crackle
 
-local CRACKLE = { needTrail = 5, needPlain = 3, timeMul = 1, adjust = identity }
+local CRACKLE = { needTrail = 6, needPlain = 3, timeMul = 1, adjust = identity }
 
 -- Gives the bolt layer a frame different from the last, turned at least 60 degrees, at a new brightness.
 local function nextBolt(st, spark, t)
@@ -364,7 +366,7 @@ end
 function CRACKLE.build(orb, trail, red, green, blue)
     buildSlots(CRACKLE, orb, red, green, blue, true)
     if trail then
-        for i = 1, 2 do
+        for i = 1, 3 do
             local tex = take()
             tex:SetTexture(CRACKLE_CORE_TEX)
             style(tex, (orb.solid and SUB_SOLID or SUB_NATURAL).trail, "ADD", red, green, blue)

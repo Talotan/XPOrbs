@@ -234,12 +234,14 @@ def test_b_trail_ghosts_sit_behind_it_along_minus_u_during_the_fade_in(env):
     fire(g, "crossfade")
     ux, uy = unit_to_bar(g)
     g.stub.tick(B_START + 0.02)  # p = 0.05 of the flight, inside the 0.08 s fade-in (p < 0.2)
-    orb, g1, g2 = b_orbs(g)
+    orb, g1, g2, g3 = b_orbs(g)
     bx, by = pos(orb)
-    assert pos(g1) == pytest.approx((bx - ux * 12, by - uy * 12), abs=1e-6)
-    assert pos(g2) == pytest.approx((bx - ux * 24, by - uy * 24), abs=1e-6)
-    g.stub.tick(0.3)  # fade-in over: the ghosts follow the path lag again (a few px behind, not 12 / 24 along -u)
-    orb, g1, g2 = b_orbs(g)
+    gap = g.ns.OrbShapes.k.ghostGapK * orb.width  # drawn diameter x ghostGapK, from the body's own width
+    assert pos(g1) == pytest.approx((bx - ux * gap, by - uy * gap), abs=1e-6)
+    assert pos(g2) == pytest.approx((bx - ux * 2 * gap, by - uy * 2 * gap), abs=1e-6)
+    assert pos(g3) == pytest.approx((bx - ux * 3 * gap, by - uy * 3 * gap), abs=1e-6)
+    g.stub.tick(0.3)  # fade-in over: the ghosts follow the path lag again (just behind on the path, not 1 / 2 gaps along -u)
+    orb, g1, g2, g3 = b_orbs(g)
     assert math.hypot(*(a - b for a, b in zip(pos(orb), pos(g1)))) < 12
     settle(g)
 

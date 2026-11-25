@@ -56,7 +56,7 @@ local random = math.random
 local floor, min, max, sqrt, cos, sin = math.floor, math.min, math.max, math.sqrt, math.cos, math.sin
 
 -- Tunables (retune here).
-local EXTRAS = 4 -- ceiling formula: cap * (1 + EXTRAS) * 2 + 8. Per orb: orb + underlay + sparkle + 2 trail ghosts
+local EXTRAS = 5 -- ceiling formula: cap * (1 + EXTRAS) * 2 + 8. Per orb: orb + underlay + sparkle + 3 trail ghosts
 local MIN_DUR = 0.05 -- shortest allowed flight, so a bad flightTime can never strand an orb
 local STRESS_TIME = 2.0 -- /xporbs test stress spreads its bursts over this many seconds
 local STRESS_DEFAULT, STRESS_MAX = 20, 100
@@ -76,12 +76,13 @@ local FADE_IN_POP = 0.15 -- ... after a pop
 local POP_STREAM_SPREAD, POP_STREAM_LIFT = 0.45, 0.10
 local GHOST_STEP = 0.015 -- in p, before easing
 -- Flight speed mode (db.flightMode "speed"): px per second at flightSpeed 100 % (1000 px/s: calibrated in game so 100 %
--- feels like the old 1 s flight time over a typical mob-to-bar flight) and the first ghost's lag behind the orb in
--- seconds (0.015 = GHOST_STEP at a 1 s flight). Both live in SHAPES.k (refSpeed, ghostLag) so Burst, drawOrb and Shapes
--- share them.
-local REF_SPEED, GHOST_LAG = 1000, 0.015
+-- feels like the old 1 s flight time over a typical mob-to-bar flight). Lives in SHAPES.k (refSpeed) so Burst reads it.
+-- The trail ghosts are spaced in px along the path, ghostGapK x the drawn diameter apart (SHAPES.k), whatever the
+-- speed, so they always overlap into a smear; orb.pxToProgress (1 / path length, set at spawn) turns px into progress.
+local REF_SPEED = 1000
 local GHOST1_ALPHA, GHOST1_SIZE = 0.55, 0.85
 local GHOST2_ALPHA, GHOST2_SIZE = 0.30, 0.70
+local GHOST3_ALPHA, GHOST3_SIZE = 0.15, 0.55
 local UNDER_K = 0.25 -- dark underlay = this fraction of the orb's own colour, so bright orbs keep their hue
 local UNDER_ALPHA, UNDER_SIZE = 0.45, 1.25
 local FLASH_TIME = 0.4
@@ -126,8 +127,8 @@ local XF_EASE_OUT = 0.70 -- ease-out weight of copy B's launch (PopEase default 
 -- the bloom; B's flight starts gap s after A is gone (so hold = bloom + stagger + leaveTime + gap); B fades in over
 -- bFade s, starts at (bDistMin..bDistMax, min(bScreenFrac * screen height, bLengthFrac * L)) px from the bar and
 -- flies flightTime * flight * (jitterLow..jitterLow + jitterSpan); ctrlAhead / ctrlJitter put its first control
--- point ctrlAhead * dist ahead along u, jittered sideways by +-ctrlJitter * dist (no lift); ghost1Gap / ghost2Gap are
--- the px its trail ghosts sit behind it (along -u) during the fade-in.
+-- point ctrlAhead * dist ahead along u, jittered sideways by +-ctrlJitter * dist (no lift); its trail
+-- ghosts sit behind it (along -u) during the fade-in, SHAPES.k.ghostGapK drawn diameters apart.
 -- ux, uy, bCentreX, bCentreY, leaveDistClamped are per-burst scratch (see XF_PROFILE.plan). The arcs of every style
 -- share more of it (Burst has no upvalue to spare, so it lives here): screenW, screenH, bowSide (1 or -1, the side the
 -- arcs bow to) and edgeMargin = edgeFraction * screen height, the base inset of the control points.
@@ -136,7 +137,6 @@ local XF_PROFILE = { bloom = XF_HOLD, bsize = XF_BLOOM_SIZE, fadeIn = XF_FADE_IN
     leave = true, leaveDist = 180, leaveTime = 0.26, leaveStagger = 0.15, gap = 0.10, bFade = 0.08, bSpread = 14,
     bDistMin = 80, bDistMax = 320, bScreenFrac = 0.30, bLengthFrac = 0.60, jitterLow = 0.94, jitterSpan = 0.12,
     ctrlAhead = 0.4, ctrlJitter = 0.1,
-    ghost1Gap = 12, ghost2Gap = 24,
     ux = 0, uy = 1, bCentreX = 0, bCentreY = 0,
     edgeFraction = 0.04, screenW = 0, screenH = 0, bowSide = 1, edgeMargin = 0 }
 -- db.unknownOrigin for the "mob position unknown" case (est == "default"): "wide" (the default) starts the stream
@@ -203,8 +203,9 @@ XF_PROFILE.sp = SP_PROFILE -- reached through XF_PROFILE from Burst, which canno
 -- size, see SHAPES.grow) and optionally trail(...), see Shapes.lua. `st` is the
 -- table holding the orb's shape state: the orb record, or a per-slot table of a pop group.
 local SHAPES = { by = {}, host = {}, k = { glow = GLOW, ghostStep = GHOST_STEP, refSpeed = REF_SPEED,
-    ghostLag = GHOST_LAG, ghost1Alpha = GHOST1_ALPHA,
-    ghost1Size = GHOST1_SIZE, ghost2Alpha = GHOST2_ALPHA, ghost2Size = GHOST2_SIZE, underK = UNDER_K,
+    ghostGapK = 0.3, ghost1Alpha = GHOST1_ALPHA,
+    ghost1Size = GHOST1_SIZE, ghost2Alpha = GHOST2_ALPHA, ghost2Size = GHOST2_SIZE, ghost3Alpha = GHOST3_ALPHA,
+    ghost3Size = GHOST3_SIZE, underK = UNDER_K,
     sparkleWhite = SPARKLE_WHITE, extras = EXTRAS, underSize = UNDER_SIZE, underAlpha = UNDER_ALPHA,
     sparkle = SPARKLE, sparkleAlpha = SPARKLE_ALPHA, restedSize = RESTED_SIZE } }
 ns.OrbShapes = SHAPES
@@ -547,8 +548,10 @@ local function freeOrb(orb)
     if orb.ghost2 then
         release(orb.ghost2)
     end
-    if orb.ghost3 then -- Globe's longer trail
+    if orb.ghost3 then -- Starlight's and Crackle's third ghost, Globe's longer trail
         release(orb.ghost3)
+    end
+    if orb.ghost4 then
         release(orb.ghost4)
     end
     orb.under, orb.body, orb.spark, orb.ghost1, orb.ghost2 = nil, nil, nil, nil, nil
@@ -616,6 +619,8 @@ local function hideB(orb)
     end
     if orb.ghost3 then
         hideTex(orb.ghost3)
+    end
+    if orb.ghost4 then
         hideTex(orb.ghost4)
     end
 end
@@ -743,16 +748,19 @@ local function drawOrb(orb, progress, dx, dy)
         orb.spark:SetRotation(orb.startRotation + TWO_PI * (orb.elapsed - orb.delay))
     end
     if orb.ghost1 then
-        local ghostStep = orb.ghostStep or GHOST_STEP -- speed mode: a fixed lag in seconds (set at spawn)
+        -- the ghosts sit ghostGapK drawn diameters apart (px along the path, so they overlap at any speed)
+        local gap = SHAPES.k.ghostGapK * size * sizeMul * GLOW
+        local ghostStep = orb.pxToProgress and gap * orb.pxToProgress or GHOST_STEP
         alpha = alpha * (orb.trailK or 1) -- the ghosts only (the orb above is drawn already)
         local ghostProgress = progress - ghostStep
         if group and progress < fadeIn then
             -- crossfade B fading in: the ghosts sit behind it along -u, so it arrives "from" the implied path
-            local profile = orb.profile
-            place(orb.ghost1, orbX - orb.ux * profile.ghost1Gap, orbY - orb.uy * profile.ghost1Gap,
-                size * sizeMul * GLOW * GHOST1_SIZE, alpha * alphaMul * GHOST1_ALPHA)
-            place(orb.ghost2, orbX - orb.ux * profile.ghost2Gap, orbY - orb.uy * profile.ghost2Gap,
-                size * sizeMul * GLOW * GHOST2_SIZE, alpha * alphaMul * GHOST2_ALPHA)
+            place(orb.ghost1, orbX - orb.ux * gap, orbY - orb.uy * gap, size * sizeMul * GLOW * GHOST1_SIZE,
+                alpha * alphaMul * GHOST1_ALPHA)
+            place(orb.ghost2, orbX - orb.ux * 2 * gap, orbY - orb.uy * 2 * gap, size * sizeMul * GLOW * GHOST2_SIZE,
+                alpha * alphaMul * GHOST2_ALPHA)
+            place(orb.ghost3, orbX - orb.ux * 3 * gap, orbY - orb.uy * 3 * gap, size * sizeMul * GLOW * GHOST3_SIZE,
+                alpha * alphaMul * GHOST3_ALPHA)
             return
         end
         if ghostProgress > 0 then
@@ -771,6 +779,15 @@ local function drawOrb(orb, progress, dx, dy)
                 alpha * ghostAlphaMul * GHOST2_ALPHA)
         else
             hideTex(orb.ghost2)
+        end
+        ghostProgress = progress - 3 * ghostStep
+        if ghostProgress > 0 then
+            local ghostX, ghostY, ghostSizeMul, ghostAlphaMul = flightPoint(orb, ghostProgress, dx, dy, control2X,
+                control2Y)
+            place(orb.ghost3, ghostX, ghostY, size * ghostSizeMul * GLOW * GHOST3_SIZE,
+                alpha * ghostAlphaMul * GHOST3_ALPHA)
+        else
+            hideTex(orb.ghost3)
         end
     end
 end
@@ -1332,7 +1349,7 @@ local function lighten(channel)
     return channel + (1 - channel) * SPARKLE_WHITE
 end
 
--- Gets the textures of one flying orb from the pool: the Starlight art here (underlay, orb, sparkle, 2 ghosts), or
+-- Gets the textures of one flying orb from the pool: the Starlight art here (underlay, orb, sparkle, 3 ghosts), or
 -- the shape's own. Called through XF_PROFILE.shapes, because Burst has no upvalue to spare.
 function SHAPES.build(orb, shape, trail, red, green, blue)
     if shape then
@@ -1345,6 +1362,7 @@ function SHAPES.build(orb, shape, trail, red, green, blue)
     if trail then
         orb.ghost1 = acquire(ORB_TEX, 0, red, green, blue)
         orb.ghost2 = acquire(ORB_TEX, 0, red, green, blue)
+        orb.ghost3 = acquire(ORB_TEX, 0, red, green, blue)
     end
 end
 
@@ -1479,11 +1497,11 @@ function Orbs:Burst(params)
         unknownLevel = 0
     end
     Orbs.lastUnknown = unknownLevel > 0 and config.unknownOrigin or nil
-    -- Budget the texture pool. A full burst with trails needs 5 textures per orb; when that doesn't fit, the burst
+    -- Budget the texture pool. A full burst with trails needs 6 textures per orb; when that doesn't fit, the burst
     -- drops its trail ghosts (3 per orb), then draws fewer orbs. Every burst still gets min(n, 3) orbs while 9
     -- textures are free, so the later kills of an AoE pull are never starved by the earlier ones.
     local trail = (config.trail and (config.trailOpacity or 100) > 0) and true or false -- 0 %: no ghosts at all
-    local needTrail, needPlain = 1 + EXTRAS, 3 -- orb + underlay + sparkle (+ 2 ghosts)
+    local needTrail, needPlain = 1 + EXTRAS, 3 -- orb + underlay + sparkle (+ 3 ghosts)
     if shape then
         needTrail, needPlain = shape.needTrail, shape.needPlain
     end
@@ -1653,11 +1671,8 @@ function Orbs:Burst(params)
                 jitterLow, jitterSpan = pathJitterLow, pathJitterSpan -- a helix's strands keep their spacing
             end
             local flightSpeed, baseDur = XF_PROFILE.flightSpeed, flightTime
-            local arcLen = nil
-            if flightSpeed or (i == 1 and config.debug) then
-                arcLen = OrbMath.ArcLength(orb.x0, orb.y0, orb.control1X, orb.control1Y, dx, dy, orb.flightDist, bowX,
-                    bowY, orb.screenW, orb.screenH, orb.clampMargin)
-            end
+            local arcLen = OrbMath.ArcLength(orb.x0, orb.y0, orb.control1X, orb.control1Y, dx, dy, orb.flightDist, bowX,
+                bowY, orb.screenW, orb.screenH, orb.clampMargin)
             if flightSpeed then
                 baseDur = math.min(2.5, math.max(0.35, arcLen / flightSpeed))
             end
@@ -1667,10 +1682,8 @@ function Orbs:Burst(params)
                 ns:Log("FLIGHT mode=%s dist=%d dur=%.2f", flightSpeed and "speed" or "time", floor((arcLen or 0) + 0.5),
                     baseDur)
             end
-            -- the trail follows the flight: in speed mode it is a lag in seconds (Starlight ghosts) or a px gap at the
-            -- reference speed (Retro, Globe), so it is as long at any distance and longer when faster
-            orb.ghostStep = flightSpeed and XF_PROFILE.shapes.k.ghostLag / orb.dur or nil
-            orb.pxToProgress = flightSpeed and 1 / (XF_PROFILE.shapes.k.refSpeed * orb.dur) or nil
+            -- the trail is spaced in px along the path (the same at any speed or distance): progress per px
+            orb.pxToProgress = 1 / max(arcLen, 1)
             orb.elapsed = 0
             orb.fadeIn = fadeIn -- plate-copy orbs fade in during the hold (profile.fadeIn); crossfade's B over bFade
             if orb.group then
