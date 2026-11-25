@@ -50,6 +50,8 @@ def art_ok(tex, expected):
 
 def set_shape(g, shape):
     g.db.orbShape = shape
+    if shape == "retro" and g.db.size > 7:  # Retro's size is px per art pixel (1..7), not an orb size
+        g.db.size = 2
 
 
 def flying(g):
@@ -479,7 +481,7 @@ def test_retro_cell_size_and_grid(env):
             cell = o.cell
             if cell is None:  # still in its start delay
                 continue
-            assert cell >= 2
+            assert cell >= 1
             assert o.body.width == pytest.approx(
                 8 * cell
             ) and o.under.width == pytest.approx(10 * cell)
@@ -489,19 +491,41 @@ def test_retro_cell_size_and_grid(env):
                 )
 
 
-def test_retro_default_size_is_24_px_with_3_px_cells(env):
+def test_retro_default_size_is_two_px_cells_a_16_px_orb(env):
     g = make(env)
     go(g, "retro", n=1, trail=False, advance=0.1)
     (o,) = flying(g)
-    assert o.cell == 3 and o.body.width == 24 and o.under.width == 30
+    assert o.cell == 2 and o.body.width == 16 and o.under.width == 20
 
 
-def test_retro_cell_never_drops_below_two_pixels(env):
+def test_retro_cell_can_be_one_pixel(env):
     g = make(env)
-    g.db.size = 4
+    g.db.size = 1
     go(g, "retro", n=1, trail=False, advance=0.1)
     (o,) = flying(g)
-    assert o.cell == 2
+    assert o.cell == 1 and o.body.width == 8
+
+
+def test_retro_sparkle_off_never_shows_the_twinkle(env):
+    g = make(env)
+    g.db.sparkle = False
+    go(g, "retro", n=1, trail=False, advance=0.05)
+    (o,) = flying(g)
+    for _ in range(14):
+        g.tick(0.05, 1)
+        assert not o.spark.shown
+
+
+def test_retro_sparkle_on_blinks(env):
+    g = make(env)
+    g.db.sparkle = True
+    go(g, "retro", n=1, trail=False, advance=0.05)
+    (o,) = flying(g)
+    states = set()
+    for _ in range(14):
+        g.tick(0.05, 1)
+        states.add(bool(o.spark.shown))
+    assert states == {True, False}
 
 
 def test_retro_twinkle_is_three_cells_on_the_top_left_and_blinks(env):
@@ -996,3 +1020,148 @@ def test_the_bolts_hug_the_cores_rim(name):
     ]
     assert 0.40 <= sum(radii) / len(radii) <= 0.55  # arcs at 0.40-0.50 of the half quad (was 0.44-0.58)
     assert max(radii) < 0.75  # the spike is shorter too
+
+
+# ---------------------------------------------------------------- Solid blend (Retro, Globe, Crackle)
+
+SOLID_ART = {
+    "retro": PRE + "retro_solid",
+    "globe": PRE + "globe_solid",
+    "crackle": PRE + "crackle_core_solid",
+}
+SOLID_LIFT = 0.06
+
+
+def mode_of(tex):
+    return str(tex.calls["SetBlendMode"][1])
+
+
+def layer_of(tex):
+    return int(tex.calls["SetDrawLayer"][2])
+
+
+def tint_of(tex):
+    return [float(v) for v in tex.calls["SetVertexColor"].values()][:3]
+
+
+def ghosts_of(o):
+    return [o[k] for k in ("ghost1", "ghost2", "ghost3", "ghost4") if o[k] is not None]
+
+
+def solid_burst(g, shape, blend, **kw):
+    g.db.blend = blend
+    kw.setdefault("n", 2)
+    go(g, shape, trail=True, advance=0.25, **kw)
+    recs = flying(g)
+    assert recs
+    return recs
+
+
+@pytest.mark.parametrize("shape", ["retro", "globe", "crackle"])
+def test_solid_body_is_the_solid_texture_blended_in_a_lifted_colour(env, shape):
+    g = make(env)
+    for o in solid_burst(g, shape, "solid"):
+        assert path_of(o.body) == SOLID_ART[shape]
+        assert mode_of(o.body) == "BLEND" and layer_of(o.body) == 0
+        colour = [float(g.db.color[i]) for i in (1, 2, 3)]
+        rested = [float(g.db.restedColor[i]) for i in (1, 2, 3)]
+        want = rested if o.rested else colour
+        assert tint_of(o.body) == pytest.approx([c + (1 - c) * SOLID_LIFT for c in want])
+
+
+@pytest.mark.parametrize("shape", ["retro", "globe", "crackle"])
+def test_solid_layers_underlay_minus_two_trail_minus_one_top_plus_one(env, shape):
+    g = make(env)
+    for o in solid_burst(g, shape, "solid"):
+        assert layer_of(o.under) == -2 and mode_of(o.under) == "BLEND"
+        assert layer_of(o.spark) == 1 and mode_of(o.spark) == "ADD"
+        ghosts = ghosts_of(o)
+        assert len(ghosts) == {"retro": 2, "globe": 4, "crackle": 2}[shape]
+        assert all(layer_of(t) == -1 and mode_of(t) == "ADD" for t in ghosts)
+
+
+@pytest.mark.parametrize("shape", ["retro", "globe", "crackle"])
+def test_natural_keeps_todays_sublayers_and_modes(env, shape):
+    g = make(env)
+    for o in solid_burst(g, shape, "natural"):
+        assert path_of(o.body) == ART[shape][1]
+        assert (mode_of(o.under), layer_of(o.under)) == ("BLEND", -1)
+        assert (mode_of(o.body), layer_of(o.body)) == ("ADD", 0)
+        assert (mode_of(o.spark), layer_of(o.spark)) == ("ADD", 1)
+        assert all((mode_of(t), layer_of(t)) == ("ADD", 0) for t in ghosts_of(o))
+        colour = [float(g.db.color[i]) for i in (1, 2, 3)]
+        if not o.rested:
+            assert tint_of(o.body) == pytest.approx(colour)
+
+
+def test_solid_retro_body_keeps_the_nearest_filter_and_the_twinkle_obeys_sparkle(env):
+    g = make(env)
+    g.db.sparkle = False
+    (o, *_) = solid_burst(g, "retro", "solid", n=1)
+    assert tuple(o.body.calls["SetTexture"].values())[-1] == "NEAREST"
+    for _ in range(14):
+        g.tick(0.05, 1)
+        assert not o.spark.shown
+
+
+def test_solid_crackle_underlay_is_lighter_and_tighter(env):
+    g = make(env)
+    for o in solid_burst(g, "crackle", "solid"):
+        assert o.under.width == pytest.approx(1.25 * o.body.width / 1.15)
+        assert o.under.alpha == pytest.approx(0.40 * o.body.alpha)
+    g2 = make(env)
+    for o in solid_burst(g2, "crackle", "natural"):
+        assert o.under.width == pytest.approx(1.6 * o.body.width / 1.15)
+        assert o.under.alpha == pytest.approx(0.58 * o.body.alpha)
+
+
+def art_state(o):
+    return [
+        (path_of(t), mode_of(t), layer_of(t), tuple(round(v, 6) for v in tint_of(t)))
+        for t in (o.under, o.body, o.spark, *ghosts_of(o))
+    ]
+
+
+def test_starlight_ignores_blend(env):
+    states = []
+    for blend in ("natural", "solid"):
+        g = make(env)
+        recs = solid_burst(g, "starlight", blend)
+        states.append([art_state(o) for o in recs])
+    assert len(states[0]) == len(states[1])
+    assert all(a[:3] == b[:3] for a, b in zip(sorted(states[0]), sorted(states[1])))
+    assert all(layer_of(o.body) == 0 for o in recs) and mode_of(recs[0].body) == "ADD"
+
+
+def test_solid_pops_use_the_solid_art_too(env):
+    g = make(env)
+    g.db.blend = "solid"
+    go(g, "globe", style="popstream", n=1, advance=0.2)
+    under, body, glint = pop_textures(g)[:3]
+    assert path_of(body) == SOLID_ART["globe"] and mode_of(body) == "BLEND"
+    assert layer_of(under) == -2 and layer_of(glint) == 1
+
+
+def test_a_solid_orb_leaves_nothing_behind_in_the_pool(env):
+    """Pool textures from a Solid Retro orb come back to a Starlight orb, then a Natural Retro orb, fully restyled."""
+    g = make(env)
+    solid_burst(g, "retro", "solid", n=3)
+    for _ in range(80):  # let the burst land and release its textures
+        g.tick(0.05, 1)
+    g.db.blend = "solid"  # Starlight ignores it
+    go(g, "starlight", n=3, trail=True, advance=0.25)
+    star = flying(g)
+    assert star
+    for o in star:
+        assert (path_of(o.under), mode_of(o.under), layer_of(o.under)) == (PRE + "orb", "BLEND", -1)
+        assert (path_of(o.body), mode_of(o.body), layer_of(o.body)) == (PRE + "orb", "ADD", 0)
+        assert (path_of(o.spark), mode_of(o.spark), layer_of(o.spark)) == (PRE + "sparkle", "ADD", 1)
+        assert all((path_of(t), mode_of(t), layer_of(t)) == (PRE + "orb", "ADD", 0) for t in ghosts_of(o))
+        assert "NEAREST" not in tuple(o.body.calls["SetTexture"].values())  # the filter went with the Retro art
+    for _ in range(80):
+        g.tick(0.05, 1)
+    g.db.blend = "natural"
+    go(g, "retro", n=3, trail=True, advance=0.25)
+    for o in flying(g):
+        assert (path_of(o.body), mode_of(o.body), layer_of(o.body)) == (PRE + "retro", "ADD", 0)
+        assert layer_of(o.under) == -1 and all(layer_of(t) == 0 for t in ghosts_of(o))

@@ -9,7 +9,7 @@ import random
 import sys
 from pathlib import Path
 
-from PIL import Image, ImageChops, ImageDraw, ImageFilter
+from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont
 
 ROOT = Path(__file__).resolve().parent.parent
 MEDIA = ROOT / "media"
@@ -45,7 +45,11 @@ def sparkle(u, v):
     streak_h = math.exp(-((v / 0.07) ** 2) / 2) * (1 - abs(u)) ** 1.5
     streak_v = math.exp(-((u / 0.07) ** 2) / 2) * (1 - abs(v)) ** 1.5
     core = math.exp(-((r / 0.16) ** 2) / 2)
-    return min(1.0, streak_h + streak_v + core * 0.9) * (0.35 + 0.65 * fall) if r < 1 else 0.0
+    return (
+        min(1.0, streak_h + streak_v + core * 0.9) * (0.35 + 0.65 * fall)
+        if r < 1
+        else 0.0
+    )
 
 
 def flash(u, v):
@@ -56,6 +60,7 @@ def flash(u, v):
 def save_tga(img, path):
     # Pillow writes uncompressed 32-bit TGA, bottom-left origin by default (orientation=1).
     img.save(path, format="TGA", compression=None)
+
 
 # ---------------------------------------------------------------------------
 # Orb shapes besides Starlight: Retro (pixel art), Globe (solid ball with a glint), Crackle (core plus bolts).
@@ -87,7 +92,9 @@ def globe_under(u, v):
 def globe_glint(u, v):
     """A soft highlight: a gaussian blob a little longer along the diagonal that runs up-right (across the line to
     the highlight's up-left position), peak 1.0, faded to nothing well inside the quad. Drawn 0.30 x the globe."""
-    along = (u - v) / math.sqrt(2)  # v grows downwards in the image, so (+u, -v) is up and to the right
+    along = (u - v) / math.sqrt(
+        2
+    )  # v grows downwards in the image, so (+u, -v) is up and to the right
     across = (u + v) / math.sqrt(2)
     blob = math.exp(-(along**2 / (2 * 0.52**2) + across**2 / (2 * 0.40**2)))
     return blob * (1 - smoothstep(0.55, 0.95, math.hypot(u, v)))
@@ -96,14 +103,19 @@ def globe_glint(u, v):
 def crackle_core(u, v):
     """The core of a crackle orb: a hot centre and a fuller halo with a clear edge, so the bolts sit on its rim."""
     r = math.hypot(u, v)
-    return min(1.0, math.exp(-((r / 0.20) ** 2) / 2) + 0.75 * (1 - smoothstep(0.0, 0.70, r)) ** 1.5)
+    return min(
+        1.0,
+        math.exp(-((r / 0.20) ** 2) / 2) + 0.75 * (1 - smoothstep(0.0, 0.70, r)) ** 1.5,
+    )
 
 
 def polar(r, a):
     return (r * math.cos(a), r * math.sin(a))
 
 
-def bolt_ring(seed, n_arcs, spike, size=64, ss=4, width=2.6, glow_sigma=2.0, sharp_sigma=0.45):
+def bolt_ring(
+    seed, n_arcs, spike, size=64, ss=4, width=2.6, glow_sigma=2.0, sharp_sigma=0.45
+):
     """A crackling shell: zig-zag arcs of straight segments hugging the core, plus an optional short outward spike.
     Nothing radiates from the centre, so it can't read as legs. Deterministic per seed; stays inside r < 0.92."""
     rnd = random.Random(seed)
@@ -115,19 +127,28 @@ def bolt_ring(seed, n_arcs, spike, size=64, ss=4, width=2.6, glow_sigma=2.0, sha
         return ((p[0] + 1) / 2 * n, (p[1] + 1) / 2 * n)
 
     def stroke(points, w):
-        draw.line([px(p) for p in points], fill=255, width=max(1, round(w * ss)), joint="curve")
+        draw.line(
+            [px(p) for p in points],
+            fill=255,
+            width=max(1, round(w * ss)),
+            joint="curve",
+        )
 
     base = rnd.uniform(0, 2 * math.pi)
     for k in range(n_arcs):
         a0 = base + 2 * math.pi * k / n_arcs + rnd.uniform(-0.3, 0.3)
         sweep = rnd.uniform(1.2, 2.3)
         segs = rnd.randint(6, 8)
-        radius = rnd.uniform(0.40, 0.50)  # on the rim of crackle_core (the quad is 1.30 x the body)
+        radius = rnd.uniform(
+            0.40, 0.50
+        )  # on the rim of crackle_core (the quad is 1.30 x the body)
         sign = rnd.choice([-1, 1])
         points = []
         for i in range(segs + 1):
             a = a0 + sweep * i / segs + rnd.uniform(-0.08, 0.08)
-            if rnd.random() < 0.25:  # now and then the zig-zag skips its alternation, so it never reads as a spring
+            if (
+                rnd.random() < 0.25
+            ):  # now and then the zig-zag skips its alternation, so it never reads as a spring
                 sign = rnd.choice([-1, 1])
             else:
                 sign = -sign
@@ -138,10 +159,20 @@ def bolt_ring(seed, n_arcs, spike, size=64, ss=4, width=2.6, glow_sigma=2.0, sha
         stroke(points, width)
     for _ in range(spike):
         a = base + rnd.uniform(0, 2 * math.pi)
-        stroke([polar(0.32, a), polar(0.46, a + 0.25), polar(0.51, a - 0.05), polar(0.67, a + 0.2)], width * 0.8)
+        stroke(
+            [
+                polar(0.32, a),
+                polar(0.46, a + 0.25),
+                polar(0.51, a - 0.05),
+                polar(0.67, a + 0.2),
+            ],
+            width * 0.8,
+        )
     sharp = core.filter(ImageFilter.GaussianBlur(ss * sharp_sigma))
     glow = core.filter(ImageFilter.GaussianBlur(ss * glow_sigma))  # glow gain 1.0
-    alpha = ImageChops.lighter(sharp, glow).resize((size, size), Image.Resampling.LANCZOS)
+    alpha = ImageChops.lighter(sharp, glow).resize(
+        (size, size), Image.Resampling.LANCZOS
+    )
     img = Image.new("RGBA", (size, size), (255, 255, 255, 0))
     img.putalpha(alpha)
     return img
@@ -157,7 +188,10 @@ def cell_image(cells, canvas):
     """cells {(col, row): alpha} -> white RGBA of canvas px (a power of two), CELL px per cell, art in the top left."""
     img = Image.new("RGBA", (canvas, canvas), (255, 255, 255, 0))
     for (c, r), a in cells.items():
-        img.paste((255, 255, 255, round(a * 255)), (c * CELL, r * CELL, (c + 1) * CELL, (r + 1) * CELL))
+        img.paste(
+            (255, 255, 255, round(a * 255)),
+            (c * CELL, r * CELL, (c + 1) * CELL, (r + 1) * CELL),
+        )
     return img
 
 
@@ -192,9 +226,86 @@ def retro_twinkle():
     return cell_image(cells, 32)
 
 
+# ---------------------------------------------------------------------------
+# Solid variants (the "Solid" blend): the alpha is a hard mask (opaque inside, a ~1.5 px antialiased edge) and the RGB
+# carries the shading (1.0 = the full vertex colour, lower = darker), so BLEND reads as a shaded ball, not a flat disc.
+# ---------------------------------------------------------------------------
+
+
+def build_shaded(size, shade_fn, radius):
+    """RGBA of `size` px: alpha = hard disc of `radius` (in half-widths); RGB = shade_fn(u, v) grey, held at the rim's
+    value outside the disc so scaling never bleeds a bright fringe."""
+    w, h = size
+    img = Image.new("RGBA", size, (255, 255, 255, 0))
+    px = img.load()
+    for j in range(h):
+        for i in range(w):
+            u = (i + 0.5) / w * 2 - 1
+            v = (j + 0.5) / h * 2 - 1
+            r = math.hypot(u, v)
+            edge = max(
+                0.0, min(1.0, (radius - r) / 0.05 + 0.5)
+            )  # ~1.6 px ramp at 64 px
+            if r > radius:
+                u, v = u * radius / r, v * radius / r
+            g = round(max(0.0, min(1.0, shade_fn(u, v))) * 255)
+            px[i, j] = (g, g, g, round(edge * 255))
+    return img
+
+
+GLOBE_SOLID_R = 0.72  # the globe body's plateau radius
+CRACKLE_SOLID_R = 0.40  # smaller than the core's visible edge (~0.5), which restores the dark gap before the bolts
+SOLID_RIM, SOLID_RIM_SHADE = (
+    0.07,
+    0.6,
+)  # a baked dark rim, ~1 drawn px: shade x 0.6 where r > R - 0.07
+_LIGHT = (-0.5, 0.5, 0.7)  # towards the light: up, left, front
+_LIGHT_LEN = math.sqrt(sum(c * c for c in _LIGHT))
+
+
+def globe_solid_shade(u, v):
+    """A lit sphere: min(1, 0.50 + 0.65 * lambert), light from up-left-front (image v grows downwards), with a dark rim."""
+    x, y = u / GLOBE_SOLID_R, -v / GLOBE_SOLID_R
+    z = math.sqrt(max(0.0, 1 - x * x - y * y))
+    lambert = max(0.0, (x * _LIGHT[0] + y * _LIGHT[1] + z * _LIGHT[2]) / _LIGHT_LEN)
+    shade = min(1.0, 0.50 + 0.65 * lambert)
+    return (
+        shade * SOLID_RIM_SHADE
+        if math.hypot(u, v) > GLOBE_SOLID_R - SOLID_RIM
+        else shade
+    )
+
+
+def crackle_core_solid_shade(u, v):
+    """Hot white centre falling to 0.7 at the rim, with a dark rim."""
+    r = math.hypot(u, v)
+    shade = 1.0 - 0.3 * min(1.0, r / CRACKLE_SOLID_R) ** 2
+    return shade * SOLID_RIM_SHADE if r > CRACKLE_SOLID_R - SOLID_RIM else shade
+
+
+def retro_solid():
+    """retro() with alpha 1.0 everywhere and the old alpha rings as grey levels (stepped shading in RGB)."""
+    levels = {}
+    for c, r in OCTAGON:
+        dx, dy = c - 3.5, r - 3.5
+        if max(abs(dx), abs(dy)) <= 1.5:
+            levels[(c, r)] = 1.00  # core
+        elif math.hypot(dx, dy) < 3.2:
+            levels[(c, r)] = 0.78  # ring
+        else:
+            levels[(c, r)] = 0.50  # outer
+    levels[(2, 2)] = levels[(3, 2)] = 1.0  # shine
+    img = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
+    for (c, r), lv in levels.items():
+        g = round(lv * 255)
+        img.paste((g, g, g, 255), (c * CELL, r * CELL, (c + 1) * CELL, (r + 1) * CELL))
+    return img
+
+
 def preview(imgs):
     PREVIEW.mkdir(parents=True, exist_ok=True)
     bg = Image.new("RGBA", (640, 360), (14, 18, 30, 255))
+
     # tinted sheet: blue orb, purple orb, sparkle, flash
     def tint(img, rgb):
         out = Image.new("RGBA", img.size, rgb + (0,))
@@ -211,7 +322,12 @@ def preview(imgs):
                     r, g, b, a = px_l[i, j]
                     br, bg_, bb, ba = px_b[x, y]
                     k = a / 255
-                    px_b[x, y] = (min(255, int(br + r * k)), min(255, int(bg_ + g * k)), min(255, int(bb + b * k)), 255)
+                    px_b[x, y] = (
+                        min(255, int(br + r * k)),
+                        min(255, int(bg_ + g * k)),
+                        min(255, int(bb + b * k)),
+                        255,
+                    )
 
     def blend(base, layer, pos, size, k_mul):
         """Normal (BLEND) composite, used for the dark underlay."""
@@ -224,16 +340,26 @@ def preview(imgs):
                     r, g, b, a = px_l[i, j]
                     k = a / 255 * k_mul
                     br, bg_, bb, _ = px_b[x, y]
-                    px_b[x, y] = (int(br * (1 - k) + r * k), int(bg_ * (1 - k) + g * k), int(bb * (1 - k) + b * k), 255)
+                    px_b[x, y] = (
+                        int(br * (1 - k) + r * k),
+                        int(bg_ * (1 - k) + g * k),
+                        int(bb * (1 - k) + b * k),
+                        255,
+                    )
 
     blue, purple = (51, 128, 255), (255, 77, 217)
     under = (5, 20, 77)
-    glow, size = 2.0, 14  # in-game: orb drawn at size * GLOW, underlay at 1.25x that, sparkle at size * 1.9
+    glow, size = (
+        2.0,
+        14,
+    )  # in-game: orb drawn at size * GLOW, underlay at 1.25x that, sparkle at size * 1.9
 
     def lighten(rgb):
         return tuple(int(c + (255 - c) * 0.25) for c in rgb)
 
-    def curve(t):  # stand-in for the pop-then-home path: up and out, then home to the bar
+    def curve(
+        t,
+    ):  # stand-in for the pop-then-home path: up and out, then home to the bar
         x = 40 + 560 * t
         y = 300 - 230 * math.sin(math.pi * min(1.0, t * 1.15)) ** 0.8 * (1 - t) - 20 * t
         return x, y
@@ -245,11 +371,19 @@ def preview(imgs):
         col = purple if rested else blue
         sz = size * (1.15 if rested else 1.0)
         for g, a, gs in ((2, 0.30, 0.70), (1, 0.55, 0.85), (0, 1.0, 1.0)):
-            gx, gy = curve(max(0.0, t - 0.015 * g * 6))  # exaggerated step so the ghosts show at this scale
+            gx, gy = curve(
+                max(0.0, t - 0.015 * g * 6)
+            )  # exaggerated step so the ghosts show at this scale
             gsz = int(sz * glow * gs)
             if g == 0:
                 usz = int(sz * glow * 1.25)
-                blend(bg, tint(imgs["orb"], under), (int(gx) - usz // 2, int(gy) - usz // 2), (usz, usz), 0.45)
+                blend(
+                    bg,
+                    tint(imgs["orb"], under),
+                    (int(gx) - usz // 2, int(gy) - usz // 2),
+                    (usz, usz),
+                    0.45,
+                )
             layer = tint(imgs["orb"], col)
             layer.putalpha(layer.getchannel("A").point(lambda p, a=a: int(p * a)))
             add(bg, layer, (int(gx) - gsz // 2, int(gy) - gsz // 2), (gsz, gsz))
@@ -271,7 +405,26 @@ def preview(imgs):
 
 # --- shape preview sheet: the four shapes with the in-game parameters (Orbs.lua / Shapes.lua) ---------------------------
 
-SIZES = {"Starlight": 14, "Retro": 12, "Globe": 17, "Crackle": 14}  # the per-shape default db.size
+SIZES = {
+    "Starlight": 14,
+    "Retro": 2,
+    "Globe": 14,
+    "Crackle": 14,
+}  # the per-shape default db.size (Retro: px per cell)
+RETRO_K = 24 / 14  # Shapes.lua / Core.lua: size units to px for Retro
+SOLID_LIFT = 0.06  # Solid shows the raw vertex colour (ADD brightens), so its colour is lightened by this much
+
+
+def orb_size(kind):
+    """ns.OrbSize: the size in the units Starlight's db.size uses (Retro stores px per cell, 8 cells across)."""
+    return SIZES[kind] * 8 / RETRO_K if kind == "Retro" else SIZES[kind]
+
+
+def retro_cell():
+    """Shapes.lua retroCell at burst scale 1: the stored step, via the OrbSize round trip."""
+    return max(1, math.floor(orb_size("Retro") * RETRO_K / 8 + 0.5))
+
+
 PURPLE, BLUE = (0.72, 0.28, 1.0), (0.15, 0.38, 1.0)
 
 
@@ -326,19 +479,39 @@ def draw_orb(canvas, kind, tex, col, x, y, ux, uy, t, rnd, trail=True):
         body = SIZE * 2.0
         if trail:
             for gap, a, s in ((24, 0.30, 0.70), (12, 0.55, 0.85)):
-                add_layer(canvas, tex["orb"], col, x - ux * gap, y - uy * gap, body * s, a)
+                add_layer(
+                    canvas, tex["orb"], col, x - ux * gap, y - uy * gap, body * s, a
+                )
         blend_layer(canvas, tex["orb"], dim, x, y, body * 1.25, 0.45)
         add_layer(canvas, tex["orb"], col, x, y, body)
-        add_layer(canvas, tex["sparkle"], lighten(col, 0.15), x, y, SIZE * 1.9, 0.6, rot=math.degrees(t * 2 * math.pi))
+        add_layer(
+            canvas,
+            tex["sparkle"],
+            lighten(col, 0.15),
+            x,
+            y,
+            SIZE * 1.9,
+            0.6,
+            rot=math.degrees(t * 2 * math.pi),
+        )
     elif kind == "Retro":
-        cell = max(2, math.floor(SIZE * 24 / 14 / 8 + 0.5))  # one cell size for the whole burst
+        cell = retro_cell()  # one cell size for the whole burst
 
         def snap(v):
             return math.floor(v / cell + 0.5) * cell
 
         gx, gy = snap(x), snap(y)
-        if trail:  # two plain squares: 2 x 2 cells 6 cells behind, 1 cell 10 cells behind
-            add_square(canvas, col, snap(x - ux * 6 * cell), snap(y - uy * 6 * cell), 2 * cell, 0.70)
+        if (
+            trail
+        ):  # two plain squares: 2 x 2 cells 6 cells behind, 1 cell 10 cells behind
+            add_square(
+                canvas,
+                col,
+                snap(x - ux * 6 * cell),
+                snap(y - uy * 6 * cell),
+                2 * cell,
+                0.70,
+            )
             sx = (math.floor((x - ux * 10 * cell) / cell) + 0.5) * cell
             sy = (math.floor((y - uy * 10 * cell) / cell) + 0.5) * cell
             add_square(canvas, col, sx, sy, cell, 0.40)
@@ -347,26 +520,65 @@ def draw_orb(canvas, kind, tex, col, x, y, ux, uy, t, rnd, trail=True):
         add_layer(canvas, tex["retro"], col, gx, gy, 8 * cell, 1.0, True)
         if (t + 0.1) % 0.5 < 0.25:  # the twinkle blinks 0.25 s on, 0.25 s off
             twinkle = tex["retro_twinkle"].crop((0, 0, 24, 24))
-            add_layer(canvas, twinkle, lighten(col, 0.5), gx - 2.5 * cell, gy - 2.5 * cell, 3 * cell, 1.0, True)
+            add_layer(
+                canvas,
+                twinkle,
+                lighten(col, 0.5),
+                gx - 2.5 * cell,
+                gy - 2.5 * cell,
+                3 * cell,
+                1.0,
+                True,
+            )
     elif kind == "Globe":
         body = SIZE * 1.5 * (1 + 0.06 * math.sin(2 * math.pi * 2.5 * t))
         if trail:
-            for gap, a, s in ((40, 0.12, 0.55), (30, 0.22, 0.65), (20, 0.36, 0.75), (10, 0.52, 0.87)):
-                add_layer(canvas, tex["globe"], col, x - ux * gap, y - uy * gap, body * s, a)
+            for gap, a, s in (
+                (40, 0.12, 0.55),
+                (30, 0.22, 0.65),
+                (20, 0.36, 0.75),
+                (10, 0.52, 0.87),
+            ):
+                add_layer(
+                    canvas, tex["globe"], col, x - ux * gap, y - uy * gap, body * s, a
+                )
         blend_layer(canvas, tex["globe_under"], dim, x, y, body, 0.80)
         add_layer(canvas, tex["globe"], col, x, y, body)
         # the glint: 0.30 x the body, up and to the left (the canvas y grows downwards), ADD, 0.55, white 0.75
-        add_layer(canvas, tex["globe_glint"], lighten(col, 0.75), x - 0.20 * body, y - 0.20 * body, body * 0.30, 0.55)
+        add_layer(
+            canvas,
+            tex["globe_glint"],
+            lighten(col, 0.75),
+            x - 0.20 * body,
+            y - 0.20 * body,
+            body * 0.30,
+            0.55,
+        )
     else:  # Crackle
         body = SIZE * 2.0
         if trail:
             for gap, a, s in ((20, 0.30, 0.70), (10, 0.55, 0.85)):
-                add_layer(canvas, tex["crackle_core"], col, x - ux * gap, y - uy * gap, body * s, a)
+                add_layer(
+                    canvas,
+                    tex["crackle_core"],
+                    col,
+                    x - ux * gap,
+                    y - uy * gap,
+                    body * s,
+                    a,
+                )
         blend_layer(canvas, tex["orb"], dim, x, y, body * 1.6, 0.58)
         add_layer(canvas, tex["crackle_core"], col, x, y, body * 1.15)
         bolt = tex[f"bolt{rnd.randint(1, 4)}"]
         add_layer(
-            canvas, bolt, lighten(col, 0.15), x, y, body * 1.30, rnd.uniform(0.7, 1.0), rot=rnd.uniform(0, 360)
+            canvas,
+            bolt,
+            lighten(col, 0.15),
+            x,
+            y,
+            body * 1.30,
+            rnd.uniform(0.7, 1.0),
+            rot=rnd.uniform(0, 360),
         )
 
 
@@ -388,10 +600,15 @@ def preview_shapes(imgs):
         for col_i, bg_kind in enumerate(["dark", "grass"]):
             rnd = random.Random(row * 2 + col_i)
             panel = _background(bg_kind, pw, ph, row)
-            for i in range(12):  # 12 orbs, every one heading somewhere between right and up-right
+            for i in range(
+                12
+            ):  # 12 orbs, every one heading somewhere between right and up-right
                 ang = rnd.uniform(-0.6, 0.6)
                 ux, uy = math.cos(ang), -math.sin(ang)
-                x, y = 40 + (i % 6) * 58 + rnd.uniform(-8, 8), 38 + (i // 6) * 70 + rnd.uniform(-10, 10)
+                x, y = (
+                    40 + (i % 6) * 58 + rnd.uniform(-8, 8),
+                    38 + (i // 6) * 70 + rnd.uniform(-10, 10),
+                )
                 col = PURPLE if i % 4 == 0 else BLUE
                 draw_orb(panel, kind, tex, col, x, y, ux, uy, rnd.uniform(0, 2), rnd)
             x0, y0 = 10 + col_i * (pw + 10), 10 + row * (ph + 22) + 16
@@ -405,15 +622,497 @@ def preview_shapes(imgs):
     frame, turn = 1, 0.0
     for i in range(10):
         cell = _background("dark", 70, 110, 0)
-        frame = (frame + rnd.randint(0, 2)) % 4 + 1  # never the same frame twice running
+        frame = (
+            frame + rnd.randint(0, 2)
+        ) % 4 + 1  # never the same frame twice running
         turn += rnd.uniform(60, 300)
         bolt = tex[f"bolt{frame}"]
         body = SIZES["Crackle"] * 2.0
-        blend_layer(cell, tex["orb"], tuple(c * 0.25 for c in BLUE), 35, 55, body * 1.6, 0.58)
+        blend_layer(
+            cell, tex["orb"], tuple(c * 0.25 for c in BLUE), 35, 55, body * 1.6, 0.58
+        )
         add_layer(cell, tex["crackle_core"], BLUE, 35, 55, body * 1.15)
-        add_layer(cell, bolt, lighten(BLUE, 0.15), 35, 55, body * 1.30, rnd.uniform(0.7, 1.0), rot=turn)
+        add_layer(
+            cell,
+            bolt,
+            lighten(BLUE, 0.15),
+            35,
+            55,
+            body * 1.30,
+            rnd.uniform(0.7, 1.0),
+            rot=turn,
+        )
         sheet.paste(cell, (10 + i * 74, y0))
     sheet.save(PREVIEW / "shapes.png")
+
+
+# --- blend sheet: Natural (additive) against Solid (opaque, layered) -----------------------------------------------------
+
+# Constants to reuse when Solid is wired into Shapes.lua. Crackle's underlay is lighter in Solid, so the bolts still read.
+CRACKLE_SOLID_UNDER, CRACKLE_SOLID_UNDER_ALPHA = (
+    1.25,
+    0.40,
+)  # x body, alpha (Natural: 1.6 x body, 0.58)
+# Solid draw order (sublayers): all underlays, then all trails, then bodies, then the top layer (glint, bolts, twinkle).
+SOLID_SUBLAYERS = {"under": -2, "trail": -1, "body": 0, "top": 1}
+NATURAL_SUBLAYERS = {"under": -1, "trail": 0, "body": 0, "top": 1}
+
+
+def blend_tex(canvas, img, col, cx, cy, size, amul=1.0, nearest=False):
+    """BLEND with a texture whose RGB matters: dst = lerp(dst, tex.rgb * colour, tex.a * amul)."""
+    size = max(1, round(size))
+    resample = Image.Resampling.NEAREST if nearest else Image.Resampling.LANCZOS
+    t = img.resize((size, size), resample)
+    a = t.getchannel("A").point(lambda p: int(p * amul))
+    tint = Image.merge(
+        "RGB",
+        [
+            ch.point(lambda p, c=c: int(p * c))
+            for ch, c in zip(t.convert("RGB").split(), col)
+        ],
+    )
+    box = _box(cx, cy, size)
+    canvas.paste(Image.composite(tint, canvas.crop(box), a), box[:2])
+
+
+def orb_ops(kind, mode, imgs, col, x, y, ux, uy, t, rnd, trail=True, solid_trail=False):
+    """The draw calls of one orb as [(sublayer, fn(canvas))]; sorted (stable) by sublayer across a whole panel.
+    Natural keeps today's order; Solid draws underlays, trails, bodies, then the top layer. solid_trail: Solid's
+    trails are opaque (BLEND, lifted colour, same alpha ladder) instead of glowing (ADD)."""
+    tex = _alphas(imgs)
+    solid = mode == "solid"
+    sl = SOLID_SUBLAYERS if solid else NATURAL_SUBLAYERS
+    body_col = lighten(col, SOLID_LIFT) if solid else col
+    dim = tuple(c * 0.25 for c in col)
+    ops = []
+    SIZE = SIZES[kind]
+
+    def ghost(name, solid_name, gap, a, s, body):
+        gx, gy = x - ux * gap, y - uy * gap
+        if solid and solid_trail and solid_name:
+            ops.append(
+                (
+                    sl["trail"],
+                    lambda c: blend_tex(
+                        c, imgs[solid_name], body_col, gx, gy, body * s, a
+                    ),
+                )
+            )
+        else:
+            ops.append(
+                (
+                    sl["trail"],
+                    lambda c: add_layer(c, tex[name], col, gx, gy, body * s, a),
+                )
+            )
+
+    if kind == "Starlight":
+        body = SIZE * 2.0
+        if trail:
+            for gap, a, s in ((24, 0.30, 0.70), (12, 0.55, 0.85)):
+                ghost("orb", "globe_solid", gap, a, s, body)
+        ops.append(
+            (
+                sl["under"],
+                lambda c: blend_layer(c, tex["orb"], dim, x, y, body * 1.25, 0.45),
+            )
+        )
+        if solid:  # mock, never shipped: globe_solid scaled to Starlight's body
+            ops.append(
+                (
+                    sl["body"],
+                    lambda c: blend_tex(c, imgs["globe_solid"], body_col, x, y, body),
+                )
+            )
+        else:
+            ops.append(
+                (sl["body"], lambda c: add_layer(c, tex["orb"], col, x, y, body))
+            )
+        ops.append(
+            (
+                sl["top"],
+                lambda c: add_layer(
+                    c,
+                    tex["sparkle"],
+                    lighten(col, 0.15),
+                    x,
+                    y,
+                    SIZE * 1.9,
+                    0.6,
+                    rot=math.degrees(t * 2 * math.pi),
+                ),
+            )
+        )
+    elif kind == "Retro":
+        cell = retro_cell()
+
+        def snap(v):
+            return math.floor(v / cell + 0.5) * cell
+
+        gx, gy = snap(x), snap(y)
+        if trail:  # plain colour squares: always glowing
+            ops.append(
+                (
+                    sl["trail"],
+                    lambda c: add_square(
+                        c,
+                        col,
+                        snap(x - ux * 6 * cell),
+                        snap(y - uy * 6 * cell),
+                        2 * cell,
+                        0.70,
+                    ),
+                )
+            )
+            sx = (math.floor((x - ux * 10 * cell) / cell) + 0.5) * cell
+            sy = (math.floor((y - uy * 10 * cell) / cell) + 0.5) * cell
+            ops.append((sl["trail"], lambda c: add_square(c, col, sx, sy, cell, 0.40)))
+        under = tex["retro_under"].crop((0, 0, 80, 80))
+        ops.append(
+            (
+                sl["under"],
+                lambda c: blend_layer(c, under, dim, gx, gy, 10 * cell, 0.9, True),
+            )
+        )
+        if solid:
+            ops.append(
+                (
+                    sl["body"],
+                    lambda c: blend_tex(
+                        c, imgs["retro_solid"], body_col, gx, gy, 8 * cell, nearest=True
+                    ),
+                )
+            )
+        else:
+            ops.append(
+                (
+                    sl["body"],
+                    lambda c: add_layer(
+                        c, tex["retro"], col, gx, gy, 8 * cell, 1.0, True
+                    ),
+                )
+            )
+        if (t + 0.1) % 0.5 < 0.25:
+            twinkle = tex["retro_twinkle"].crop((0, 0, 24, 24))
+            ops.append(
+                (
+                    sl["top"],
+                    lambda c: add_layer(
+                        c,
+                        twinkle,
+                        lighten(col, 0.5),
+                        gx - 2.5 * cell,
+                        gy - 2.5 * cell,
+                        3 * cell,
+                        1.0,
+                        True,
+                    ),
+                )
+            )
+    elif kind == "Globe":
+        body = SIZE * 1.5 * (1 + 0.06 * math.sin(2 * math.pi * 2.5 * t))
+        if trail:
+            for gap, a, s in (
+                (40, 0.12, 0.55),
+                (30, 0.22, 0.65),
+                (20, 0.36, 0.75),
+                (10, 0.52, 0.87),
+            ):
+                ghost("globe", "globe_solid", gap, a, s, body)
+        ops.append(
+            (
+                sl["under"],
+                lambda c: blend_layer(c, tex["globe_under"], dim, x, y, body, 0.80),
+            )
+        )
+        if solid:
+            ops.append(
+                (
+                    sl["body"],
+                    lambda c: blend_tex(c, imgs["globe_solid"], body_col, x, y, body),
+                )
+            )
+        else:
+            ops.append(
+                (sl["body"], lambda c: add_layer(c, tex["globe"], col, x, y, body))
+            )
+        ops.append(
+            (
+                sl["top"],
+                lambda c: add_layer(
+                    c,
+                    tex["globe_glint"],
+                    lighten(col, 0.75),
+                    x - 0.20 * body,
+                    y - 0.20 * body,
+                    body * 0.30,
+                    0.55,
+                ),
+            )
+        )
+    else:  # Crackle
+        body = SIZE * 2.0
+        if trail:
+            for gap, a, s in ((20, 0.30, 0.70), (10, 0.55, 0.85)):
+                ghost("crackle_core", "crackle_core_solid", gap, a, s, body)
+        if solid:
+            ops.append(
+                (
+                    sl["under"],
+                    lambda c: blend_layer(
+                        c,
+                        tex["orb"],
+                        dim,
+                        x,
+                        y,
+                        body * CRACKLE_SOLID_UNDER,
+                        CRACKLE_SOLID_UNDER_ALPHA,
+                    ),
+                )
+            )
+            ops.append(
+                (
+                    sl["body"],
+                    lambda c: blend_tex(
+                        c, imgs["crackle_core_solid"], body_col, x, y, body * 1.15
+                    ),
+                )
+            )
+        else:
+            ops.append(
+                (
+                    sl["under"],
+                    lambda c: blend_layer(c, tex["orb"], dim, x, y, body * 1.6, 0.58),
+                )
+            )
+            ops.append(
+                (
+                    sl["body"],
+                    lambda c: add_layer(c, tex["crackle_core"], col, x, y, body * 1.15),
+                )
+            )
+        bolt, bolt_a, bolt_rot = (
+            tex[f"bolt{rnd.randint(1, 4)}"],
+            rnd.uniform(0.7, 1.0),
+            rnd.uniform(0, 360),
+        )
+        ops.append(
+            (
+                sl["top"],
+                lambda c: add_layer(
+                    c, bolt, lighten(col, 0.15), x, y, body * 1.30, bolt_a, rot=bolt_rot
+                ),
+            )
+        )
+    return ops
+
+
+def visible_d(kind):
+    """The visible disc diameter in drawn px (not the quad), for spacing the overlapping pile."""
+    if kind == "Retro":
+        return 8 * retro_cell()
+    if kind == "Globe":
+        return GLOBE_SOLID_R * SIZES["Globe"] * 1.5
+    if kind == "Crackle":
+        return 2 * CRACKLE_SOLID_R * SIZES["Crackle"] * 2.0 * 1.15
+    return GLOBE_SOLID_R * SIZES["Starlight"] * 2.0  # the Starlight solid mock
+
+
+# a loose pile: 4 purple + 1 blue, offsets in units of ~0.58 x the visible diameter
+PILE = ((-1.0, 0.3, 0), (-0.2, -0.4, 0), (0.4, 0.5, 0), (1.0, -0.2, 1), (0.0, 0.25, 0))
+
+
+def sheet_ground(ground, w, h):
+    if ground == "sand":
+        noise = Image.effect_noise((w, h), 40).convert("RGB")
+        return Image.blend(Image.new("RGB", (w, h), (196, 178, 136)), noise, 0.12)
+    return _background(ground, w, h, 0)
+
+
+def pile_panel(kind, mode, imgs, ground, w, h, cx, cy, stream=False, solid_trail=False):
+    """One panel: the pile centred at (cx, cy) and, if stream, a 3-orb stream (trails on) to its right."""
+    panel = sheet_ground(ground, w, h)
+    rnd = random.Random(7)
+    d = 0.58 * visible_d(kind)
+    ops = []
+    for dx, dy, blue in PILE:
+        col = BLUE if blue else PURPLE
+        ops += orb_ops(
+            kind,
+            mode,
+            imgs,
+            col,
+            cx + dx * d,
+            cy + dy * d,
+            1.0,
+            0.0,
+            rnd.uniform(0, 2),
+            rnd,
+            trail=False,
+        )
+    if stream:
+        ux, uy = math.cos(0.12), -math.sin(0.12)
+        for i in range(3):
+            x = cx + 62 + i * (0.9 * visible_d(kind) + 20)
+            ops += orb_ops(
+                kind,
+                mode,
+                imgs,
+                PURPLE,
+                x,
+                cy + 6 - i * 4,
+                ux,
+                uy,
+                rnd.uniform(0, 2),
+                rnd,
+                trail=True,
+                solid_trail=solid_trail,
+            )
+    for _, fn in sorted(ops, key=lambda o: o[0]):
+        fn(panel)
+    return panel
+
+
+def _font(size):
+    try:
+        return ImageFont.load_default(size=size)
+    except TypeError:  # an old Pillow
+        return ImageFont.load_default()
+
+
+def preview_blend(imgs):
+    PREVIEW.mkdir(parents=True, exist_ok=True)
+    font, small = _font(14), _font(12)
+    grounds = ["dark", "grass", "sand"]
+    sw, sh, zw, zh, Z = 240, 84, 80, 60, 3  # strip panel, zoom source, zoom factor
+    gut, left = 6, 110
+    colw = max(sw, zw * Z)
+    W = left + 6 * (colw + gut) + 10
+    ink, dim = (240, 240, 244), (170, 170, 180)
+
+    # (row label, kind, solid_trail?, show the Natural column?)
+    strip_rows = [
+        ("Retro", "Retro", False, True),
+        ("Globe", "Globe", False, True),
+        ("Globe\nsolid trail", "Globe", True, False),
+        ("Crackle", "Crackle", False, True),
+        ("Crackle\nsolid trail", "Crackle", True, False),
+    ]
+    zoom_rows = [("Retro", "Retro"), ("Globe", "Globe"), ("Crackle", "Crackle")]
+    mock_rows = [("Starlight\nsolid mock", "Starlight")]
+    head, block_h = 48, 26
+    H = (
+        46
+        + head
+        + len(strip_rows) * (sh + gut)
+        + block_h
+        + head
+        + len(zoom_rows) * (zh * Z + gut)
+        + 40
+        + block_h
+        + head
+        + (sh + gut)
+        + (zh * Z + gut)
+        + 50
+    )
+    sheet = Image.new("RGB", (W, H), (30, 30, 36))
+    dr = ImageDraw.Draw(sheet)
+
+    def col_x(ground_i, mode_i):
+        return left + (ground_i * 2 + mode_i) * (colw + gut)
+
+    def headers(y):
+        for gi, g in enumerate(grounds):
+            dr.text((col_x(gi, 0), y), g, fill=ink, font=font)
+            dr.text((col_x(gi, 0), y + 18), "Natural", fill=dim, font=small)
+            dr.text((col_x(gi, 1), y + 18), "Solid", fill=dim, font=small)
+
+    def row_label(y, text, hh):
+        for i, line in enumerate(text.split("\n")):
+            dr.text(
+                (10, y + hh // 2 - 8 + i * 15 - (7 if "\n" in text else 0)),
+                line,
+                fill=ink if i == 0 else dim,
+                font=font if i == 0 else small,
+            )
+
+    def strips(y, rows):
+        for label, kind, solid_trail, natural in rows:
+            row_label(y, label, sh)
+            for gi, g in enumerate(grounds):
+                if natural:
+                    sheet.paste(
+                        pile_panel(
+                            kind, "natural", imgs, g, sw, sh, 48, sh // 2, stream=True
+                        ),
+                        (col_x(gi, 0), y),
+                    )
+                sheet.paste(
+                    pile_panel(
+                        kind,
+                        "solid",
+                        imgs,
+                        g,
+                        sw,
+                        sh,
+                        48,
+                        sh // 2,
+                        stream=True,
+                        solid_trail=solid_trail,
+                    ),
+                    (col_x(gi, 1), y),
+                )
+            y += sh + gut
+        return y
+
+    def zooms(y, rows):
+        for label, kind in rows:
+            row_label(y, label, zh * Z)
+            for gi, g in enumerate(grounds):
+                for mi, mode in enumerate(("natural", "solid")):
+                    p = pile_panel(kind, mode, imgs, g, zw, zh, zw // 2, zh // 2)
+                    sheet.paste(
+                        p.resize((zw * Z, zh * Z), Image.Resampling.NEAREST),
+                        (col_x(gi, mi), y),
+                    )
+            y += zh * Z + gut
+        return y
+
+    dr.text(
+        (10, 10),
+        f"Natural vs Solid - SOLID_LIFT = {SOLID_LIFT}",
+        fill=ink,
+        font=_font(18),
+    )
+    y = 46
+    dr.text((10, y - 4), "1x", fill=dim, font=small)
+    y += 6
+    headers(y)
+    y = strips(y + head, strip_rows)
+    y += block_h
+    dr.text((10, y), "3x zoom", fill=dim, font=small)
+    headers(y)
+    y = zooms(y + head, zoom_rows)
+    y += 20
+    dr.line([(10, y), (W - 10, y)], fill=(120, 120, 130), width=1)
+    dr.text(
+        (10, y + 4),
+        "Not shipping: Starlight keeps its glow. This is only to compare Solid on the old orb.",
+        fill=ink,
+        font=font,
+    )
+    y += block_h
+    headers(y)
+    y = strips(y + head, [(l, k, False, True) for l, k in mock_rows])
+    y = zooms(y, mock_rows)
+    dr.text(
+        (10, H - 24),
+        "Draw order, Natural: as today. Solid: all underlays, then all trails, then all bodies, then "
+        'glint / bolts / twinkle (additive). Solid trails stay additive.',
+        fill=dim,
+        font=small,
+    )
+    sheet.save(PREVIEW / "blend.png")
 
 
 def main():
@@ -431,6 +1130,12 @@ def main():
         "globe_under": build((64, 64), globe_under),
         "globe_glint": build((64, 64), globe_glint),
         "crackle_core": build((64, 64), crackle_core),
+        # Solid blend variants (hard alpha mask, RGB shading)
+        "globe_solid": build_shaded((64, 64), globe_solid_shade, GLOBE_SOLID_R),
+        "crackle_core_solid": build_shaded(
+            (64, 64), crackle_core_solid_shade, CRACKLE_SOLID_R
+        ),
+        "retro_solid": retro_solid(),
         "bolt1": bolt_ring(301, 2, 1),
         "bolt2": bolt_ring(302, 1, 1),
         "bolt3": bolt_ring(303, 2, 0),
@@ -442,7 +1147,10 @@ def main():
     if "--preview" in sys.argv:
         preview(imgs)
         preview_shapes(imgs)
-        print(f"wrote {PREVIEW / 'preview.png'} and {PREVIEW / 'shapes.png'}")
+        preview_blend(imgs)
+        print(
+            f"wrote {PREVIEW / 'preview.png'}, {PREVIEW / 'shapes.png'} and {PREVIEW / 'blend.png'}"
+        )
 
 
 if __name__ == "__main__":

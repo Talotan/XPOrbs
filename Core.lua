@@ -134,6 +134,16 @@ ns.SHAPE_ALIAS = { power = "crackle", wisp = "globe" } -- the first names of the
 ns.SHAPE_LOOK_KEYS = { "size", "density", "opacity", "blend", "pulse", "sparkle" } -- what each shape remembers
 local RETRO_SIZE_RANGE = { 1, 7, 1 } -- Retro's size is px per art pixel, not an orb size
 ns.RETRO_SIZE_RANGE = RETRO_SIZE_RANGE
+ns.RETRO_K = 24 / 14 -- Retro px per size unit: size 14 (Starlight's units) is a 24 px orb
+
+-- The generic orb size, in the size units Starlight's db.size uses, of the active look. Retro stores px per art pixel,
+-- so its orb (8 art pixels across) is db.size * 8 px, i.e. db.size * 8 / RETRO_K units; every other shape stores it.
+function ns.OrbSize(db)
+    if db.orbShape == "retro" then
+        return db.size * 8 / ns.RETRO_K
+    end
+    return db.size
+end
 
 -- { min, max, step } of a SHAPE_LOOK_KEYS key for a shape; nil for the non-numeric keys.
 function ns.ShapeRange(shape, key)

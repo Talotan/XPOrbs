@@ -826,7 +826,7 @@ local function setupPop(group, plate, orbCount, scale, restedCount, restedColour
         clean(sparkleTex)
         if shape then
             group.st[i] = group.st[i] or {}
-            group.st[i].base = config.size * scale -- (Retro's one cell size per burst)
+            group.st[i].base = ns.OrbSize(config) * scale -- (Retro's one cell size per burst)
             shape.setup(underTex, orbTex, sparkleTex, group.st[i], red, green, blue)
         else
             underTex:SetTexture(ORB_TEX)
@@ -854,7 +854,7 @@ local function setupPop(group, plate, orbCount, scale, restedCount, restedColour
         local radius = (POP_R_MIN + random() * (POP_R_MAX - POP_R_MIN)) * spreadFactor
         group.offsetX[i], group.offsetY[i] = cos(angle) * radius, sin(angle) * radius
         group.drift[i] = random() * POP_DRIFT * spreadFactor
-        group.size[i] = config.size * scale * (rested and RESTED_SIZE or 1)
+        group.size[i] = ns.OrbSize(config) * scale * (rested and RESTED_SIZE or 1)
         group.rotation[i] = random() * TWO_PI
     end
     group.used = orbCount * 3
@@ -1248,13 +1248,13 @@ local function drive(self, dt)
             flash:ClearAllPoints()
             flash:SetPoint("CENTER", overlay, "BOTTOMLEFT", dx, dy)
             if shape == "round" then
-                local diameter = OrbMath.GlowDiameter(Target.lastW, Target.lastH, ns.db.size)
+                local diameter = OrbMath.GlowDiameter(Target.lastW, Target.lastH, ns.OrbSize(ns.db))
                 flash:SetSize(diameter * glowSizeFactor, diameter * glowSizeFactor)
             elseif shape == "vertical" then
-                local tall = ns.db.size * FLASH_W * glowSizeFactor
+                local tall = ns.OrbSize(ns.db) * FLASH_W * glowSizeFactor
                 flash:SetSize(tall / FLASH_ASPECT, tall)
             else
-                local w = ns.db.size * FLASH_W * glowSizeFactor
+                local w = ns.OrbSize(ns.db) * FLASH_W * glowSizeFactor
                 flash:SetSize(w, w / FLASH_ASPECT)
             end
             flash:SetAlpha(alpha)
@@ -1540,7 +1540,7 @@ function Orbs:Burst(params)
             local red, green, blue = colour[1], colour[2], colour[3]
             local orb = newRec()
             orb.shape = shape
-            orb.base, orb.opacity = config.size * scale, config.opacity / 100 -- (see SHAPES)
+            orb.base, orb.opacity = ns.OrbSize(config) * scale, config.opacity / 100 -- (see SHAPES)
             building, buildingLive = orb, false
             local controlScale, staggerScale, pathJitterLow, pathJitterSpan = OrbMath.PathShape(burstPath)
             orb.group, orb.hold, orb.easeWeight, orb.profile = nil, 0, nil, nil
@@ -1648,7 +1648,7 @@ function Orbs:Burst(params)
                 orb.fadeIn = 0 -- the pop already faded in
             end
             orb.rested = rested
-            orb.size = config.size * scale * (rested and RESTED_SIZE or 1)
+            orb.size = ns.OrbSize(config) * scale * (rested and RESTED_SIZE or 1)
             orb.startRotation = random() * TWO_PI
             XF_PROFILE.shapes.build(orb, shape, trail, red, green, blue)
             nLive = nLive + 1
@@ -2160,7 +2160,8 @@ end)
 
 table.insert(ns.statusProviders, function()
     local config = settings()
-    return string.format("orb shape: %s (size %d, quantity %d%%, opacity %d%%), pulsing %s",
-        ns.SHAPE_LABEL[config.orbShape] or ns.SHAPE_LABEL.starlight, config.size, config.density, config.opacity,
+    local size = config.orbShape == "retro" and (config.size .. " px") or tostring(config.size)
+    return string.format("orb shape: %s (size %s, quantity %d%%, opacity %d%%), pulsing %s",
+        ns.SHAPE_LABEL[config.orbShape] or ns.SHAPE_LABEL.starlight, size, config.density, config.opacity,
         config.pulse and "on" or "off")
 end)

@@ -62,8 +62,8 @@ end
 -- What the orbs' set-up depends on: when it changes the five orbs are set up again.
 local function signature(db, red, green, blue)
     local rested = db.restedColor
-    return table.concat({ db.orbShape, db.size, db.restedTint and 1 or 0, red, green, blue, rested[1], rested[2],
-        rested[3] }, "|")
+    return table.concat({ db.orbShape, db.size, ns.OrbSize(db), tostring(db.blend), tostring(db.sparkle),
+        tostring(db.pulse), db.restedTint and 1 or 0, red, green, blue, rested[1], rested[2], rested[3] }, "|")
 end
 
 local function build(panel)
@@ -107,7 +107,7 @@ local function configure(db, red, green, blue)
             tex:Hide()
             tex.xoShown = false
         end
-        local st = { base = db.size } -- Retro's one cell size comes from base
+        local st = { base = ns.OrbSize(db) } -- Retro's one cell size comes from base
         box.st[i] = st
         setup(under, body, spark, st, colour[1], colour[2], colour[3])
     end
@@ -121,7 +121,7 @@ local function draw(db)
     local step = (BOX_W - 24) / ORBS
     for i = 1, ORBS do
         local first = (i - 1) * 3
-        local size = db.size * (db.restedTint and i >= RESTED_FROM and restedSize or 1)
+        local size = ns.OrbSize(db) * (db.restedTint and i >= RESTED_FROM and restedSize or 1)
         draws(box.st[i], box.time, box, box.tex[first + 1], box.tex[first + 2], box.tex[first + 3],
             (i - (ORBS + 1) / 2) * step, -TITLE_H / 2, size, alpha)
     end

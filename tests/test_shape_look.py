@@ -28,8 +28,9 @@ def active(db):
     return (db.size, db.density, db.opacity)
 
 
-def retro_cell(size):
-    return max(2, math.floor(size * 24 / 14 / 8 + 0.5))
+def retro_cell(step, scale=1.0):
+    """The flight cell of a Retro burst: the stored step x the burst scale, rounded, at least 1 px."""
+    return max(1, math.floor(step * scale + 0.5))
 
 
 # ---------------------------------------------------------------- the renames and their old names
@@ -354,7 +355,7 @@ def test_status_shows_the_active_shapes_look(env):
     m.stub.chat = m.lua.table() if False else m.stub.chat
     m.slash("status")
     assert any(
-        "orb shape: Retro (size 2, quantity 75%, opacity 100%), pulsing on" in line
+        "orb shape: Retro (size 2 px, quantity 75%, opacity 100%), pulsing on" in line
         for line in m.say()
     )
     m.slash("shape globe")
@@ -609,25 +610,54 @@ def test_crackle_bolts_are_tighter_and_the_core_fuller(env):
 # ---------------------------------------------------------------- Retro: one cell size per burst
 
 
-@pytest.mark.parametrize("size", range(8, 33))
-def test_retro_normal_and_rested_orbs_share_one_cell(env, size):
+@pytest.mark.parametrize("step", range(1, 8))
+def test_retro_normal_and_rested_orbs_share_one_cell(env, step):
     g = make(env)
-    g.db.size = size
+    g.db.size = step
     go(g, "retro", n=4, trail=False, advance=0.45, nPurple=2)
     recs = flying(g)
     assert sum(1 for o in recs if o.rested) == 2 and len(recs) == 4
-    cell = retro_cell(size)
-    assert {o.cell for o in recs} == {cell}
-    assert {o.body.width for o in recs} == {8 * cell} and {
+    assert {o.cell for o in recs} == {step}  # the stored step is the cell, exactly
+    assert {o.body.width for o in recs} == {8 * step} and {
         o.under.width for o in recs
-    } == {10 * cell}
+    } == {10 * step}
 
 
-def test_retro_size_eleven_is_two_pixel_cells_for_every_orb(env):
+def test_retro_cell_rounds_with_a_small_burst_scale_but_never_below_one(env):
     g = make(env)
-    g.db.size = 11
-    go(g, "retro", n=4, trail=False, advance=0.45, nPurple=2)
-    assert {o.cell for o in flying(g)} == {2}
+    g.db.size = 3
+    go(g, "retro", n=2, trail=False, advance=0.45, scale=0.5, nPurple=1)
+    assert {o.cell for o in flying(g)} == {retro_cell(3, 0.5)} == {2}
+    g2 = make(env)
+    g2.db.size = 1
+    go(g2, "retro", n=2, trail=False, advance=0.45, scale=0.5, nPurple=1)
+    assert {o.cell for o in flying(g2)} == {1}
+
+
+def test_orb_size_is_the_generic_size_units(env):
+    g = make(env)
+    ns = g.ns
+    for step in range(1, 8):
+        assert ns.OrbSize({"orbShape": "retro", "size": step}) == pytest.approx(
+            step * 8 * 14 / 24
+        )
+        # converting back with the Retro constant gives 8 px per step
+        assert ns.OrbSize({"orbShape": "retro", "size": step}) * ns.RETRO_K == pytest.approx(
+            8 * step
+        )
+    for shape in ("starlight", "globe", "crackle"):
+        assert ns.OrbSize({"orbShape": shape, "size": 20}) == 20
+
+
+def test_a_retro_burst_base_and_size_come_from_orb_size(env):
+    g = make(env)
+    go(g, "retro", n=2, trail=False, advance=0.45, nPurple=1)  # step 2
+    recs = flying(g)
+    assert recs and all(o.base == pytest.approx(2 * 8 * 14 / 24) for o in recs)
+    assert all(
+        o.size == pytest.approx(o.base * (1.15 if o.rested else 1)) for o in recs
+    )
+    assert recs[0].base == pytest.approx(9.333, abs=1e-3)
 
 
 def test_retro_keeps_its_cell_all_flight_long(env):
@@ -639,13 +669,13 @@ def test_retro_keeps_its_cell_all_flight_long(env):
         for o in flying(g):
             if o.body.width:
                 seen.add(o.body.width)
-    assert seen == {24}  # no shrink near the bar, no rested or path-depth steps
+    assert seen == {16}  # no shrink near the bar, no rested or path-depth steps
 
 
 def test_retro_uses_the_burst_scale_for_its_cell(env):
     g = make(env)
     go(g, "retro", n=2, trail=False, advance=0.45, scale=2.0, nPurple=1)
-    assert {o.cell for o in flying(g)} == {retro_cell(14 * 2.0)}
+    assert {o.cell for o in flying(g)} == {retro_cell(2, 2.0)} == {4}
 
 
 def sample_cells(g, pick, steps=60, dt=0.01):
@@ -674,6 +704,7 @@ def test_a_retro_nameplate_pop_grows_in_whole_cells_and_never_exceeds_the_flight
     env,
 ):
     g = make(env)
+    g.db.size = 3  # 3 px cells: a pop grows 1 -> 2 -> 3
     set_shape(g, "retro")
     fire(g, "popstream", n=2)
     cells = sample_cells(g, lambda g: [pop_textures(g)[1]], steps=50)
@@ -682,6 +713,7 @@ def test_a_retro_nameplate_pop_grows_in_whole_cells_and_never_exceeds_the_flight
 
 def test_a_retro_direct_pop_grows_in_whole_cells(env):
     g = make(env)
+    g.db.size = 3  # 3 px cells: a pop grows 1 -> 2 -> 3
     set_shape(g, "retro")
     fire(g, "streampop", n=1)
     cells = sample_cells(g, lambda g: [o.body for o in flying(g)], steps=26)
@@ -853,12 +885,12 @@ def test_the_preview_uses_the_same_sizes_as_real_orbs(env):
         [14 * 1.15 * 1.5] * 2
     )
     m.slash("shape retro")
-    m.ns.SetLook("size", 12)  # (a 3 px cell: the old size scale, kept while Retro's rendering is unchanged)
+    m.ns.SetLook("size", 3)  # 3 px cells
     m.ns.ShapePreview.Sync(m.ns.ShapePreview)
     tick(m)
     assert {t.width for t in bodies(m)} == {
         24
-    }  # 12 -> 3 px cells for every orb, rested too
+    }  # step 3 -> 3 px cells for every orb, rested too
     m.slash("shape crackle")
     tick(m)
     assert bodies(m)[0].width == pytest.approx(14 * 2.0 * 1.15)
@@ -1192,3 +1224,34 @@ def test_pulse_off_on_globe_is_globes_alone(env):
     assert m.db.pulse is True
     m.slash("shape globe")
     assert m.db.pulse is False
+
+
+def test_the_preview_resyncs_when_blend_changes(env):
+    m = build(env)
+    m.slash("debug on")
+    m.slash("shape globe")
+    tick(m)
+    assert path_of(bodies(m)[0]) == PRE + "globe"
+    m.ns.SetLook("blend", "solid")
+    m.ns.ShapePreview.Sync(m.ns.ShapePreview)
+    tick(m)
+    assert path_of(bodies(m)[0]) == PRE + "globe_solid"
+    assert str(bodies(m)[0].calls["SetBlendMode"][1]) == "BLEND"
+    m.ns.SetLook("blend", "natural")
+    m.ns.ShapePreview.Sync(m.ns.ShapePreview)
+    tick(m)
+    assert path_of(bodies(m)[0]) == PRE + "globe"
+
+
+def test_the_preview_resyncs_when_sparkle_changes(env):
+    m = build(env)
+    m.slash("debug on")
+    m.slash("shape retro")
+    tick(m)
+    ShapePreview = m.ns.ShapePreview
+    before = [t for t in preview_orbs(m)]
+    m.ns.SetLook("sparkle", False)
+    ShapePreview.Sync(ShapePreview)
+    tick(m, 8)
+    twinkles = [t for t in preview_orbs(m) if t.calls["SetDrawLayer"][2] == 1]
+    assert before and twinkles and not any(t.shown for t in twinkles)

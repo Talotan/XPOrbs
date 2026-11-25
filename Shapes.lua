@@ -25,6 +25,9 @@ local ORB_TEX = "Interface\\AddOns\\XPOrbs\\media\\orb"
 local RETRO_TEX = "Interface\\AddOns\\XPOrbs\\media\\retro" -- 64x64: the 8 x 8 cell octagon, 8 px per cell
 local RETRO_UNDER_TEX = "Interface\\AddOns\\XPOrbs\\media\\retro_under" -- 128x128: 10 x 10 cell art, top left
 local RETRO_TWINKLE_TEX = "Interface\\AddOns\\XPOrbs\\media\\retro_twinkle" -- 32x32: 3 x 3 cell "+", top left
+local RETRO_SOLID_TEX = "Interface\\AddOns\\XPOrbs\\media\\retro_solid" -- the octagon, shading in RGB, alpha 1
+local GLOBE_SOLID_TEX = "Interface\\AddOns\\XPOrbs\\media\\globe_solid" -- an opaque lit sphere with a dark rim
+local CRACKLE_CORE_SOLID_TEX = "Interface\\AddOns\\XPOrbs\\media\\crackle_core_solid" -- an opaque core, dark rim
 local GLOBE_TEX = "Interface\\AddOns\\XPOrbs\\media\\globe"
 local GLOBE_UNDER_TEX = "Interface\\AddOns\\XPOrbs\\media\\globe_under"
 local GLOBE_GLINT_TEX = "Interface\\AddOns\\XPOrbs\\media\\globe_glint"
@@ -41,11 +44,20 @@ local UNDER_K = k.underK
 local GLOW = k.glow
 local GHOST_KEY = { "ghost1", "ghost2", "ghost3", "ghost4" }
 
--- Retro: the art is 8 x 8 "pixels" (cells). RETRO_K makes db.size 14 a 24 px orb, 3 px per cell. One cell size serves
--- a whole burst (from db.size x the burst's scale, st.base: no rested or pop multiplier), so every orb of it has the
--- same pixels.
-local RETRO_K = 24 / 14
-local RETRO_CELLS_MIN = 2 -- px per cell at the smallest
+-- Solid (db.blend == "solid", Retro / Globe / Crackle only): the body is an opaque BLEND texture whose RGB carries the
+-- shading, so orbs layer over each other instead of adding up. The underlay and the trails move below the bodies:
+-- every underlay, then every trail, then every body, then the glint / bolts / twinkle. The drawn sizes are the Natural
+-- ones: the solid discs were cut to sit where each Natural body is seen. Trails stay additive. Natural keeps its own.
+local SOLID_LIFT = 0.06 -- BLEND shows the raw vertex colour (ADD brightens), so it is lightened by this much
+local CRACKLE_SOLID_UNDER, CRACKLE_SOLID_UNDER_ALPHA = 1.25, 0.40 -- x body, alpha (Natural: CRACKLE_UNDER, _ALPHA)
+local SUB_NATURAL = { under = -1, trail = 0, body = 0, top = 1 } -- ARTWORK sublayers
+local SUB_SOLID = { under = -2, trail = -1, body = 0, top = 1 }
+
+-- Retro: the art is 8 x 8 "pixels" (cells). Retro's db.size is the px per cell (1..7); ns.OrbSize turns it into the
+-- generic orb size (8 cells across), so st.base = OrbSize x the burst's scale and base * RETRO_K / 8 = the stored step x
+-- the scale. One cell size serves a whole burst (no rested or pop multiplier), so every orb of it has the same pixels.
+local RETRO_K = ns.RETRO_K
+local RETRO_CELLS_MIN = 1 -- px per cell at the smallest
 local RETRO_UNDER_ALPHA = 0.9
 local RETRO_UNDER_UV = 80 / 128 -- the 10-cell art in the 128 px texture
 local RETRO_TWINKLE_UV = 24 / 32 -- the 3-cell art in the 32 px texture
@@ -115,6 +127,26 @@ local function lerp(channel, toward, amount)
     return channel + (toward - channel) * amount
 end
 
+-- Styles the body texture of a shape: Solid draws `solidPath` with BLEND in the lifted colour, Natural `naturalPath`
+-- with ADD (`filter`, if given, sets the texture). Notes the choice in st.solid and returns the sublayers in use.
+local function styleBody(body, st, naturalPath, solidPath, red, green, blue, filter)
+    local solid = ns.db.blend == "solid"
+    st.solid = solid
+    local sl = solid and SUB_SOLID or SUB_NATURAL
+    local path = solid and solidPath or naturalPath
+    if filter then
+        filter(body, path)
+    else
+        body:SetTexture(path)
+    end
+    if solid then
+        style(body, sl.body, "BLEND", lerp(red, 1, SOLID_LIFT), lerp(green, 1, SOLID_LIFT), lerp(blue, 1, SOLID_LIFT))
+    else
+        style(body, sl.body, "ADD", red, green, blue)
+    end
+    return sl
+end
+
 local function identity(n, nPurple, scale)
     return n, nPurple, scale
 end
@@ -167,25 +199,24 @@ end
 
 function RETRO.setup(under, body, spark, st, red, green, blue)
     st.flightCell = retroCell(st.base or ns.db.size)
+    local sl = styleBody(body, st, RETRO_TEX, RETRO_SOLID_TEX, red, green, blue, setNearest)
     setNearest(under, RETRO_UNDER_TEX)
     under:SetTexCoord(0, RETRO_UNDER_UV, 0, RETRO_UNDER_UV)
     under.xoDirty = true
-    style(under, -1, "BLEND", red * UNDER_K, green * UNDER_K, blue * UNDER_K)
-    setNearest(body, RETRO_TEX)
-    style(body, 0, "ADD", red, green, blue)
+    style(under, sl.under, "BLEND", red * UNDER_K, green * UNDER_K, blue * UNDER_K)
     setNearest(spark, RETRO_TWINKLE_TEX)
     spark:SetTexCoord(0, RETRO_TWINKLE_UV, 0, RETRO_TWINKLE_UV)
     spark.xoDirty = true
-    style(spark, 1, "ADD", lerp(red, 1, RETRO_TWINKLE_WHITE), lerp(green, 1, RETRO_TWINKLE_WHITE),
+    style(spark, sl.top, "ADD", lerp(red, 1, RETRO_TWINKLE_WHITE), lerp(green, 1, RETRO_TWINKLE_WHITE),
         lerp(blue, 1, RETRO_TWINKLE_WHITE))
     st.phase = random() * 2 * RETRO_BLINK -- where in the on / off blink this orb starts
 end
 
 -- A trail square: a colour texture (no art), ADD, tinted by the orb colour.
-local function newSquare(red, green, blue)
+local function newSquare(red, green, blue, subLayer)
     local tex = take()
     tex:SetColorTexture(red, green, blue, 1)
-    style(tex, 0, "ADD", 1, 1, 1)
+    style(tex, subLayer, "ADD", 1, 1, 1)
     ready(tex)
     return tex
 end
@@ -193,13 +224,14 @@ end
 function RETRO.build(orb, trail, red, green, blue)
     buildSlots(RETRO, orb, red, green, blue, true)
     if trail then
-        orb.ghost1 = newSquare(red, green, blue)
-        orb.ghost2 = newSquare(red, green, blue)
+        local subLayer = (orb.solid and SUB_SOLID or SUB_NATURAL).trail
+        orb.ghost1 = newSquare(red, green, blue, subLayer)
+        orb.ghost2 = newSquare(red, green, blue, subLayer)
     end
 end
 
 -- The 8 x 8 cell body on a grid of cells, so it moves in chunky steps. The cell is the burst's own (whole pixels, at
--- least 2), whatever `size` is (rested orbs and pops are drawn at the same cell); a pop or bloom (`grow` below 1)
+-- least 1), whatever `size` is (rested orbs and pops are drawn at the same cell); a pop or bloom (`grow` below 1)
 -- draws smaller whole pixels. The underlay is the octagon grown by one cell all round; the twinkle is a 3-cell "+" on
 -- the top left cut corner that blinks.
 function RETRO.draw(st, t, rel, under, body, spark, x, y, size, alpha, grow)
@@ -211,7 +243,7 @@ function RETRO.draw(st, t, rel, under, body, spark, x, y, size, alpha, grow)
     local gridX, gridY = floor(x / cell + 0.5) * cell, floor(y / cell + 0.5) * cell
     putAt(under, rel, gridX, gridY, 10 * cell, alpha * RETRO_UNDER_ALPHA)
     putAt(body, rel, gridX, gridY, 8 * cell, alpha)
-    if (t + st.phase) % (2 * RETRO_BLINK) < RETRO_BLINK then
+    if ns.db.sparkle ~= false and (t + st.phase) % (2 * RETRO_BLINK) < RETRO_BLINK then
         putAt(spark, rel, gridX - RETRO_TWINKLE_OFF * cell, gridY + RETRO_TWINKLE_OFF * cell, 3 * cell, alpha)
     else
         hideTex(spark)
@@ -245,12 +277,11 @@ end
 local GLOBE = { needTrail = 7, needPlain = 3, timeMul = 1, adjust = identity }
 
 function GLOBE.setup(under, body, spark, st, red, green, blue)
+    local sl = styleBody(body, st, GLOBE_TEX, GLOBE_SOLID_TEX, red, green, blue)
     under:SetTexture(GLOBE_UNDER_TEX)
-    style(under, -1, "BLEND", red * UNDER_K, green * UNDER_K, blue * UNDER_K)
-    body:SetTexture(GLOBE_TEX)
-    style(body, 0, "ADD", red, green, blue)
+    style(under, sl.under, "BLEND", red * UNDER_K, green * UNDER_K, blue * UNDER_K)
     spark:SetTexture(GLOBE_GLINT_TEX)
-    style(spark, 1, "ADD", lerp(red, 1, GLOBE_GLINT_WHITE), lerp(green, 1, GLOBE_GLINT_WHITE),
+    style(spark, sl.top, "ADD", lerp(red, 1, GLOBE_GLINT_WHITE), lerp(green, 1, GLOBE_GLINT_WHITE),
         lerp(blue, 1, GLOBE_GLINT_WHITE))
     st.phase = random() * TWO_PI
 end
@@ -261,7 +292,7 @@ function GLOBE.build(orb, trail, red, green, blue)
         for i = 1, 4 do
             local tex = take()
             tex:SetTexture(GLOBE_TEX)
-            style(tex, 0, "ADD", red, green, blue)
+            style(tex, (orb.solid and SUB_SOLID or SUB_NATURAL).trail, "ADD", red, green, blue)
             ready(tex)
             orb[GHOST_KEY[i]] = tex
         end
@@ -314,10 +345,9 @@ local function nextBolt(st, spark, t)
 end
 
 function CRACKLE.setup(under, body, spark, st, red, green, blue)
+    local sl = styleBody(body, st, CRACKLE_CORE_TEX, CRACKLE_CORE_SOLID_TEX, red, green, blue)
     under:SetTexture(ORB_TEX)
-    style(under, -1, "BLEND", red * UNDER_K, green * UNDER_K, blue * UNDER_K)
-    body:SetTexture(CRACKLE_CORE_TEX)
-    style(body, 0, "ADD", red, green, blue)
+    style(under, sl.under, "BLEND", red * UNDER_K, green * UNDER_K, blue * UNDER_K)
     st.boltEvery = CRACKLE_TICK_MIN + random() * CRACKLE_TICK_SPAN
     st.boltAt = random() * st.boltEvery -- a random phase, so a burst's bolts don't change in step
     st.boltFrame = floor(random() * 4) + 1
@@ -326,7 +356,7 @@ function CRACKLE.setup(under, body, spark, st, red, green, blue)
     spark:SetTexture(BOLT_TEX[st.boltFrame])
     spark:SetRotation(st.boltTurn)
     spark.xoDirty = true
-    style(spark, 1, "ADD", lerp(red, 1, CRACKLE_BOLT_WHITE), lerp(green, 1, CRACKLE_BOLT_WHITE),
+    style(spark, sl.top, "ADD", lerp(red, 1, CRACKLE_BOLT_WHITE), lerp(green, 1, CRACKLE_BOLT_WHITE),
         lerp(blue, 1, CRACKLE_BOLT_WHITE))
 end
 
@@ -336,7 +366,7 @@ function CRACKLE.build(orb, trail, red, green, blue)
         for i = 1, 2 do
             local tex = take()
             tex:SetTexture(CRACKLE_CORE_TEX)
-            style(tex, 0, "ADD", red, green, blue)
+            style(tex, (orb.solid and SUB_SOLID or SUB_NATURAL).trail, "ADD", red, green, blue)
             ready(tex)
             orb[GHOST_KEY[i]] = tex
         end
@@ -350,7 +380,11 @@ function CRACKLE.draw(st, t, rel, under, body, spark, x, y, size, alpha)
     if t >= st.boltAt then
         nextBolt(st, spark, t)
     end
-    putAt(under, rel, x, y, bodySize * CRACKLE_UNDER, alpha * CRACKLE_UNDER_ALPHA)
+    if st.solid then
+        putAt(under, rel, x, y, bodySize * CRACKLE_SOLID_UNDER, alpha * CRACKLE_SOLID_UNDER_ALPHA)
+    else
+        putAt(under, rel, x, y, bodySize * CRACKLE_UNDER, alpha * CRACKLE_UNDER_ALPHA)
+    end
     putAt(body, rel, x, y, bodySize * CRACKLE_CORE, alpha)
     putAt(spark, rel, x, y, bodySize * CRACKLE_BOLT, alpha * st.boltAlpha)
 end
