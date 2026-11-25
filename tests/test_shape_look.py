@@ -236,8 +236,8 @@ def test_the_sliders_write_the_active_value_and_the_current_shapes_entry(env):
         look_of(m.db, "retro") == DEFAULT_LOOK["retro"]
     )  # nothing leaks into the others
     m.slash("shape retro")
-    m.stub.slide(ctl(m, "size"), 9)
-    assert look_of(m.db, "retro")[0] == 9 and look_of(m.db, "starlight") == (
+    m.stub.slide(ctl(m, "size"), 5)
+    assert look_of(m.db, "retro")[0] == 5 and look_of(m.db, "starlight") == (
         20,
         250,
         75,
@@ -249,8 +249,8 @@ def test_a_typed_value_goes_through_the_same_write(env):
     show(m)
     m.slash("shape retro")
     m.stub.rightClick(m.opt.valueButtons["size"])
-    m.stub.enterText(m.opt.editBoxes["size"], "18")
-    assert m.db.size == 18 and look_of(m.db, "retro")[0] == 18
+    m.stub.enterText(m.opt.editBoxes["size"], "5")
+    assert m.db.size == 5 and look_of(m.db, "retro")[0] == 5
 
 
 def test_the_opacity_slider_sits_right_after_size_with_its_range(env):
@@ -261,7 +261,8 @@ def test_the_opacity_slider_sits_right_after_size_with_its_range(env):
     def y(key):
         return -rows[key].points[1][5]
 
-    assert y("size") < y("opacity") < y("flightTime") and y("opacity") - y("size") == 32
+    assert y("size") < y("density") < y("opacity") < y("flightTime")
+    assert y("density") - y("size") == y("opacity") - y("density") == 32
     slider = ctl(m, "opacity")
     assert (slider.minV, slider.maxV, slider.step) == (20, 100, 5)
     assert "Orb opacity" in [
@@ -281,10 +282,10 @@ def test_the_reset_buttons_restore_the_current_shapes_default(env):
     assert (
         not size_btn.shown and not density_btn.shown
     )  # Retro's own defaults, though Starlight's differ
-    m.stub.slide(ctl(m, "size"), 20)
+    m.stub.slide(ctl(m, "size"), 5)
     assert size_btn.shown
     m.stub.hover(size_btn)
-    assert str(m.stub.tooltip.text) == "Reset to default: 2"
+    assert str(m.stub.tooltip.text) == "Reset to default: 2 px"
     m.stub.click(size_btn)
     assert m.db.size == 2 and look_of(m.db, "retro")[0] == 2 and not size_btn.shown
     m.stub.slide(ctl(m, "density"), 100)
@@ -455,8 +456,9 @@ def test_the_pulse_command_off_globe_says_it_is_globe_only(env):
 def test_the_pulsing_checkbox_follows_the_shape_dropdown(env):
     m = build(env)
     show(m)
+    m.slash("shape globe")
     box = ctl(m, "pulse")
-    assert box.checked is True and str(m.opt.rows["pulse"].points[1][5]) != ""
+    assert box.checked is True and box.shown and str(m.opt.rows["pulse"].points[1][5]) != ""
     assert -m.opt.rows["orbShape"].points[1][5] < -m.opt.rows["pulse"].points[1][5]
     assert -m.opt.rows["pulse"].points[1][5] < -m.opt.rows["color"].points[1][5]
     m.stub.hover(box)

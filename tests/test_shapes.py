@@ -155,7 +155,7 @@ def test_orb_shape_dropdown_in_the_look_section(env):
     def y(key):
         return -m.opt.rows[key].points[1][5]
 
-    assert y("trail") < y("orbShape") < y("pulse") < y("color")
+    assert y("orbShape") < y("pulse") < y("trail") < y("color")
     # the Look and Style sections are separate tabs now (Look first): the dropdown lives on Look's child
     assert m.lua.eval("rawequal")(m.opt.rows["orbShape"].createdParent, m.opt.tabChildren.Look)
 

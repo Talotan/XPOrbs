@@ -79,6 +79,7 @@ local ORB_SHAPE_DESC = {
     crackle = "A bright core with lightning crackling round its edge.",
 }
 local PULSE_TIP = "Globe orbs gently swell and shrink."
+local CAP_TIP = "Lowering the cap can improve performance on less powerful computers."
 local MAX_TIP = "At max level, each kill sends a small burst of orbs to your portrait."
 local SOUND_TIP = "Glass: a glassy tink. Coin: a soft coin clink. Swish: a soft brushed whoosh. "
     .. "Pixel: a retro chip-tune ding. "
@@ -102,6 +103,7 @@ for _, lookKey in ipairs(ns.SHAPE_LOOK_KEYS) do
     LOOK[lookKey] = true
 end
 local child -- the scroll child every row hangs off
+local rowParent -- when set, newRow hangs rows off this frame instead (the Look tab's shape box); positions stay child-relative
 Options.controls = {} -- key -> the widget (checkbox, slider, swatch, radio)
 Options.rows = {} -- key -> the row frame (dimming and layout)
 Options.resets = {} -- key -> the per-row reset button
@@ -246,7 +248,7 @@ end
 -- A full-width row frame of height h at y. Its label, control and reset button anchor LEFT to it, so they share its
 -- centre line; it is also what dimming hangs on.
 local function newRow(y, h)
-    local row = CreateFrame("Frame", nil, child)
+    local row = CreateFrame("Frame", nil, rowParent or child)
     row:SetSize(CONTENT_W, h)
     row:SetPoint("TOPLEFT", child, "TOPLEFT", 0, -y)
     return row
@@ -317,6 +319,7 @@ local function newRadio(row, x, labelStr)
         rb = newCheck(row, x - 4)
     end
     local fs = label(row, labelStr, x + 24)
+    rb.xpLabel = fs -- so a row that shows and hides its radios can hide the caption with them
     local okW, w = pcall(function()
         return fs:GetStringWidth()
     end)
@@ -332,10 +335,10 @@ end
 -- The small revert button in the gutter. keys: db keys it resets (a colour row has two). describe() -> default text.
 -- custom { default(key), reset(key) } replaces the plain ns.defaults value for keys whose default depends on something
 -- else (the current orb shape).
-local function addReset(row, name, keys, describe, custom)
+local function addReset(row, name, keys, describe, custom, x)
     local btn = CreateFrame("Button", nil, row)
     btn:SetSize(20, 20)
-    btn:SetPoint("LEFT", row, "LEFT", RESET_X, 0)
+    btn:SetPoint("LEFT", row, "LEFT", x or RESET_X, 0)
     local tex = btn:CreateTexture(nil, "ARTWORK")
     tex:SetAllPoints(btn)
     local okAtlas = false
@@ -455,7 +458,9 @@ end
 
 -- Right-click the value to type one: an InputBoxTemplate box replaces the text; Enter or losing focus applies the
 -- nearest permitted value, Escape cancels, junk restores the old value. Returns nothing when the template is missing.
-local function attachValueEdit(row, key, val, lo, hi, step, unit)
+-- range() -> lo, hi, step and unit (a string or a function) are read each time, so a slider whose range follows the
+-- orb shape stays right.
+local function attachValueEdit(row, key, val, range, unit, hint)
     local okE, eb = pcall(CreateFrame, "EditBox", nil, row, "InputBoxTemplate")
     if not okE or not eb then
         return
@@ -480,6 +485,7 @@ local function attachValueEdit(row, key, val, lo, hi, step, unit)
         hit:Show()
         val:Show()
         if apply then
+            local lo, hi, step = range()
             local v = OrbMath.Snap(OrbMath.ParseNumber(typed), lo, hi, step)
             if v then
                 writeValue(key, v)
@@ -515,7 +521,10 @@ local function attachValueEdit(row, key, val, lo, hi, step, unit)
     end)
     hit:SetScript("OnEnter", function()
         val:SetTextColor(1, 1, 1)
-        showTip(hit, string.format("Right-click to type a value (%g%s%g%s)", lo, EN_DASH, hi, unit))
+        local lo, hi = range()
+        local u = type(unit) == "function" and unit() or unit
+        local extra = hint and hint()
+        showTip(hit, string.format("Right-click to type a value (%g%s%g%s)", lo, EN_DASH, hi, u) .. (extra and ("\n" .. extra) or ""))
     end)
     hit:SetScript("OnLeave", function()
         val:SetTextColor(1, 0.82, 0)
@@ -531,10 +540,20 @@ end
 
 -- The range (min, max, step) comes from ns.ranges (Core.lua), the same table InitDB clamps saved values with.
 -- onChange(v), if given, runs after a drag (or a click on the bar) stores a new value, not on Refresh.
-local function slider(y, key, labelStr, fmt, unit, onChange)
-    local lo, hi, step = ns.ranges[key][1], ns.ranges[key][2], ns.ranges[key][3]
+-- opts (all optional): range() -> { lo, hi, step } and fmt / unit as functions replace the fixed ones (the size slider
+-- follows the orb shape); labelX moves the label (rows inside a box); tip is a tooltip on the slider.
+local function slider(y, key, labelStr, fmt, unit, onChange, opts)
+    opts = opts or {}
+    local function range()
+        local r = opts.range and opts.range() or ns.ranges[key]
+        return r[1], r[2], r[3]
+    end
+    local function fmtNow()
+        return type(fmt) == "function" and fmt() or fmt
+    end
+    local lo, hi, step = range()
     local row = newRow(y, 32)
-    label(row, labelStr, LABEL_X)
+    local labelText = label(row, labelStr, opts.labelX or LABEL_X)
     local sliderFrame = newSlider(row)
     sliderFrame:SetPoint("LEFT", row, "LEFT", CTRL_X, 0)
     sliderFrame:SetSize(SLIDER_W, 16)
@@ -547,11 +566,12 @@ local function slider(y, key, labelStr, fmt, unit, onChange)
     val:SetPoint("LEFT", row, "LEFT", VALUE_X, 0)
     val:SetJustifyH("LEFT")
     sliderFrame:SetScript("OnValueChanged", function(_, v)
-        v = OrbMath.Snap(v, lo, hi, step)
+        local l, h, st = range()
+        v = OrbMath.Snap(v, l, h, st)
         if not v then
             return
         end
-        val:SetText(string.format(fmt, v))
+        val:SetText(string.format(fmtNow(), v))
         if not refreshing then
             writeValue(key, v)
             changed()
@@ -565,13 +585,32 @@ local function slider(y, key, labelStr, fmt, unit, onChange)
         if type(v) ~= "number" then
             return
         end
+        local l, h, st = range()
+        if opts.label then
+            labelText:SetText(opts.label())
+        end
+        if opts.range then
+            -- new limits first: the client may clamp (and report) the old value while they change; `refreshing` keeps
+            -- that from being written back
+            sliderFrame:SetMinMaxValues(l, h)
+            sliderFrame:SetValueStep(st)
+        end
         sliderFrame:SetValue(v)
-        val:SetText(string.format(fmt, OrbMath.Snap(v, lo, hi, step) or v))
+        val:SetText(string.format(fmtNow(), OrbMath.Snap(v, l, h, st) or v))
     end
-    attachValueEdit(row, key, val, lo, hi, step, unit)
+    attachValueEdit(row, key, val, range, unit, opts.hint)
     addReset(row, key, { key }, function()
-        return string.format(fmt, LOOK[key] and lookDefault(key) or ns.defaults[key])
-    end, LOOK[key] and LOOK_RESET or nil)
+        return string.format(fmtNow(), LOOK[key] and lookDefault(key) or ns.defaults[key])
+    end, LOOK[key] and LOOK_RESET or nil, opts.resetX)
+    if opts.tip then
+        sliderFrame:SetScript("OnEnter", function(self)
+            local tip = type(opts.tip) == "function" and opts.tip() or opts.tip
+            if tip then
+                showTip(self, tip)
+            end
+        end)
+        sliderFrame:SetScript("OnLeave", hideTip)
+    end
     Options.controls[key] = sliderFrame
     Options.rows[key] = row
 end
@@ -980,22 +1019,240 @@ local function flightStyleRow(y)
     return choiceRow(FLIGHT_DROPDOWN, y)
 end
 
-local function buildLook(y)
-    for _, c in ipairs({
-        { "density", "Orb quantity multiplier", "%d%%", "%" },
-        { "cap", "Max orbs per burst", "%d", "" },
-        { "size", "Orb size", "%d", "" },
-        { "opacity", "Orb opacity", "%d%%", "%" },
-        { "flightTime", "Flight time", "%.2f s", " s" },
-    }) do
-        slider(y, c[1], c[2], c[3], c[4])
-        y = y + 32
+-- The Look tab's boxed group: the settings that belong to the current orb shape. Its height is fixed (two option rows
+-- always, even when empty), so switching shape never moves what is below. Rows inside hang off the box frame.
+local BOX_X, BOX_W = LABEL_X, HEADER_X + RULE_W - LABEL_X -- left edge on the other tabs' label column, right edge on the rule's
+local BOX_LABEL_X = LABEL_X + 16 -- inner padding 16
+local BOX_RESET_X = RESET_X - 4 -- the reset buttons end 4 px inside the border
+local BOX_TOP_PAD, BOX_BOTTOM_PAD = 28, 6
+local BOX_H = BOX_TOP_PAD + 32 * 3 + 28 * 2 + BOX_BOTTOM_PAD
+local BOX_GAP = 10 -- under the box
+local GROUP_GAP = 8 -- between the global groups (flight / colours / cap)
+local BLEND_TIP = {
+    natural = "Orbs glow and blend into each other, brightening where they overlap.",
+    solid = "Orbs are opaque and stack in front of each other; colours stay true on bright ground.",
+}
+local BLEND_NAME = { natural = "Natural", solid = "Solid" }
+local STARLIGHT_NOTE = "No blend or extras: Starlight is always a soft glow with a spinning sparkle."
+local PIXEL_TIP = "The size of each art pixel."
+-- Which shapes each option applies to (Core.lua: Starlight has no blend, only Retro sparkles, only Globe pulses)
+local OPTION_SHAPES = {
+    blend = { retro = true, globe = true, crackle = true },
+    sparkle = { retro = true },
+    pulse = { globe = true },
+}
+local OPTION_NAME = { blend = "Blend", sparkle = "Sparkle", pulse = "Pulsing" }
+
+local function currentShape()
+    return ns.CanonShape(settings().orbShape) or ns.defaults.orbShape
+end
+
+local function optionApplies(key)
+    return OPTION_SHAPES[key][currentShape()] and true or false
+end
+
+local function optionValueText(key, v)
+    if key == "blend" then
+        return BLEND_NAME[v] or tostring(v)
     end
-    checkbox(y, "trail", "Trail")
-    y = y + 28
+    return onOff(v)
+end
+
+local function showIf(frame, on)
+    if on then
+        frame:Show()
+    else
+        frame:Hide()
+    end
+end
+
+-- A reset for options that depend on the shape: a key the shape does not use counts as already at its default.
+local function optionResetSpec()
+    return {
+        default = function(key)
+            if optionApplies(key) then
+                return lookDefault(key)
+            end
+            return settings()[key]
+        end,
+        reset = function(key)
+            if optionApplies(key) then
+                ns.SetLook(key, lookDefault(key))
+            end
+        end,
+    }
+end
+
+local function optionDescribe(keys)
+    return function()
+        local parts = {}
+        for _, key in ipairs(keys) do
+            if optionApplies(key) then
+                parts[#parts + 1] = OPTION_NAME[key] .. " " .. optionValueText(key, lookDefault(key)):lower()
+            end
+        end
+        return #parts > 0 and table.concat(parts, ", ") or "nothing to reset"
+    end
+end
+
+-- Option row A: "Blend" with the Natural / Solid radios (Starlight: a grey note instead, centred across both rows).
+local function blendRow(y)
+    local row = newRow(y, 28)
+    Options.rows.blend = row
+    local note = label(row, STARLIGHT_NOTE, BOX_LABEL_X)
+    note:SetTextColor(GREY, GREY, GREY)
+    note:ClearAllPoints()
+    note:SetPoint("LEFT", row, "LEFT", BOX_LABEL_X, -14)
+    local blendLabel = label(row, "Blend", BOX_LABEL_X)
+    local radios = {}
+    for i, kind in ipairs({ "natural", "solid" }) do
+        local radio = newRadio(row, CTRL_X + (i - 1) * 100, BLEND_NAME[kind])
+        radio:SetScript("OnClick", function()
+            writeValue("blend", kind)
+            Options:Refresh()
+        end)
+        radio:SetScript("OnEnter", function(self)
+            showTip2(self, BLEND_NAME[kind], BLEND_TIP[kind])
+        end)
+        radio:SetScript("OnLeave", hideTip)
+        radios[kind] = radio
+        Options.controls["blend_" .. kind] = radio
+    end
+    refreshers[#refreshers + 1] = function()
+        local blend = settings().blend
+        for kind, radio in pairs(radios) do
+            radio:SetChecked(blend == kind)
+        end
+    end
+    postRefresh[#postRefresh + 1] = function()
+        local on = optionApplies("blend")
+        showIf(note, currentShape() == "starlight")
+        showIf(blendLabel, on)
+        for _, radio in pairs(radios) do
+            showIf(radio, on)
+            showIf(radio.xpLabel, on)
+        end
+    end
+    addReset(row, "blend", { "blend" }, optionDescribe({ "blend" }), optionResetSpec(), BOX_RESET_X)
+end
+
+-- Option row B: the shape's extra, a standard checkbox row (Sparkle on Retro, Pulsing on Globe); empty otherwise.
+local function extraRow(y)
+    local row = newRow(y, 28)
+    Options.rows.shapeExtra, Options.rows.sparkle, Options.rows.pulse = row, row, row
+    local ticks = {}
+    for _, key in ipairs({ "sparkle", "pulse" }) do
+        local caption = label(row, OPTION_NAME[key], BOX_LABEL_X)
+        local cb = newCheck(row, CTRL_X - 3)
+        cb:SetScript("OnClick", function(self)
+            writeValue(key, self:GetChecked() and true or false)
+            changed()
+        end)
+        if key == "pulse" then
+            cb:SetScript("OnEnter", function(self)
+                showTip(self, PULSE_TIP)
+            end)
+            cb:SetScript("OnLeave", hideTip)
+        end
+        ticks[key] = { cb, caption }
+        Options.controls[key] = cb
+    end
+    refreshers[#refreshers + 1] = function()
+        for key, pair in pairs(ticks) do
+            pair[1]:SetChecked(settings()[key] and true or false)
+        end
+    end
+    postRefresh[#postRefresh + 1] = function()
+        for key, pair in pairs(ticks) do
+            showIf(pair[1], optionApplies(key))
+            showIf(pair[2], optionApplies(key))
+        end
+    end
+    -- one reset button for whichever extra the shape has
+    addReset(row, "shapeExtra", { "sparkle", "pulse" }, optionDescribe({ "sparkle", "pulse" }), optionResetSpec(), BOX_RESET_X)
+    Options.resets.sparkle, Options.resets.pulse = Options.resets.shapeExtra, Options.resets.shapeExtra
+end
+
+local function boxEdge(box, point1, point2, w, h)
+    local edge = box:CreateTexture(nil, "BORDER")
+    edge:SetColorTexture(1, 1, 1, 0.15)
+    edge:SetPoint(point1, box, point1, 0, 0)
+    edge:SetPoint(point2, box, point2, 0, 0)
+    if PixelUtil and PixelUtil.SetWidth and PixelUtil.SetHeight then
+        -- a hairline that stays one physical pixel at any UI scale
+        PixelUtil.SetWidth(edge, w, 1)
+        PixelUtil.SetHeight(edge, h, 1)
+    else
+        edge:SetSize(w, h)
+    end
+    return edge
+end
+
+local function sizeRange()
+    return ns.ShapeRange(currentShape(), "size")
+end
+
+local function isRetro()
+    return currentShape() == "retro"
+end
+
+-- Draws the box and fills it with size, quantity, opacity and the two option rows. Returns the y under it.
+local function buildShapeBox(y)
+    local box = CreateFrame("Frame", nil, child)
+    box:SetSize(BOX_W, BOX_H)
+    box:SetPoint("TOPLEFT", child, "TOPLEFT", BOX_X, -y)
+    local fill = box:CreateTexture(nil, "BACKGROUND")
+    fill:SetAllPoints(box)
+    fill:SetColorTexture(1, 1, 1, 0.04)
+    boxEdge(box, "TOPLEFT", "TOPRIGHT", BOX_W, 1)
+    boxEdge(box, "BOTTOMLEFT", "BOTTOMRIGHT", BOX_W, 1)
+    boxEdge(box, "TOPLEFT", "BOTTOMLEFT", 1, BOX_H)
+    boxEdge(box, "TOPRIGHT", "BOTTOMRIGHT", 1, BOX_H)
+    Options.shapeBox = box
+    local caption = box:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+    caption:SetPoint("TOPLEFT", box, "TOPLEFT", BOX_LABEL_X - BOX_X, -8)
+    caption:SetJustifyH("LEFT")
+    caption:SetTextColor(GREY, GREY, GREY)
+    Options.shapeBoxCaption = caption
+    postRefresh[#postRefresh + 1] = function()
+        caption:SetText(ns.SHAPE_LABEL[currentShape()] .. " settings")
+    end
+
+    rowParent = box
+    local ry = y + BOX_TOP_PAD
+    slider(ry, "size", "Orb size", function()
+        return isRetro() and "%d px" or "%d"
+    end, function()
+        return isRetro() and " px" or ""
+    end, nil, {
+        range = sizeRange,
+        labelX = BOX_LABEL_X,
+        resetX = BOX_RESET_X,
+        label = function()
+            return isRetro() and "Pixel size" or "Orb size"
+        end,
+        tip = function()
+            return isRetro() and PIXEL_TIP or nil
+        end,
+        hint = function()
+            return isRetro() and PIXEL_TIP or nil
+        end,
+    })
+    slider(ry + 32, "density", "Orb quantity", "%d%%", "%", nil, { labelX = BOX_LABEL_X, resetX = BOX_RESET_X })
+    slider(ry + 64, "opacity", "Orb opacity", "%d%%", "%", nil, { labelX = BOX_LABEL_X, resetX = BOX_RESET_X })
+    blendRow(ry + 96)
+    extraRow(ry + 124)
+    rowParent = nil
+    return y + BOX_H + BOX_GAP
+end
+
+local function buildLook(y)
     y = choiceRow(SHAPE_DROPDOWN, y)
-    checkbox(y, "pulse", "Pulsing", { tip = PULSE_TIP })
-    y = y + 28
+    y = buildShapeBox(y)
+    slider(y, "flightTime", "Flight time", "%.2f s", " s")
+    y = y + 32
+    checkbox(y, "trail", "Trail")
+    y = y + 28 + GROUP_GAP
 
     -- Orb colour: swatch + "Class colour" checkbox; one reset button resets both
     local colourRow = newRow(y, 28)
@@ -1040,7 +1297,9 @@ local function buildLook(y)
     postRefresh[#postRefresh + 1] = function()
         setDim(restedRow, { restedSwatch }, settings().restedTint)
     end
-    return y + 28
+    y = y + 28 + GROUP_GAP
+    slider(y, "cap", "Max orbs per burst", "%d", "", nil, { tip = CAP_TIP })
+    return y + 32
 end
 
 -- Style: the Flight Style dropdown, then three radios (row 24 + its description), Popstream's two sub-radios indented

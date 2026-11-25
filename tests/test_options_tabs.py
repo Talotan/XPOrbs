@@ -93,8 +93,12 @@ def test_every_control_hangs_off_a_tab_child(m):
             seen += 1
         assert node is not None and any(same(m, node, c) for c in children), key
     for key in m.opt.rows.keys():
-        row = m.opt.rows[key]
-        assert any(same(m, row.createdParent, c) for c in children), key
+        node = m.opt.rows[key].createdParent
+        seen = 0
+        while node is not None and seen < 20 and not any(same(m, node, c) for c in children):
+            node = node.createdParent  # rows inside the Look tab's shape box hang off the box
+            seen += 1
+        assert node is not None and any(same(m, node, c) for c in children), key
 
 
 def test_heights_and_content_h(m):
@@ -103,7 +107,7 @@ def test_heights_and_content_h(m):
     assert o.CONTENT_H == max(h.values())
     for n in NAMES:
         assert o.tabChildren[n].height == h[n] and o.tabChildren[n].width == 584
-    assert h["General"] == 204 and h["Sound"] == 112 and o.CONTENT_H == h["Style"] == 360
+    assert h["General"] == 204 and h["Sound"] == 112 and h["Look"] == 446 and o.CONTENT_H == h["Look"]
 
 
 def test_refresh_updates_a_control_on_a_hidden_tab(m):
