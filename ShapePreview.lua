@@ -1,37 +1,141 @@
 -- SPDX-License-Identifier: GPL-3.0-or-later
 local ADDON, ns = ...
 
--- Orb preview for the settings panel: a small box above the panel's footer showing five stationary orbs of the current
--- shape (three normal, two rested), with the shape's own animation running (Starlight's spinning sparkle, Retro's
--- blinking twinkle on its grid, Globe's breathing and glint, Crackle's bolt swaps), no trail. It is drawn by the same
--- shape code as real orbs (the shape's setup and draw with the box as the frame), from 15 textures of its own, and it
--- follows the shape, size, opacity, pulsing and colour settings as they change.
+-- Orb preview window: a framed window like the "Test target" one (Preview.lua), docked to the right of the settings
+-- panel with the test target window hung under it. It shows a cluster of stationary orbs of the current shape: the
+-- count follows Quantity (n = round(5 * density / 100), 2..12; 5 at the default 100%) in a fixed pattern (pair,
+-- triangle, diamond, cross, a centre with a ring, a centre with two rings), the last 2/5 of them rested when Rested
+-- tint is on. The shape's own animation runs (Starlight's spinning sparkle, Retro's blinking twinkle on its grid,
+-- Globe's breathing and glint, Crackle's bolt swaps), no trail. It is drawn by the same shape code as real orbs (the
+-- shape's setup and draw with the orb area as the frame), from 36 textures of its own, and follows the shape, size,
+-- quantity, blend, opacity, pulsing and colour settings as they change. The pattern's spacing scales with the orb's
+-- size, so overlap shows Natural against Solid honestly.
 --
--- A testing aid for now: it only exists while db.debug is on. To make it public later, drop the debug test in
--- ShapePreview:Sync (and mention it in the README). The box is built on first need, its OnUpdate runs only while the
--- panel is shown (Options.lua calls Stop from the panel's OnHide), and every call here is made under pcall by
--- Options.lua, so a panel built before Orbs.lua and Shapes.lua are ready never errors.
+-- The window is built on first need and shown and hidden with the options panel (Options.lua calls Sync(true) from the
+-- panel's OnShow, Sync() after every change and Sync(false) from OnHide); its OnUpdate runs only while it is up. Every
+-- call is made under pcall by Options.lua, so a panel built before Orbs.lua and Shapes.lua are ready never errors, and
+-- a failed build is remembered so it never leaks another frame. Preview.lua asks ShapePreview:Frame() what to dock
+-- under and falls back to the settings panel when there is none.
 
 local ShapePreview = {}
 ns.ShapePreview = ShapePreview
 
-local BOX_W, BOX_H = 264, 86 -- px
-local TITLE_H = 18 -- px at the top of the box for the "Preview" title
-local ORBS, RESTED_FROM = 5, 4 -- orbs 4 and 5 are the rested ones
+local WINDOW_W, WINDOW_H = 200, 164 -- px; the width matches the test target window
+local PAD, TITLE_H = 8, 28 -- px: the window's side/bottom padding and the room for the title above the orb area
+local AREA_W, AREA_H = WINDOW_W - 2 * PAD, WINDOW_H - TITLE_H - PAD
+local MIN_ORBS, MAX_ORBS, SLOTS = 2, 12, 36 -- 12 orbs x 3 textures
+-- Neighbour distance per px of orb size, per shape (Retro: RETRO_CELLS of its cells, see spacingFor).
+local SPACING = { starlight = 1.0, globe = 0.9, crackle = 1.0 }
+local RETRO_CELLS = 7 -- neighbouring Retro orbs share one column of cells
+local FLOOR = 0.75 -- the spacing is squeezed to this fraction at most to fit the area, then the area clips
+local ROW_H = math.sqrt(3) / 2 -- honeycomb row height, in neighbour distances
+local ROWS = { [7] = { 2, 3, 2 }, [8] = { 3, 2, 3 }, [9] = { 3, 3, 3 }, [10] = { 3, 4, 3 }, [11] = { 4, 3, 4 },
+    [12] = { 4, 4, 4 } }
 local ORB_TEX = "Interface\\AddOns\\XPOrbs\\media\\orb"
 local SPARKLE_TEX = "Interface\\AddOns\\XPOrbs\\media\\sparkle"
 local TWO_PI = math.pi * 2
 local random = math.random
 
-local box -- the box frame, once built; box.tex holds its 15 textures, box.st the per-orb shape state
+ShapePreview.WINDOW_W, ShapePreview.WINDOW_H = WINDOW_W, WINDOW_H
+ShapePreview.SPACING, ShapePreview.RETRO_CELLS, ShapePreview.FLOOR = SPACING, RETRO_CELLS, FLOOR
+
+local window, box -- the window, and the orb area inside it (box.tex holds the 36 textures, box.st the per-orb state)
 local looks -- what the orbs are currently set up with (see signature), to spot a change
+local buildFailed = false -- build threw once: do not try again this session (every attempt would leak a frame)
 local errSeen = false
 
 local function lerp(channel, toward, amount)
     return channel + (toward - channel) * amount
 end
 
--- Starlight is drawn inline in Orbs.lua, so the box has its own small copy of that drawing (the k table of
+local function round(x)
+    return math.floor(x + 0.5)
+end
+
+-- ---------------------------------------------------------------- how many orbs, and where
+
+-- Orbs shown for a Quantity setting (percent).
+function ShapePreview.Count(density)
+    local n = round(5 * (tonumber(density) or 100) / 100)
+    return math.max(MIN_ORBS, math.min(MAX_ORBS, n))
+end
+
+-- How many of the n orbs are rested (the last ones) when Rested tint is on.
+function ShapePreview.RestedCount(n)
+    return round(n * 2 / 5)
+end
+
+local function ring(points, count, radius)
+    for k = 0, count - 1 do
+        local angle = math.pi / 2 - TWO_PI * k / count -- from the top, clockwise
+        points[#points + 1] = { radius * math.cos(angle), radius * math.sin(angle) }
+    end
+end
+
+-- The pattern for n orbs as unit offsets from the centre (x right, y up; 1 = the neighbour distance): 2 a pair, 3 a
+-- triangle, 4 a diamond, 5 a cross, 6 a centre and a ring of five, 7-12 honeycomb rows (y = +-0.866 and 0) in which
+-- every neighbour is one unit away (equal rows are shifted +-0.25 so they interlock). The slots run top row first, so
+-- the last ones (the rested orbs) form the bottom row.
+function ShapePreview.Pattern(n)
+    local points = {}
+    if n <= 2 then
+        points = { { -0.5, 0 }, { 0.5, 0 } }
+    elseif n == 3 then
+        ring(points, 3, 0.58)
+    elseif n == 4 then
+        points = { { 0, 0.7 }, { 0.7, 0 }, { 0, -0.7 }, { -0.7, 0 } }
+    elseif n == 5 then
+        points = { { 0, 0 }, { 0, 1 }, { 0, -1 }, { -1, 0 }, { 1, 0 } }
+    elseif n == 6 then
+        points[1] = { 0, 0 }
+        ring(points, 5, 1)
+    else
+        local rows = ROWS[n]
+        local equal = rows[1] == rows[2] and rows[2] == rows[3]
+        for r, count in ipairs(rows) do
+            local shift = equal and (r % 2 == 1 and 0.25 or -0.25) or 0
+            for c = 1, count do
+                points[#points + 1] = { c - (count + 1) / 2 + shift, (2 - r) * ROW_H }
+            end
+        end
+    end
+    return points
+end
+
+-- Neighbour distance in px for the current look: per-shape spacing times the orb size; Retro 7 of its cells.
+local function spacingFor(db)
+    if db.orbShape == "retro" then
+        return RETRO_CELLS * db.size
+    end
+    return (SPACING[db.orbShape] or SPACING.starlight) * ns.OrbSize(db)
+end
+ShapePreview.SpacingFor = spacingFor
+
+-- The spacing in px for a pattern: the wanted spacing, fitted to the area in x and y separately (an orb's half-extent
+-- is its OrbSize, times the rested scale when Rested tint is on), squeezed to FLOOR at most (what is left is cropped by
+-- the area's clipping), and for Retro kept on whole cells.
+local function radiusFor(points, db)
+    local want = spacingFor(db)
+    local size = ns.OrbSize(db)
+    if db.restedTint then
+        size = size * ns.OrbShapes.k.restedSize
+    end
+    local reachX, reachY = 1e-9, 1e-9
+    for _, p in ipairs(points) do
+        reachX, reachY = math.max(reachX, math.abs(p[1])), math.max(reachY, math.abs(p[2]))
+    end
+    local fit = math.min((AREA_W / 2 - size) / reachX, (AREA_H / 2 - size) / reachY)
+    local radius = math.max(FLOOR * want, math.min(want, fit))
+    if db.orbShape == "retro" then
+        radius = round(radius / db.size) * db.size
+    end
+    return math.max(radius, 0)
+end
+ShapePreview.RadiusFor = radiusFor -- (exposed for tests)
+
+-- ---------------------------------------------------------------- Starlight's drawing
+
+-- Starlight is drawn inline in Orbs.lua, so the preview has its own small copy of that drawing (the k table of
 -- ns.OrbShapes carries the same constants): underlay, body and a spinning sparkle.
 local function starlightSetup(under, body, spark, st, red, green, blue)
     local k = ns.OrbShapes.k
@@ -59,47 +163,70 @@ local function starlightDraw(st, t, rel, under, body, spark, x, y, size, alpha)
     spark:SetRotation(st.rotation + TWO_PI * t)
 end
 
--- What the orbs' set-up depends on: when it changes the five orbs are set up again.
+-- What the orbs' set-up depends on: when it changes the orbs are set up again.
 local function signature(db, red, green, blue)
     local rested = db.restedColor
-    return table.concat({ db.orbShape, db.size, ns.OrbSize(db), tostring(db.blend), tostring(db.sparkle),
-        tostring(db.pulse), db.restedTint and 1 or 0, red, green, blue, rested[1], rested[2], rested[3] }, "|")
+    return table.concat({ db.orbShape, db.size, ns.OrbSize(db), ShapePreview.Count(db.density), tostring(db.blend),
+        tostring(db.sparkle), tostring(db.pulse), db.restedTint and 1 or 0, red, green, blue, rested[1], rested[2],
+        rested[3] }, "|")
 end
 
-local function build(panel)
-    box = CreateFrame("Frame", nil, panel)
-    box:SetSize(BOX_W, BOX_H)
-    box:SetPoint("BOTTOMLEFT", panel, "BOTTOMLEFT", ns.Options.rightX - BOX_W, ns.Options.footerY + 4)
-    pcall(box.SetClipsChildren, box, true) -- a large orb stays inside the box
-    local back = box:CreateTexture(nil, "BACKGROUND")
-    back:SetAllPoints(box)
-    back:SetColorTexture(0.04, 0.05, 0.09, 0.85)
-    local title = box:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-    title:SetPoint("TOPLEFT", box, "TOPLEFT", 6, -4)
-    title:SetJustifyH("LEFT")
+-- ---------------------------------------------------------------- the window
+
+local function build()
+    local created, frame = pcall(CreateFrame, "Frame", nil, UIParent, "BackdropTemplate")
+    if not (created and frame) then
+        frame = CreateFrame("Frame", nil, UIParent)
+    end
+    window = frame
+    frame:SetSize(WINDOW_W, WINDOW_H)
+    frame:SetFrameStrata("MEDIUM") -- below the orbs overlay (HIGH), like the test target
+    frame:EnableMouse(true)
+    ns.Preview.AddBackground(frame)
+    local title = frame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    title:SetPoint("TOP", frame, "TOP", 0, -10)
     title:SetText("Preview")
-    box.title = title
+    frame.title = title
+    box = CreateFrame("Frame", nil, frame)
+    box:SetPoint("TOPLEFT", frame, "TOPLEFT", PAD, -TITLE_H)
+    box:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -PAD, PAD)
+    pcall(box.SetClipsChildren, box, true) -- a large orb stays inside the area
     box.tex, box.st, box.time = {}, {}, 0
-    for i = 1, ORBS * 3 do
+    for i = 1, SLOTS do
         local tex = box:CreateTexture(nil, "ARTWORK")
         tex:SetAlpha(0)
         tex:Hide()
         tex.xoShown = false
         box.tex[i] = tex
     end
-    ShapePreview.box = box
+    ShapePreview.window, ShapePreview.box = window, box
 end
 
--- Sets the five orbs up for the current settings.
+-- build threw part-way: hide the half-built window, drop every reference and remember the failure.
+local function abandon()
+    buildFailed = true
+    if window then
+        pcall(window.Hide, window)
+    end
+    window, box, looks = nil, nil, nil
+    ShapePreview.window, ShapePreview.box = nil, nil
+end
+
+local function dock()
+    window:ClearAllPoints()
+    window:SetPoint("TOPLEFT", _G.SettingsPanel, "TOPRIGHT", ns.Preview and ns.Preview.GAP or 4, 0)
+end
+
+-- Sets the orbs up for the current settings: n orbs get their three textures set up, the other slots are hidden.
 local function configure(db, red, green, blue)
     local shape = ns.OrbShapes.by[db.orbShape] -- nil: Starlight
     local setup = shape and shape.setup or starlightSetup
+    local n = ShapePreview.Count(db.density)
+    local restedFrom = n - (db.restedTint and ShapePreview.RestedCount(n) or 0) + 1
     local restedColour = db.restedColor
-    for i = 1, ORBS do
-        local rested = db.restedTint and i >= RESTED_FROM
-        local colour = rested and restedColour or { red, green, blue }
+    box.n = n
+    for i = 1, MAX_ORBS do
         local first = (i - 1) * 3
-        local under, body, spark = box.tex[first + 1], box.tex[first + 2], box.tex[first + 3]
         for j = 1, 3 do
             local tex = box.tex[first + j]
             tex:SetTexCoord(0, 1, 0, 1) -- (the last shape may have cropped or rotated it)
@@ -107,10 +234,16 @@ local function configure(db, red, green, blue)
             tex:Hide()
             tex.xoShown = false
         end
-        local st = { base = ns.OrbSize(db) } -- Retro's one cell size comes from base
-        box.st[i] = st
-        setup(under, body, spark, st, colour[1], colour[2], colour[3])
+        if i <= n then
+            local colour = i >= restedFrom and restedColour or { red, green, blue }
+            local st = { base = ns.OrbSize(db) } -- Retro's one cell size comes from base
+            box.st[i] = st
+            setup(box.tex[first + 1], box.tex[first + 2], box.tex[first + 3], st, colour[1], colour[2], colour[3])
+        else
+            box.st[i] = nil
+        end
     end
+    box.pattern, box.restedFrom = ShapePreview.Pattern(n), restedFrom
 end
 
 local function draw(db)
@@ -118,12 +251,14 @@ local function draw(db)
     local draws = shape and shape.draw or starlightDraw
     local alpha = db.opacity / 100
     local restedSize = ns.OrbShapes.k.restedSize
-    local step = (BOX_W - 24) / ORBS
-    for i = 1, ORBS do
+    local base = ns.OrbSize(db)
+    local radius = radiusFor(box.pattern, db)
+    for i = 1, box.n do
         local first = (i - 1) * 3
-        local size = ns.OrbSize(db) * (db.restedTint and i >= RESTED_FROM and restedSize or 1)
-        draws(box.st[i], box.time, box, box.tex[first + 1], box.tex[first + 2], box.tex[first + 3],
-            (i - (ORBS + 1) / 2) * step, -TITLE_H / 2, size, alpha)
+        local size = base * (db.restedTint and i >= box.restedFrom and restedSize or 1)
+        local p = box.pattern[i]
+        draws(box.st[i], box.time, box, box.tex[first + 1], box.tex[first + 2], box.tex[first + 3], p[1] * radius,
+            p[2] * radius, size, alpha)
     end
 end
 
@@ -140,50 +275,64 @@ local function onUpdate(_, dt)
     end
 end
 
--- Keeps the panel's scroll area clear of the box while it is up (and puts it back after).
-local function makeRoom(on)
-    local scroll = ns.Options.scroll
-    if not scroll then
-        return
-    end
-    scroll:ClearAllPoints()
-    scroll:SetPoint("TOPLEFT", ns.Options.panel, "TOPLEFT", 0, -(ns.Options.scrollTop or 40))
-    scroll:SetPoint("BOTTOMRIGHT", ns.Options.panel, "BOTTOMRIGHT", -28, ns.Options.footerY + (on and BOX_H + 8 or 0))
-end
-
--- Called by Options.lua after every change and when the panel is shown: shows the box while db.debug is on (building
--- it on first need) and sets the orbs up again when the shape, size or colours changed; hides it otherwise.
-function ShapePreview:Sync()
+local function configureIfChanged()
     local db = ns.db
-    local want = db and db.debug and ns.Options and ns.Options.panel and ns.OrbShapes and ns.OrbShapes.host
-        and ns.Orbs and ns.Orbs.NormalRGB
-    if not want then
-        self:Stop()
-        if box and box.up then
-            box.up = false
-            box:Hide()
-            makeRoom(false)
-        end
-        return
-    end
-    if not box then
-        build(ns.Options.panel)
-    end
-    if not box.up then
-        box.up = true
-        box:Show()
-        makeRoom(true)
-    end
     local red, green, blue = ns.Orbs.NormalRGB(db)
     local now = signature(db, red, green, blue)
     if now ~= looks then
         looks = now
         configure(db, red, green, blue)
     end
-    box:SetScript("OnUpdate", onUpdate)
 end
 
--- Ends the animation (the panel was hidden, or the box is off).
+local function ready()
+    return ns.db and _G.SettingsPanel and ns.Preview and ns.Preview.AddBackground and ns.OrbShapes
+        and ns.OrbShapes.host and ns.Orbs and ns.Orbs.NormalRGB
+end
+
+-- The window the test target docks under: nil unless the preview is up.
+function ShapePreview:Frame()
+    return window and window.up and window or nil
+end
+
+-- Options.lua: Sync(true) when the panel is shown (builds the window on first need, docks and shows it), Sync(false)
+-- when it is hidden, Sync() after every setting change (sets the orbs up again if the look changed). Returns true
+-- while the window is up.
+function ShapePreview:Sync(show)
+    if show == false then
+        self:Stop()
+        if window and window.up then
+            window.up = false
+            window:Hide()
+        end
+        return false
+    end
+    if buildFailed or not ready() then
+        return false
+    end
+    if not window then
+        if show ~= true then
+            return false
+        end
+        if not pcall(build) then
+            abandon()
+            return false
+        end
+    end
+    if not window.up then
+        if show ~= true then
+            return false
+        end
+        window.up = true
+        dock()
+        window:Show()
+    end
+    configureIfChanged()
+    box:SetScript("OnUpdate", onUpdate)
+    return true
+end
+
+-- Ends the animation (the panel was hidden).
 function ShapePreview:Stop()
     if box then
         box:SetScript("OnUpdate", nil)

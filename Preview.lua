@@ -125,7 +125,8 @@ local function isNumber(v)
     return type(v) == "number" and (not issecretvalue or not issecretvalue(v)) and v == v
 end
 
--- Same look as the setup window (Setup.lua keeps its helper private, so the table is repeated here).
+-- Same look as the setup window (Setup.lua keeps its helper private, so the table is repeated here). Shared with the
+-- orb preview window (ShapePreview.lua) as Preview.AddBackground.
 local function addBackground(frame)
     local styled = frame.SetBackdrop and pcall(frame.SetBackdrop, frame, BACKDROP)
     if styled then
@@ -137,6 +138,9 @@ local function addBackground(frame)
         fill:SetColorTexture(0.07, 0.07, 0.10, 0.95)
     end
 end
+
+Preview.AddBackground = addBackground
+Preview.GAP = GAP
 
 -- ---------------------------------------------------------------- the model
 
@@ -364,10 +368,18 @@ end
 
 -- ---------------------------------------------------------------- the window
 
+-- Under the orb preview window (ShapePreview.lua) when that is up, else to the right of the settings panel, else
+-- the screen's centre. The one place that decides where the test target goes.
 local function dockWindow()
     window:ClearAllPoints()
     local panel = _G.SettingsPanel
-    if panel then
+    local okFrame, above = false, nil
+    if ns.ShapePreview and ns.ShapePreview.Frame then
+        okFrame, above = pcall(ns.ShapePreview.Frame, ns.ShapePreview)
+    end
+    if okFrame and above then
+        window:SetPoint("TOP", above, "BOTTOM", 0, -2)
+    elseif panel then
         window:SetPoint("TOPLEFT", panel, "TOPRIGHT", GAP, 0)
     else
         window:SetPoint("CENTER", UIParent, "CENTER", 0, 0) -- no Settings panel on this client

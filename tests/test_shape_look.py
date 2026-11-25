@@ -785,14 +785,12 @@ def test_a_full_burst_of_every_shape_fits_with_room_for_a_second(env, shape):
 
 
 def preview_orbs(m):
-    box, same = m.ns.ShapePreview.box, m.lua.eval("rawequal")
+    """The textures of the orbs the preview currently shows (slots past the orb count keep stale calls)."""
+    box = m.ns.ShapePreview.box
     return [
         t
-        for t in m.stub.frames.values()
-        if t.kind == "Texture"
-        and same(t.parentFrame, box)
-        and t.calls
-        and t.calls["SetTexture"]
+        for t in (box.tex[i] for i in range(1, 3 * int(box.n) + 1))
+        if t.calls and t.calls["SetTexture"]
     ]
 
 
@@ -805,37 +803,254 @@ def bodies(m):
     return [t for t in preview_orbs(m) if t.calls["SetDrawLayer"][2] == 0]
 
 
-def test_the_preview_only_exists_with_the_debug_log_on(env):
-    m = build(env)
+def up(m):
+    """The options panel is shown on a client that has the Settings panel (the preview docks to it)."""
+    m.G.SettingsPanel = m.lua.eval("{}")
     show(m)
-    assert m.ns.ShapePreview.box is None
-    m.slash("debug on")
-    assert m.ns.ShapePreview.box is not None and m.ns.ShapePreview.box.up
-    m.slash("debug off")
-    assert not m.ns.ShapePreview.box.up and not m.ns.ShapePreview.box.shown
 
 
-def test_the_preview_box_is_titled_and_sits_above_the_footer(env):
+def test_the_preview_window_exists_with_the_panel_even_with_debug_off(env):
     m = build(env)
-    m.slash("debug on")
-    box = m.ns.ShapePreview.box
-    assert box.parentFrame is m.opt.panel or m.lua.eval("rawequal")(
-        box.createdParent, m.opt.panel
-    )
-    point = box.points[1]
-    assert (point[1], point[4], point[5]) == ("BOTTOMLEFT", 16 + 552 - 264, 44 + 4)
+    assert not m.db.debug and m.ns.ShapePreview.window is None
+    up(m)
+    sp = m.ns.ShapePreview
+    assert sp.window is not None and sp.window.shown and sp.window.up
+    m.opt.panel.scripts.OnHide(m.opt.panel)
+    assert not sp.window.shown and not sp.window.up
+
+
+def test_the_preview_window_is_framed_titled_and_docked_to_the_settings_panel(env):
+    m = build(env)
+    up(m)
+    sp = m.ns.ShapePreview
+    win = sp.window
+    assert (win.width, win.height) == (200, 164)
+    assert win.calls["SetFrameStrata"][1] == "MEDIUM"
+    pt = win.points[1]
+    assert (pt[1], pt[3], pt[4], pt[5]) == ("TOPLEFT", "TOPRIGHT", 4, 0)
+    assert m.lua.eval("rawequal")(pt[2], m.G.SettingsPanel)
     assert "Preview" in [
         str(f.text) for f in m.stub.frames.values() if f.kind == "FontString" and f.text
     ]
-    # the scroll body stops above the box while it is up, and goes back when it is gone
-    assert m.opt.scroll.points[2][4] == -28 and m.opt.scroll.points[2][5] == 44 + 86 + 8
-    m.slash("debug off")
-    assert m.opt.scroll.points[2][5] == 44
+
+
+def test_the_test_target_docks_under_the_preview(env):
+    m = build(env)
+    up(m)
+    pt = m.ns.Preview.window.points[1]
+    assert (pt[1], pt[3], pt[4], pt[5]) == ("TOP", "BOTTOM", 0, -2)
+    assert m.lua.eval("rawequal")(pt[2], m.ns.ShapePreview.window)
+
+
+def test_the_test_target_docks_as_before_when_the_preview_build_fails(env):
+    m = build(env)
+    m.ns.Preview.AddBackground = m.lua.eval("function() error('no backdrop') end")
+    up(m)
+    sp = m.ns.ShapePreview
+    assert sp.window is None and sp.box is None and sp.Frame(sp) is None
+    pt = m.ns.Preview.window.points[1]
+    assert (pt[1], pt[3], pt[4]) == ("TOPLEFT", "TOPRIGHT", 4)
+    assert m.lua.eval("rawequal")(pt[2], m.G.SettingsPanel)
+    made = len(m.stub.frames)
+    m.opt.panel.scripts.OnHide(m.opt.panel)
+    show(m)  # remembered: no second try
+    assert sp.window is None
+    assert len(m.stub.frames) == made
+
+
+def test_the_scroll_area_stays_full_with_the_preview_up(env):
+    m = build(env)
+    def pts():
+        return [tuple(m.opt.scroll.points[i][k] for k in (1, 3, 4, 5)) for i in (1, 2)]
+
+    before = pts()
+    up(m)
+    assert m.opt.scroll.points[2][4] == -28 and m.opt.scroll.points[2][5] == 44
+    assert pts() == before
+
+
+@pytest.mark.parametrize(
+    "density, n", [(25, 2), (75, 4), (100, 5), (200, 10), (400, 12)]
+)
+def test_the_orb_count_follows_quantity(env, density, n):
+    m = build(env)
+    m.db.density = density
+    up(m)
+    assert m.ns.ShapePreview.Count(density) == n
+    tick(m)
+    assert len(bodies(m)) == n
+
+
+def test_the_last_orbs_are_the_rested_ones(env):
+    m = build(env)
+    m.db.density = 200  # 10 orbs: 4 rested
+    up(m)
+    sp = m.ns.ShapePreview
+    assert [sp.RestedCount(n) for n in (2, 4, 5, 10, 12)] == [1, 2, 2, 4, 5]
+    tick(m)
+    colours = [
+        tuple(round(float(v), 3) for v in b.calls["SetVertexColor"].values())
+        for b in bodies(m)
+    ]
+    normal = tuple(round(float(m.db.color[i]), 3) for i in (1, 2, 3))
+    rested = tuple(round(float(m.db.restedColor[i]), 3) for i in (1, 2, 3))
+    assert colours == [normal] * 6 + [rested] * 4
+
+
+def pattern(m, n):
+    points = m.ns.ShapePreview.Pattern(n)
+    return [(round(float(points[i][1]), 3), round(float(points[i][2]), 3)) for i in range(1, n + 1)]
+
+
+def test_the_patterns(env):
+    m = build(env)
+    assert pattern(m, 2) == [(-0.5, 0), (0.5, 0)]
+    tri = pattern(m, 3)
+    assert tri[0][0] == 0 and tri[0][1] > 0  # one at the top
+    assert sorted(pattern(m, 4)) == sorted([(0, 0.7), (0.7, 0), (0, -0.7), (-0.7, 0)])
+    five = pattern(m, 5)
+    assert five[0] == (0, 0)  # the cross: the centre and four on the axes
+    assert sorted(five[1:]) == sorted([(0, 1), (0, -1), (-1, 0), (1, 0)])
+    six = pattern(m, 6)  # a centre and a ring of five, the first at the top
+    assert six[0] == (0, 0) and six[1] == (0, 1)
+    h = 0.866
+    rows = {7: (2, 3, 2), 8: (3, 2, 3), 9: (3, 3, 3), 10: (3, 4, 3), 11: (4, 3, 4), 12: (4, 4, 4)}
+    for n, counts in rows.items():
+        pts = pattern(m, n)
+        assert len(pts) == n
+        got = [sum(1 for p in pts if abs(p[1] - y) < 0.01) for y in (h, 0, -h)]
+        assert tuple(got) == counts  # rows top to bottom, in slot order
+        assert [p[1] for p in pts] == sorted((p[1] for p in pts), reverse=True)
+        assert max(abs(p[1]) for p in pts) == pytest.approx(h, abs=1e-3)
+        assert max(abs(p[0]) for p in pts) <= 1.75
+        # every orb has a neighbour exactly one unit away, and none is closer
+        for i, p in enumerate(pts):
+            dists = [math.hypot(p[0] - q[0], p[1] - q[1]) for j, q in enumerate(pts) if j != i]
+            assert min(dists) == pytest.approx(1.0, abs=0.01)
+    assert pattern(m, 7)[:2] == [(-0.5, h), (0.5, h)]  # 2-3-2, centred
+    assert [p[0] for p in pattern(m, 9)[:3]] == [-0.75, 0.25, 1.25]  # equal rows interlock: +0.25 on the top row
+    assert [p[0] for p in pattern(m, 9)[3:6]] == [-1.25, -0.25, 0.75]  # and -0.25 on the middle one
+
+
+def test_the_orbs_are_drawn_on_the_pattern_scaled_by_size(env):
+    m = build(env)
+    m.ns.SetLook("pulse", False)
+    up(m)
+    tick(m)
+    ring = 14.0  # Starlight: spacing 1.0 x size 14, well inside the area
+    pts = {
+        (round(float(b.points[1][4]), 2), round(float(b.points[1][5]), 2))
+        for b in bodies(m)
+    }
+    assert pts == {(0, 0), (0, ring), (0, -ring), (-ring, 0), (ring, 0)}
+
+
+def db_of(m, shape, size=None, rested=False):
+    m.slash(f"shape {shape}")
+    if size is not None:
+        m.ns.SetLook("size", size)
+    m.db.restedTint = rested
+    return m.db
+
+
+def test_the_spacing_is_per_shape(env):
+    m = build(env)
+    sp = m.ns.ShapePreview
+    assert {k: float(v) for k, v in sp.SPACING.items()} == {
+        "starlight": 1.0,
+        "globe": 0.9,
+        "crackle": 1.0,
+    }
+    assert sp.SpacingFor(db_of(m, "starlight", 14)) == pytest.approx(14)
+    assert sp.SpacingFor(db_of(m, "globe", 14)) == pytest.approx(12.6)
+    assert sp.SpacingFor(db_of(m, "crackle", 14)) == pytest.approx(14)
+    assert sp.RETRO_CELLS == 7
+    assert sp.SpacingFor(db_of(m, "retro", 2)) == 14  # 7 cells of 2 px
+    assert sp.SpacingFor(db_of(m, "retro", 3)) == 21
+
+
+def test_the_fit_is_separate_in_x_and_y_and_has_a_floor(env):
+    m = build(env)
+    sp = m.ns.ShapePreview
+    db = db_of(m, "starlight", 14)
+    five = sp.Pattern(5)
+    assert sp.RadiusFor(five, db) == pytest.approx(14)  # fits: the wanted spacing
+    # a 4-wide honeycomb is limited by x (92 - S) / 1.75, the rows by y (64 - S) / 0.866
+    twelve = sp.Pattern(12)
+    db = db_of(m, "starlight", 35)
+    fit = min((92 - 35) / 1.75, (64 - 35) / 0.866)
+    assert fit == (92 - 35) / 1.75 and 0.75 * 35 < fit < 35  # x decides
+    assert sp.RadiusFor(twelve, db) == pytest.approx(fit)
+    # y alone decides here: the cross is 1 wide and 1 tall, so the 128 px height is the tighter one
+    db = db_of(m, "starlight", 36)
+    assert sp.RadiusFor(five, db) == pytest.approx(64 - 36)  # 28: the height decides, not the 92 px half-width
+    # beyond the floor the area clips: the radius stops at 0.75 x the wanted spacing
+    db = db_of(m, "starlight", 56)
+    assert sp.RadiusFor(twelve, db) == pytest.approx(0.75 * 56)
+
+
+def test_the_rested_scale_counts_in_the_fit(env):
+    m = build(env)
+    sp = m.ns.ShapePreview
+    twelve = sp.Pattern(12)
+    plain = sp.RadiusFor(twelve, db_of(m, "starlight", 35, rested=False))
+    rested = sp.RadiusFor(twelve, db_of(m, "starlight", 35, rested=True))
+    assert rested < plain
+
+
+def test_retro_stays_on_whole_cells_and_squeezes_to_the_floor(env):
+    m = build(env)
+    sp = m.ns.ShapePreview
+    for size in (1, 2, 3, 7):
+        db = db_of(m, "retro", size)
+        for n in (5, 7, 12):
+            r = float(sp.RadiusFor(sp.Pattern(n), db))
+            assert r % size == 0 and r >= round(0.75 * 7 * size / size) * size - size
+    db = db_of(m, "retro", 7)  # 49 px wanted: Retro 5-7 cannot fit, so it squeezes to the floor and is clipped
+    assert sp.RadiusFor(sp.Pattern(5), db) == round(0.75 * 49 / 7) * 7
+
+
+def test_unused_textures_are_hidden(env):
+    m = build(env)
+    m.db.density = 200  # 10 orbs
+    up(m)
+    tick(m)
+    assert len(bodies(m)) == 10
+    m.db.density = 75
+    m.opt.Refresh(m.opt)
+    tick(m)
+    assert len(bodies(m)) == 4
+    assert len([t for t in preview_orbs(m) if t.shown]) == 4 * 3
+    box = m.ns.ShapePreview.box
+    assert not any(box.tex[i].shown for i in range(13, 37))  # the unused slots stay hidden
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        lambda m: setattr(m.db, "density", 200),
+        lambda m: m.ns.SetLook("blend", "solid"),
+        lambda m: m.ns.SetLook("sparkle", False),
+        lambda m: m.ns.SetLook("pulse", False),
+        lambda m: setattr(m.db, "restedTint", False),
+    ],
+)
+def test_the_preview_is_set_up_again_when_the_look_changes(env, change):
+    m = build(env)
+    m.slash("shape globe")
+    up(m)
+    box = m.ns.ShapePreview.box
+    first = box.pattern
+    m.ns.ShapePreview.Sync(m.ns.ShapePreview)
+    assert m.lua.eval("rawequal")(box.pattern, first)  # nothing changed: nothing redone
+    change(m)
+    m.ns.ShapePreview.Sync(m.ns.ShapePreview)
+    assert not m.lua.eval("rawequal")(box.pattern, first)  # configure ran again
 
 
 def test_the_preview_shows_five_orbs_two_of_them_rested(env):
     m = build(env)
-    m.slash("debug on")
+    up(m)
     tick(m)
     assert len(preview_orbs(m)) == 15 and len(bodies(m)) == 5
     colours = [
@@ -860,7 +1075,7 @@ def test_the_preview_shows_five_orbs_two_of_them_rested(env):
 @pytest.mark.parametrize("shape", SHAPES)
 def test_the_preview_follows_the_shape(env, shape):
     m = build(env)
-    m.slash("debug on")
+    up(m)
     m.slash(f"shape {shape}")
     tick(m)
     under, body, spark = ART[shape]
@@ -878,7 +1093,7 @@ def test_the_preview_follows_the_shape(env, shape):
 
 def test_the_preview_uses_the_same_sizes_as_real_orbs(env):
     m = build(env)
-    m.slash("debug on")
+    up(m)
     m.slash("shape globe")
     m.ns.SetLook("pulse", False)
     tick(m)
@@ -904,7 +1119,7 @@ def test_the_preview_uses_the_same_sizes_as_real_orbs(env):
 def test_the_preview_updates_with_size_opacity_pulse_and_colours(env):
     m = build(env)
     show(m)
-    m.slash("debug on")
+    up(m)
     tick(m)
     assert bodies(m)[0].width == 28 and bodies(m)[0].alpha == 1
     m.stub.slide(ctl(m, "size"), 20)
@@ -937,7 +1152,7 @@ def test_the_preview_updates_with_size_opacity_pulse_and_colours(env):
 
 def test_the_previews_animations_run(env):
     m = build(env)
-    m.slash("debug on")
+    up(m)
     m.slash("shape starlight")
     tick(m, 1)
     spark = [t for t in preview_orbs(m) if t.calls["SetDrawLayer"][2] == 1][0]
@@ -966,35 +1181,33 @@ def test_the_previews_animations_run(env):
 
 def test_the_previews_ticks_run_only_while_the_panel_is_shown(env):
     m = build(env)
-    show(m)
-    m.slash("debug on")
+    up(m)
     box = m.ns.ShapePreview.box
     assert box.scripts.OnUpdate is not None
     m.opt.panel.scripts.OnHide(m.opt.panel)
-    assert box.scripts.OnUpdate is None
-    m.slash(
-        "shape globe"
-    )  # a slash command refreshes the panel even while hidden: the ticks start again
+    assert box.scripts.OnUpdate is None and not m.ns.ShapePreview.window.shown
+    # a slash command refreshes the panel even while hidden: that must not wake the preview
+    m.slash("shape globe")
+    assert box.scripts.OnUpdate is None and not m.ns.ShapePreview.window.shown
     show(m)
-    assert box.scripts.OnUpdate is not None
-    m.slash("debug off")
-    assert box.scripts.OnUpdate is None
+    assert box.scripts.OnUpdate is not None and m.ns.ShapePreview.window.shown
 
 
 def test_the_preview_draws_with_its_own_textures_not_the_pool(env):
     m = build(env)
-    m.slash("debug on")
+    up(m)
     tick(m)
     box_textures = {id(t) for t in preview_orbs(m)}
-    assert len(box_textures) == 15
+    assert len(box_textures) == 15  # the five orbs of the default quantity (36 are made, the rest stay hidden)
     assert m.orbs.Info(m.orbs)[1] == 0  # nothing taken from the orb pool
 
 
 def test_the_preview_never_errors_before_orbs_or_shapes_are_ready(env):
     m = build(env)
     m.ns.OrbShapes = None
-    m.slash("debug on")
+    up(m)
     assert m.ns.ShapePreview.box is None
+    assert m.ns.Preview.window.points[1][1] == "TOPLEFT"  # the test target docks as before
     m.ns.OrbShapes = None
     m.ns.Orbs = None
     m.opt.Refresh(m.opt)
@@ -1005,7 +1218,8 @@ def test_the_preview_never_errors_before_orbs_or_shapes_are_ready(env):
 
 def test_a_draw_error_is_logged_once_and_never_thrown(env):
     m = build(env)
-    m.slash("debug on")
+    m.slash("debug on")  # the log only records with it on
+    up(m)
     tick(m)
     m.ns.OrbShapes.by.globe.draw = m.lua.eval("function() error('boom') end")
     m.slash("shape globe")
@@ -1230,7 +1444,7 @@ def test_pulse_off_on_globe_is_globes_alone(env):
 
 def test_the_preview_resyncs_when_blend_changes(env):
     m = build(env)
-    m.slash("debug on")
+    up(m)
     m.slash("shape globe")
     tick(m)
     assert path_of(bodies(m)[0]) == PRE + "globe"
@@ -1247,7 +1461,7 @@ def test_the_preview_resyncs_when_blend_changes(env):
 
 def test_the_preview_resyncs_when_sparkle_changes(env):
     m = build(env)
-    m.slash("debug on")
+    up(m)
     m.slash("shape retro")
     tick(m)
     ShapePreview = m.ns.ShapePreview

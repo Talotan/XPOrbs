@@ -1738,8 +1738,8 @@ local function build()
 
     Options.rightX = HEADER_X + RULE_W -- the right edge of the rules and the footer button
     newTabs(panel)
-    Options.footerY = 44 -- the footer rule's px above the panel's bottom; ShapePreview.lua sits just above it
-    -- the orb preview (ShapePreview.lua, only with the debug log on) follows every change made here
+    Options.footerY = 44 -- the footer rule's px above the panel's bottom
+    -- the orb preview window (ShapePreview.lua) follows every change made here
     postRefresh[#postRefresh + 1] = function()
         if ns.ShapePreview then
             ns.ShapePreview:Sync()
@@ -1785,6 +1785,10 @@ local function build()
     panel:SetScript("OnShow", function()
         Options:Refresh()
         Options:UpdateScrollBar()
+        -- the orb preview window (ShapePreview.lua) goes up first: the "Test target" window docks under it
+        if ns.ShapePreview then
+            pcall(ns.ShapePreview.Sync, ns.ShapePreview, true)
+        end
         -- the "Test target" stand-in window follows this panel (Preview.lua); never let it break the panel
         local okSync, windowUp = false, false
         if ns.Preview then
@@ -1797,7 +1801,7 @@ local function build()
             pcall(ns.Preview.Sync, ns.Preview, false)
         end
         if ns.ShapePreview then
-            pcall(ns.ShapePreview.Stop, ns.ShapePreview) -- its OnUpdate runs only while the panel is shown
+            pcall(ns.ShapePreview.Sync, ns.ShapePreview, false) -- hides it; its OnUpdate runs only while the panel shows
         end
     end)
     return panel

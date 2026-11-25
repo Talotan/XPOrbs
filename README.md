@@ -318,7 +318,7 @@ Orbs.lua             overlay, texture pool, plate-anchored frames, flight and gl
 Shapes.lua           the Retro, Globe and Crackle orb shapes (Starlight is drawn in Orbs.lua)
 Calib.lua            zoom-anchor calibration panel (/xporbs calib)
 Options.lua          settings panel
-ShapePreview.lua     the orb preview box in the panel (debug log on only, for now)
+ShapePreview.lua     the orb preview window above the test target (follows the panel)
 Minimap.lua          minimap button (LibDBIcon) and the addon-compartment entry
 logic/               pure Lua: XPParse, OrbMath, KillMatcher, MobEstimate, Engaged, Chime (no WoW globals)
 Libs/                embedded libraries for the minimap button, unmodified (sources and licences in Libs/README.md)

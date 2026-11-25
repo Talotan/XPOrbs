@@ -130,10 +130,11 @@ def test_window_follows_the_options_panel(env):
     )  # below the HIGH orbs overlay
 
 
-def test_docks_to_the_settings_panel(env):
+def test_docks_to_the_settings_panel_when_there_is_no_orb_preview(env):
     m = make(env)
     panel = m.lua.eval("{}")
     m.G.SettingsPanel = panel
+    m.ns.ShapePreview = None  # (with the preview window up it docks under that instead)
     show(m)
     pt = m.ns.Preview.window.points[1]
     assert (pt[1], pt[3], pt[4]) == ("TOPLEFT", "TOPRIGHT", 4) and m.same(pt[2], panel)
