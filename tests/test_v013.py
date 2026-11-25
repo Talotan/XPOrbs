@@ -259,15 +259,16 @@ def test_class_colour_checkbox_refreshes_from_the_db(m):
 def test_scroll_frame_exists_with_the_specified_anchors_and_content_height(m):
     o = m.opt
     assert o.scrollTemplate == "ScrollFrameTemplate"
-    assert raw(m)(o.scroll.scrollChild, o.child)
+    assert raw(m)(o.scroll.scrollChild, o.child) and raw(m)(o.child, o.tabChildren.General)
     pts = [
         [p[i] for i in (1, 2, 3, 4, 5)]
         for p in (o.scroll.points[1], o.scroll.points[2])
     ]
-    assert pts[0][0] == "TOPLEFT" and (pts[0][3], pts[0][4]) == (0, -40)
+    assert pts[0][0] == "TOPLEFT" and (pts[0][3], pts[0][4]) == (0, -74)  # under the tab strip
     assert pts[1][0] == "BOTTOMRIGHT" and (pts[1][3], pts[1][4]) == (-28, 44)
-    # the last row (Debug log, y 1378) is 28 tall, plus the 16 px bottom margin
-    assert o.child.width == 584 and o.child.height == 1378 + 28 + 16 == o.CONTENT_H == 1422
+    # CONTENT_H is the tallest tab (Style); the scroll child's own height is that tab's
+    assert o.child.width == 584 and o.child.height == o.tabHeights.General
+    assert o.CONTENT_H == max(o.tabHeights.values()) == o.tabHeights.Style
 
 
 def test_scroll_template_falls_back(env):
@@ -291,39 +292,39 @@ def test_scroll_frame_without_any_template_still_scrolls(env):
 @pytest.mark.parametrize(
     "key,y",
     [
-        ("enabled", 34),
-        ("showAtMax", 62),
-        ("questBursts", 90),
-        ("exploreBursts", 118),
-        ("minimap", 146),
-        ("sound", 214),
-        ("soundVoice", 242),
-        ("soundVolume", 270),
-        ("density", 342),
-        ("cap", 374),
-        ("size", 406),
-        ("flightTime", 470),
-        ("trail", 502),
-        ("color", 592),
-        ("restedTint", 620),
-        ("restedColor", 648),
-        ("flightPath", 716),
-        ("style_popstream", 772),
-        ("popMode_nameplate", 814),
-        ("popMode_direct", 856),
-        ("style_crossfade", 908),
-        ("style_stream", 954),
-        ("zoomSpread", 1008),
-        ("targetFrame", 1078),
-        ("glowShape", 1178),
-        ("glow", 1278),
-        ("debug", 1378),
+        ("enabled", 8),
+        ("showAtMax", 36),
+        ("questBursts", 64),
+        ("exploreBursts", 92),
+        ("minimap", 120),
+        ("sound", 8),
+        ("soundVoice", 36),
+        ("soundVolume", 64),
+        ("density", 8),
+        ("cap", 40),
+        ("size", 72),
+        ("flightTime", 136),
+        ("trail", 168),
+        ("color", 258),
+        ("restedTint", 286),
+        ("restedColor", 314),
+        ("flightPath", 8),
+        ("style_popstream", 64),
+        ("popMode_nameplate", 106),
+        ("popMode_direct", 148),
+        ("style_crossfade", 200),
+        ("style_stream", 246),
+        ("zoomSpread", 300),
+        ("targetFrame", 8),
+        ("glowShape", 108),
+        ("glow", 208),
+        ("debug", 160),
     ],
 )
 def test_row_positions_follow_the_spec(m, key, y):
     pt = m.opt.rows[key].points[1]
-    assert (pt[1], pt[4], pt[5]) == ("TOPLEFT", 0, -y)
-    assert raw(m)(pt[2], m.opt.child)
+    assert (pt[1], pt[4], pt[5]) == ("TOPLEFT", 0, -y)  # y is per tab: every tab's first row is at 8
+    assert any(raw(m)(pt[2], c) for c in m.opt.tabChildren.values())
 
 
 def test_row_heights(m):
@@ -431,9 +432,9 @@ def test_style_radios_use_the_radio_template_and_each_has_a_description(m):
 def test_style_description_positions(m):
     d = m.opt.descs
     for st, y in (
-        ("popstream", 772 + 24),
-        ("crossfade", 908 + 24),
-        ("stream", 954 + 24),
+        ("popstream", 64 + 24),
+        ("crossfade", 200 + 24),
+        ("stream", 246 + 24),
     ):
         pt = d[st].points[1]
         assert (pt[4], pt[5]) == (56, -y) and d[

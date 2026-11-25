@@ -348,12 +348,13 @@ def test_the_row_dims_with_the_chime_off_but_stays_usable(env):
     assert row.alpha == pytest.approx(0.4)
 
 
-def test_the_rows_below_moved_down_by_the_slider_row_and_the_content_grew(env):
+def test_the_volume_row_sits_under_the_voice_row_and_the_sound_tab_grew(env):
     m = opts(env)
     show(m)
-    assert m.opt.rows["soundVolume"].points[1][5] == -270
-    assert m.opt.rows["debug"].points[1][5] == -1378
-    assert m.opt.CONTENT_H == m.opt.child.height == 1422
+    # per-tab y (Sound tab): chime 8, voice 36, volume 64; the tab ends 32 + 16 below the volume row
+    assert [m.opt.rows[k].points[1][5] for k in ("sound", "soundVoice", "soundVolume")] == [-8, -36, -64]
+    assert m.opt.tabHeights.Sound == 64 + 32 + 16 == 112
+    assert m.opt.rows["debug"].points[1][5] == -160  # Debug log closes the General tab
 
 
 def test_dragging_plays_one_sample_at_the_new_volume_at_most_every_150_ms(env):

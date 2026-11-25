@@ -147,7 +147,7 @@ local function makeRoom(on)
         return
     end
     scroll:ClearAllPoints()
-    scroll:SetPoint("TOPLEFT", ns.Options.panel, "TOPLEFT", 0, -40)
+    scroll:SetPoint("TOPLEFT", ns.Options.panel, "TOPLEFT", 0, -(ns.Options.scrollTop or 40))
     scroll:SetPoint("BOTTOMRIGHT", ns.Options.panel, "BOTTOMRIGHT", -28, ns.Options.footerY + (on and BOX_H + 8 or 0))
 end
 

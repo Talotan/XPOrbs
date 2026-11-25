@@ -268,11 +268,11 @@ def test_round_flash_lands_on_the_centre_plus_offset(m):
 @pytest.mark.parametrize(
     "key,y,h",
     [
-        ("glowShape", 1178, 24),
-        ("glowOffsetX", 1210, 32),
-        ("glowOffsetY", 1242, 32),
-        ("glow", 1278, 28),
-        ("glowIntensity", 1306, 32),
+        ("glowShape", 108, 24),
+        ("glowOffsetX", 140, 32),
+        ("glowOffsetY", 172, 32),
+        ("glow", 208, 28),
+        ("glowIntensity", 236, 32),
     ],
 )
 def test_new_rows_follow_the_grid(m, key, y, h):
@@ -390,16 +390,15 @@ def test_picker_hint_fontstring(m):
     assert h.text == "For a replaced XP bar, or to target your portrait (Circular)."
     assert [h.textColor[i] for i in (1, 2, 3)] == pytest.approx([0.7, 0.7, 0.7])
     assert h.width == 520 and h.calls["SetWordWrap"][1] is True
-    assert (h.points[1][4], h.points[1][5]) == (32, -1148)
+    assert (h.points[1][4], h.points[1][5]) == (32, -78)  # per-tab y (Arrival)
     assert h.text in panel_texts(m)
 
 
 def test_content_height_grew_and_rows_below_moved(m):
-    assert m.opt.CONTENT_H == 1422 and m.opt.child.height == 1422
-    assert m.opt.rows["debug"].points[1][5] == -1378
-    assert 1378 + 28 + 16 == m.opt.CONTENT_H
+    assert m.opt.tabHeights.General == 204 and m.opt.rows["debug"].points[1][5] == -160
+    assert m.opt.CONTENT_H == max(m.opt.tabHeights.values()) == 360
     # the picker hint (one line) clears the shape row
-    assert 1148 + 30 <= 1178
+    assert 78 + 30 <= 108
 
 
 # ---------------------------------------------------------------- design-review fixes (docs/review-v013)
@@ -412,9 +411,10 @@ def fontstring(m, text):
 def test_top_rule_under_the_title(m):
     t = m.opt.topRule
     pt = t.points[1]
-    assert (pt[1], pt[4], pt[5]) == ("TOPLEFT", 16, -38) and (t.width, t.height) == (552, 1)
+    # the title rule is gone: the rule is the tab baseline (y -70), split around the selected tab
+    assert (pt[1], pt[4], pt[5]) == ("TOPLEFT", 16, -70) and t.height == 1 and m.lua.eval("rawequal")(t, m.opt.tabRuleL)
     sp = m.opt.scroll.points[1]
-    assert (sp[1], sp[4], sp[5]) == ("TOPLEFT", 0, -40)
+    assert (sp[1], sp[4], sp[5]) == ("TOPLEFT", 0, -74)  # under the tab strip
 
 
 def test_footer_rule_and_reset_all_share_the_right_edge(m):
@@ -458,9 +458,10 @@ def test_radio_without_hit_rect_support_still_builds(env):
 
 def test_section_is_named_arrival(m):
     texts = panel_texts(m)
-    assert "Arrival" in texts and "Arrival glow" not in texts
+    assert "Arrival" in [str(t.xpName) for t in m.opt.tabs.values()] and "Arrival glow" not in texts
 
 
 def test_content_height_equals_the_cursor_result(m):
     last = m.opt.rows["debug"]
-    assert m.opt.CONTENT_H == m.opt.child.height == -last.points[1][5] + last.height + 16
+    assert m.opt.tabHeights.General == -last.points[1][5] + last.height + 16
+    assert m.opt.CONTENT_H == max(m.opt.tabHeights.values())

@@ -11,7 +11,7 @@ from test_sources import World
 from test_v102 import load_db
 
 SECTION_ORDER = [
-    ("General", ["enabled", "showAtMax", "questBursts", "exploreBursts", "minimap"]),
+    ("General", ["enabled", "showAtMax", "questBursts", "exploreBursts", "minimap", "debug"]),
     ("Sound", ["sound", "soundVoice", "soundVolume"]),
     (
         "Look",
@@ -50,7 +50,6 @@ SECTION_ORDER = [
             "glowIntensity",
         ],
     ),
-    ("Advanced", ["debug"]),
 ]
 
 
@@ -69,17 +68,22 @@ def texts(m):
 
 def test_sections_and_rows_run_in_the_agreed_order(env):
     m = build(env)
-    flat = [key for _, keys in SECTION_ORDER for key in keys]
-    ys = [row_y(m, key) for key in flat]
-    assert ys == sorted(ys) and len(set(ys)) == len(ys)
-    names = {name for name, _ in SECTION_ORDER}
-    assert {t for t in texts(m)} >= names
+    # one tab per section, in order; inside a tab the rows run top to bottom from y = 8
+    assert [str(t.xpName) for t in m.opt.tabs.values()] == [name for name, _ in SECTION_ORDER]
+    for name, keys in SECTION_ORDER:
+        ys = [row_y(m, key) for key in keys]
+        assert ys[0] == 8 and ys == sorted(ys) and len(set(ys)) == len(ys), name
     assert "XP bar" not in texts(m)  # merged into Arrival
 
 
 def test_content_height_fits_the_last_row_exactly(env):
     m = build(env)
-    assert m.opt.CONTENT_H == m.opt.child.height == row_y(m, "debug") + 28 + 16 == 1422
+    # General ends at its last row (Debug log, 28 tall, 12 px under the minimap row) plus the 16 px margin;
+    # CONTENT_H is the tallest tab
+    assert row_y(m, "debug") == row_y(m, "minimap") + 28 + 12 == 160
+    assert m.opt.tabHeights.General == row_y(m, "debug") + 28 + 16 == 204
+    assert m.opt.CONTENT_H == max(m.opt.tabHeights.values()) == 360
+    assert m.opt.child.height == m.opt.tabHeights.General
 
 
 def test_exploration_checkbox_and_tooltips(env):

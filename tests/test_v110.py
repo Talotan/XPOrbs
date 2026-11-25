@@ -1062,7 +1062,7 @@ def test_dropdown_row_sits_under_the_chime_checkbox_inside_the_panel(env):
     dd = m.opt.soundDropdown
     assert dd.points[1][4] == 260 and dd.width == 150
     assert dd.points[1][4] + dd.width < 548  # clear of the reset button column
-    assert "Sound" in {f.text for f in m.stub.frames.values() if f.kind == "FontString"}
+    assert "Sound" in {str(t.xpName) for t in m.opt.tabs.values()}  # the section is a tab now
 
 
 def test_picking_from_the_dropdown_sets_the_voice_and_previews_one_note(env):
@@ -1196,7 +1196,7 @@ def test_radio_fallback_when_the_dropdown_is_unavailable(env, hook):
     assert coin.template == "UIRadioButtonTemplate"
     assert glass.template == "UIRadioButtonTemplate"
     labels = {f.text for f in m.stub.frames.values() if f.kind == "FontString"}
-    assert {"Sound", "Glass", "Coin", "Swish", "Pixel"} <= labels
+    assert {"Glass", "Coin", "Swish", "Pixel"} <= labels
     show(m)
     assert glass.checked is True and coin.checked is False
     n0 = len(m.stub.sounds)

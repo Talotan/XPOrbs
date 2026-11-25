@@ -15,7 +15,7 @@ local floor = math.floor
 local HEADER_X, LABEL_X, CTRL_X, VALUE_X, RESET_X = 16, 32, 260, 472, 548
 local SLIDER_W = 200
 local RULE_W = 552
-local CONTENT_W, CONTENT_H = 584, 1450 -- |last y| + 16 (build recomputes it from the sections)
+local CONTENT_W, CONTENT_H = 584, 0 -- CONTENT_H: the tallest tab's height (|last y| + 16); newTabs sets it
 local DIM = 0.4
 local SWATCH_OFF_ALPHA = 0.35
 local GREY = 0.70
@@ -241,16 +241,6 @@ local function text(parent, template, str, x, y, width)
     end
     fontString:SetText(str)
     return fontString
-end
-
--- Draws a section header at y and returns the y of its first row.
-local function header(str, y)
-    text(child, "GameFontNormal", str, HEADER_X, -y)
-    local rule = child:CreateTexture(nil, "ARTWORK")
-    rule:SetPoint("TOPLEFT", child, "TOPLEFT", HEADER_X, -(y + 18))
-    rule:SetSize(RULE_W, 1)
-    rule:SetColorTexture(1, 1, 1, 0.15)
-    return y + 26
 end
 
 -- A full-width row frame of height h at y. Its label, control and reset button anchor LEFT to it, so they share its
@@ -796,7 +786,7 @@ local function registerPopup()
         return false
     end
     StaticPopupDialogs[POPUP] = {
-        text = "Reset all XPOrbs settings to their defaults?",
+        text = "Reset all XPOrbs settings, on every tab, to their defaults?",
         button1 = "Reset",
         button2 = "Cancel",
         OnAccept = function()
@@ -837,11 +827,10 @@ local function newScroll(panel)
 end
 
 -- ---------------------------------------------------------------- the sections
--- Each builder draws one section starting at y (the header's y for most of them) and returns the y after it. Splitting
--- them keeps every function well under Lua 5.1's 60-upvalue limit.
+-- Each builder draws one tab's rows starting at y (8, the top of its own child frame) and returns the y after them.
+-- Splitting them keeps every function well under Lua 5.1's 60-upvalue limit.
 
 local function buildGeneral(y)
-    y = header("General", y)
     for _, c in ipairs({
         { "enabled", "Enabled" },
         { "showAtMax", "Orbs at max level", { tip = MAX_TIP } },
@@ -992,7 +981,6 @@ local function flightStyleRow(y)
 end
 
 local function buildLook(y)
-    y = header("Look", y + 14)
     for _, c in ipairs({
         { "density", "Orb quantity multiplier", "%d%%", "%" },
         { "cap", "Max orbs per burst", "%d", "" },
@@ -1059,7 +1047,6 @@ end
 -- under it at a tighter 42 px pitch with a wider gap after the group (dimmed unless Popstream is picked; clicking one
 -- also picks Popstream), then the Zoom-scaled spread checkbox and its description.
 local function buildStyle(y)
-    y = header("Style", y + 14)
     y = flightStyleRow(y)
     -- the three kill styles are their own group: a label so they don't read as options of the dropdown above
     text(child, "GameFontHighlight", "Kill style", LABEL_X, -y)
@@ -1141,7 +1128,6 @@ end
 -- Arrival: where the orbs land. The XP bar row (what was found, plus the picker) comes first, then the target frame's
 -- shape and offsets and the glow. The shape and offsets stay live with Show glow off; only the intensity dims.
 local function buildArrival(y)
-    y = header("Arrival", y)
     local destRow = newRow(y, 36)
     Options.rows.targetFrame = destRow
     label(destRow, "XP bar frame", LABEL_X)
@@ -1215,7 +1201,6 @@ local function buildArrival(y)
 end
 
 local function buildSound(y)
-    y = header("Sound", y + 14)
     checkbox(y, "sound", "Chime when orbs arrive", { tip = SOUND_TIP })
     y = y + 28
     soundVoiceRow(y)
@@ -1229,9 +1214,260 @@ local function buildSound(y)
 end
 
 local function buildAdvanced(y)
-    y = header("Advanced", y + 14)
     checkbox(y, "debug", "Debug log")
     return y + 28
+end
+
+-- ---------------------------------------------------------------- the tabs
+-- One tab per section, most-used first. Each tab builds into its own child frame (the scroll frame shows one at a
+-- time); the row helpers hang off the module-level `child`, so building a tab just points it at that tab's frame.
+-- Options.rows / controls / refreshers / resets stay global, so Refresh and the resets work on every tab. The Debug log
+-- row closes the General tab after a 12 px gap.
+local TAB_NAMES = { "General", "Sound", "Look", "Style", "Arrival" }
+local TAB_BUILDERS = {
+    General = function(y)
+        return buildAdvanced(buildGeneral(y) + 12)
+    end,
+    Sound = buildSound, Look = buildLook, Style = buildStyle, Arrival = buildArrival,
+}
+local TAB_TOP, TAB_H, TAB_GAP, TAB_PAD, TAB_MIN_W = 42, 28, 4, 28, 64
+local SCROLL_TOP = TAB_TOP + TAB_H + 4
+local TAB_START_Y = 8 -- every tab's first row
+local GOLD_R, GOLD_G, GOLD_B = 1, 0.82, 0
+local selectedTab = 1 -- remembered for the session only, not saved
+local warned = false
+
+-- True when a tab's content fits the visible height, so the scroll bar has nothing to do. An unknown (zero) height
+-- counts as not fitting, so the bar is never hidden on a guess.
+local function tabFits(contentH, viewH)
+    return (viewH or 0) > 0 and contentH <= viewH
+end
+Options.TabFits = tabFits
+
+local function warnOnce(err)
+    if not warned and ns.db and ns.db.debug then
+        warned = true
+        ns.Print("options: tab template call failed: " .. tostring(err))
+    end
+end
+
+local function callGuarded(fn, ...)
+    if fn then
+        local ok, err = pcall(fn, ...)
+        if not ok then
+            warnOnce(err)
+        end
+    end
+end
+
+-- Real template: normal = GameFontNormal, selected (disabled) = GameFontHighlight, so labels aren't the Small font.
+local function applyTabFonts(btn)
+    if btn.SetNormalFontObject and GameFontNormal then
+        pcall(btn.SetNormalFontObject, btn, GameFontNormal)
+    end
+    if btn.SetDisabledFontObject and GameFontHighlight then
+        pcall(btn.SetDisabledFontObject, btn, GameFontHighlight)
+    end
+end
+
+local function flatColour(btn, hover)
+    local fs = btn.xpLabel
+    if btn.xpSelected then
+        fs:SetTextColor(GOLD_R, GOLD_G, GOLD_B)
+    elseif hover then
+        fs:SetTextColor(1, 1, 1)
+    else
+        fs:SetTextColor(0.70, 0.70, 0.70)
+    end
+end
+
+local function setTabLook(btn, on)
+    btn.xpSelected = on
+    if Options.tabTemplate == "flat" then
+        flatColour(btn, false)
+        if on then
+            btn.xpBar:Show()
+            btn.xpFill:Show()
+        else
+            btn.xpBar:Hide()
+            btn.xpFill:Hide()
+        end
+    else
+        callGuarded(on and PanelTemplates_SelectTab or PanelTemplates_DeselectTab, btn)
+        applyTabFonts(btn)
+    end
+end
+
+-- The rule under the strip is the tabs' baseline: two segments, left of the selected tab and right of it, so the
+-- selected tab breaks through it.
+local function placeBaseline(btn)
+    local panel, base = Options.panel, Options.tabBase
+    local l, r = Options.tabRuleL, Options.tabRuleR
+    local left, right = btn.xpX, btn.xpX + btn.xpW
+    l:ClearAllPoints()
+    l:SetPoint("TOPLEFT", panel, "TOPLEFT", HEADER_X, -base)
+    l:SetSize(math.max(0, left - HEADER_X), 1)
+    r:ClearAllPoints()
+    r:SetPoint("TOPLEFT", panel, "TOPLEFT", right, -base)
+    r:SetSize(math.max(0, HEADER_X + RULE_W - right), 1)
+end
+
+-- Hides the scroll bar when the selected tab fits (the Settings canvas size isn't known at build time, so this also
+-- runs on show and on size changes).
+function Options:UpdateScrollBar()
+    local scroll = self.scroll
+    local bar = scroll and scroll.ScrollBar
+    if not bar then
+        return
+    end
+    local fits = tabFits(self.tabHeights[TAB_NAMES[selectedTab]] or 0, scroll:GetHeight())
+    pcall(fits and bar.Hide or bar.Show, bar)
+end
+
+function Options:SelectTab(which)
+    local idx = which
+    if type(which) == "string" then
+        idx = nil
+        for i, name in ipairs(TAB_NAMES) do
+            if name == which then
+                idx = i
+            end
+        end
+    end
+    if not idx or not TAB_NAMES[idx] then
+        return false
+    end
+    selectedTab = idx
+    for i, name in ipairs(TAB_NAMES) do
+        local c = self.tabChildren[name]
+        if i == idx then
+            c:Show()
+        else
+            c:Hide()
+        end
+        setTabLook(self.tabs[i], i == idx)
+    end
+    placeBaseline(self.tabs[idx])
+    local c = self.tabChildren[TAB_NAMES[idx]]
+    self.child = c
+    self.scroll:SetScrollChild(c)
+    self.scroll:SetVerticalScroll(0)
+    self:UpdateScrollBar()
+    return true
+end
+
+local function labelWidth(panel, name)
+    local fs = Options.measure
+    if not fs then
+        fs = panel:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+        fs:Hide()
+        Options.measure = fs
+    end
+    fs:SetText(name)
+    local ok, w = pcall(fs.GetStringWidth, fs)
+    return (ok and tonumber(w) and w > 0) and w or (#name * 7)
+end
+
+local function newFlatTab(panel, name)
+    local btn = CreateFrame("Button", nil, panel)
+    btn.xpFill = btn:CreateTexture(nil, "BACKGROUND")
+    btn.xpFill:SetAllPoints(btn)
+    btn.xpFill:SetColorTexture(1, 1, 1, 0.04)
+    btn.xpBar = btn:CreateTexture(nil, "ARTWORK")
+    btn.xpBar:SetPoint("BOTTOMLEFT", btn, "BOTTOMLEFT", 0, 0)
+    btn.xpBar:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", 0, 0)
+    btn.xpBar:SetHeight(2)
+    btn.xpBar:SetColorTexture(GOLD_R, GOLD_G, GOLD_B, 1)
+    btn.xpLabel = btn:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    btn.xpLabel:SetPoint("CENTER", btn, "CENTER", 0, 0)
+    btn.xpLabel:SetText(name)
+    btn.text = name
+    if btn.SetFontString then
+        pcall(btn.SetFontString, btn, btn.xpLabel)
+    end
+    btn:SetScript("OnEnter", function(self)
+        flatColour(self, true)
+    end)
+    btn:SetScript("OnLeave", function(self)
+        flatColour(self, false)
+    end)
+    return btn
+end
+
+local function newTabButton(panel, i, prev)
+    local name = TAB_NAMES[i]
+    local w = math.max(TAB_MIN_W, math.floor(labelWidth(panel, name) + 0.5) + TAB_PAD)
+    local btn
+    if Options.tabTemplate ~= "flat" then
+        local ok, b = pcall(CreateFrame, "Button", nil, panel, "PanelTopTabButtonTemplate")
+        if ok and b then
+            btn, Options.tabTemplate = b, "PanelTopTabButtonTemplate"
+        else
+            Options.tabTemplate = "flat"
+        end
+    end
+    if Options.tabTemplate == "flat" then
+        btn = newFlatTab(panel, name)
+        btn:SetSize(w, TAB_H)
+    else
+        btn:SetText(name)
+        applyTabFonts(btn)
+        callGuarded(PanelTemplates_TabResize, btn, 0, w) -- the template keeps its own height
+        btn:SetWidth(w)
+    end
+    btn.xpName, btn.xpW = name, w
+    if prev then
+        btn:SetPoint("TOPLEFT", prev, "TOPRIGHT", TAB_GAP, 0)
+        btn.xpX = prev.xpX + prev.xpW + TAB_GAP
+    else
+        btn:SetPoint("TOPLEFT", panel, "TOPLEFT", HEADER_X, -TAB_TOP)
+        btn.xpX = HEADER_X
+    end
+    btn:SetScript("OnClick", function()
+        Options:SelectTab(i)
+    end)
+    return btn
+end
+
+-- Builds the tab strip, the baseline rule, the scroll frame under them and one child per tab.
+local function newTabs(panel)
+    Options.tabTemplate, Options.tabs, Options.tabChildren, Options.tabHeights = nil, {}, {}, {}
+    Options.tabTop = TAB_TOP
+    for i = 1, #TAB_NAMES do
+        Options.tabs[i] = newTabButton(panel, i, Options.tabs[i - 1])
+    end
+    -- the baseline is the strip's bottom edge: the template's own height when it reports one, else TAB_H
+    local h = Options.tabs[1]:GetHeight()
+    Options.tabHeight = (h and h > 0) and h or TAB_H
+    Options.tabBase = TAB_TOP + Options.tabHeight
+    SCROLL_TOP = math.max(TAB_TOP + TAB_H + 4, Options.tabBase + 4)
+    Options.tabRuleL = panel:CreateTexture(nil, "ARTWORK")
+    Options.tabRuleR = panel:CreateTexture(nil, "ARTWORK")
+    Options.tabRuleL:SetColorTexture(1, 1, 1, 0.15)
+    Options.tabRuleR:SetColorTexture(1, 1, 1, 0.15)
+    Options.topRule = Options.tabRuleL
+
+    local scroll, tpl = newScroll(panel)
+    Options.scroll, Options.scrollTemplate, Options.scrollTop = scroll, tpl, SCROLL_TOP
+    scroll:SetPoint("TOPLEFT", panel, "TOPLEFT", 0, -SCROLL_TOP)
+    scroll:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -28, 44)
+    local maxH = 0
+    for _, name in ipairs(TAB_NAMES) do
+        child = CreateFrame("Frame", nil, scroll)
+        local ch = TAB_BUILDERS[name](TAB_START_Y) + 16 -- |last y| + 16
+        child:SetSize(CONTENT_W, ch)
+        child:Hide()
+        Options.tabChildren[name], Options.tabHeights[name] = child, ch
+        maxH = math.max(maxH, ch)
+    end
+    -- the tallest tab (the scroll range follows the selected tab's own height)
+    CONTENT_H = maxH
+    Options.CONTENT_H = CONTENT_H
+    Options:SelectTab(selectedTab)
+    scroll:SetScript("OnSizeChanged", function()
+        Options:UpdateScrollBar()
+    end)
+    return scroll
 end
 
 -- ---------------------------------------------------------------- the panel
@@ -1240,33 +1476,10 @@ local function build()
     local panel = CreateFrame("Frame")
     Options.panel = panel
     text(panel, "GameFontNormalLarge", "XP Orbs", 16, -16)
-    local top = panel:CreateTexture(nil, "ARTWORK")
-    top:SetPoint("TOPLEFT", panel, "TOPLEFT", HEADER_X, -38)
-    top:SetSize(RULE_W, 1)
-    top:SetColorTexture(1, 1, 1, 0.15)
-    Options.topRule = top
 
-    local scroll, tpl = newScroll(panel)
-    Options.scroll, Options.scrollTemplate = scroll, tpl
-    scroll:SetPoint("TOPLEFT", panel, "TOPLEFT", 0, -40)
-    scroll:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -28, 44)
-    child = CreateFrame("Frame", nil, scroll)
-    child:SetSize(CONTENT_W, CONTENT_H)
-    scroll:SetScrollChild(child)
-    Options.child = child
-
-    -- most-used first
-    local y = buildGeneral(8)
-    y = buildSound(y)
-    y = buildLook(y)
-    y = buildStyle(y)
-    y = buildArrival(y)
-    y = buildAdvanced(y)
-    CONTENT_H = y + 16
-    Options.CONTENT_H = CONTENT_H
-    child:SetSize(CONTENT_W, CONTENT_H)
-    Options.footerY = 44 -- the footer rule's px above the panel's bottom; ShapePreview.lua sits just above it
     Options.rightX = HEADER_X + RULE_W -- the right edge of the rules and the footer button
+    newTabs(panel)
+    Options.footerY = 44 -- the footer rule's px above the panel's bottom; ShapePreview.lua sits just above it
     -- the orb preview (ShapePreview.lua, only with the debug log on) follows every change made here
     postRefresh[#postRefresh + 1] = function()
         if ns.ShapePreview then
@@ -1312,6 +1525,7 @@ local function build()
     end
     panel:SetScript("OnShow", function()
         Options:Refresh()
+        Options:UpdateScrollBar()
         -- the "Test target" stand-in window follows this panel (Preview.lua); never let it break the panel
         local okSync, windowUp = false, false
         if ns.Preview then
