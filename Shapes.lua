@@ -213,11 +213,12 @@ function RETRO.setup(under, body, spark, st, red, green, blue)
     st.phase = random() * 2 * RETRO_BLINK -- where in the on / off blink this orb starts
 end
 
--- A trail square: a colour texture (no art), ADD, tinted by the orb colour.
+-- A trail square: a colour texture (no art), ADD (BLEND for a dark orb, see SHAPES.trailBlend), tinted by the orb
+-- colour.
 local function newSquare(red, green, blue, subLayer)
     local tex = take()
     tex:SetColorTexture(red, green, blue, 1)
-    style(tex, subLayer, "ADD", 1, 1, 1)
+    style(tex, subLayer, SHAPES.trailBlend(red, green, blue), 1, 1, 1)
     ready(tex)
     return tex
 end
@@ -290,10 +291,11 @@ end
 function GLOBE.build(orb, trail, red, green, blue)
     buildSlots(GLOBE, orb, red, green, blue, true)
     if trail then
+        local blend = SHAPES.trailBlend(red, green, blue)
         for i = 1, 4 do
             local tex = take()
             tex:SetTexture(GLOBE_TEX)
-            style(tex, (orb.solid and SUB_SOLID or SUB_NATURAL).trail, "ADD", red, green, blue)
+            style(tex, (orb.solid and SUB_SOLID or SUB_NATURAL).trail, blend, red, green, blue)
             ready(tex)
             orb[GHOST_KEY[i]] = tex
         end
@@ -366,10 +368,11 @@ end
 function CRACKLE.build(orb, trail, red, green, blue)
     buildSlots(CRACKLE, orb, red, green, blue, true)
     if trail then
+        local blend = SHAPES.trailBlend(red, green, blue)
         for i = 1, 3 do
             local tex = take()
             tex:SetTexture(CRACKLE_CORE_TEX)
-            style(tex, (orb.solid and SUB_SOLID or SUB_NATURAL).trail, "ADD", red, green, blue)
+            style(tex, (orb.solid and SUB_SOLID or SUB_NATURAL).trail, blend, red, green, blue)
             ready(tex)
             orb[GHOST_KEY[i]] = tex
         end

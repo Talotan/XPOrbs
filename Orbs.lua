@@ -205,7 +205,7 @@ XF_PROFILE.sp = SP_PROFILE -- reached through XF_PROFILE from Burst, which canno
 local SHAPES = { by = {}, host = {}, k = { glow = GLOW, ghostStep = GHOST_STEP, refSpeed = REF_SPEED,
     ghostGapK = 0.3, ghost1Alpha = GHOST1_ALPHA,
     ghost1Size = GHOST1_SIZE, ghost2Alpha = GHOST2_ALPHA, ghost2Size = GHOST2_SIZE, ghost3Alpha = GHOST3_ALPHA,
-    ghost3Size = GHOST3_SIZE, underK = UNDER_K,
+    ghost3Size = GHOST3_SIZE, underK = UNDER_K, darkTrailLum = 0.25,
     sparkleWhite = SPARKLE_WHITE, extras = EXTRAS, underSize = UNDER_SIZE, underAlpha = UNDER_ALPHA,
     sparkle = SPARKLE, sparkleAlpha = SPARKLE_ALPHA, restedSize = RESTED_SIZE } }
 ns.OrbShapes = SHAPES
@@ -1349,6 +1349,16 @@ local function lighten(channel)
     return channel + (1 - channel) * SPARKLE_WHITE
 end
 
+-- The blend mode of an orb's trail ghosts, decided once at spawn from the orb's own colour: additive ghosts add nothing
+-- over a black or very dark orb, so a dark colour (relative luminance under SHAPES.k.darkTrailLum) draws them with
+-- plain alpha blending, a dark smear. Bright colours stay additive.
+function SHAPES.trailBlend(red, green, blue)
+    if 0.2126 * red + 0.7152 * green + 0.0722 * blue < SHAPES.k.darkTrailLum then
+        return "BLEND"
+    end
+    return "ADD"
+end
+
 -- Gets the textures of one flying orb from the pool: the Starlight art here (underlay, orb, sparkle, 3 ghosts), or
 -- the shape's own. Called through XF_PROFILE.shapes, because Burst has no upvalue to spare.
 function SHAPES.build(orb, shape, trail, red, green, blue)
@@ -1360,9 +1370,10 @@ function SHAPES.build(orb, shape, trail, red, green, blue)
     orb.spark = acquire(SPARKLE_TEX, 1, lighten(red), lighten(green), lighten(blue))
     orb.spark.xoDirty = true -- it spins (SetRotation)
     if trail then
-        orb.ghost1 = acquire(ORB_TEX, 0, red, green, blue)
-        orb.ghost2 = acquire(ORB_TEX, 0, red, green, blue)
-        orb.ghost3 = acquire(ORB_TEX, 0, red, green, blue)
+        local blend = SHAPES.trailBlend(red, green, blue)
+        orb.ghost1 = acquire(ORB_TEX, 0, red, green, blue, blend)
+        orb.ghost2 = acquire(ORB_TEX, 0, red, green, blue, blend)
+        orb.ghost3 = acquire(ORB_TEX, 0, red, green, blue, blend)
     end
 end
 

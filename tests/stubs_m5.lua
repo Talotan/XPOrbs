@@ -23,15 +23,94 @@ Settings = {
     end,
 }
 
+-- Real RGB <-> HSV (all 0..1), so the picker's ColorSelect can be simulated: black has no hue.
+local function rgbToHsv(r, g, b)
+    local hi, lo = math.max(r, g, b), math.min(r, g, b)
+    local d = hi - lo
+    local h = 0
+    if d > 0 then
+        if hi == r then
+            h = ((g - b) / d) % 6
+        elseif hi == g then
+            h = (b - r) / d + 2
+        else
+            h = (r - g) / d + 4
+        end
+        h = h / 6
+    end
+    return h, hi > 0 and d / hi or 0, hi
+end
+
+local function hsvToRgb(h, s, v)
+    local i = math.floor(h * 6)
+    local f = h * 6 - i
+    local p, q, t = v * (1 - s), v * (1 - f * s), v * (1 - (1 - f) * s)
+    local m = i % 6
+    if m == 0 then
+        return v, t, p
+    elseif m == 1 then
+        return q, v, p
+    elseif m == 2 then
+        return p, v, t
+    elseif m == 3 then
+        return p, q, v
+    elseif m == 4 then
+        return t, p, v
+    end
+    return v, p, q
+end
+
 ColorPickerFrame = {
     SetupColorPickerAndShow = function(self, info)
         self.info = info
         self.r, self.g, self.b = info.r, info.g, info.b
+        local sel = self.Content and self.Content.ColorPicker
+        if sel then
+            sel.hsv = nil -- the widget derives HSV from the RGB it was given (black: no hue)
+        end
     end,
     GetColorRGB = function(self)
         return self.r, self.g, self.b
     end,
+    -- the modern picker's ColorSelect: HSV in, RGB out; stub.noHSV removes the API (older / odd clients)
+    Content = {},
 }
+local colorSelect = {
+    -- what the wheel holds: the HSV last set, as long as it still matches the RGB (a test that pokes cp.r/g/b directly
+    -- gets the RGB's own HSV)
+    GetColorHSV = function(self)
+        local cp = ColorPickerFrame
+        local hsv = self.hsv
+        if hsv then
+            local r, g, b = hsvToRgb(hsv[1], hsv[2], hsv[3])
+            if math.abs(r - cp.r) < 1e-6 and math.abs(g - cp.g) < 1e-6 and math.abs(b - cp.b) < 1e-6 then
+                return hsv[1], hsv[2], hsv[3]
+            end
+        end
+        return rgbToHsv(cp.r, cp.g, cp.b)
+    end,
+    SetColorHSV = function(self, h, s, v)
+        local cp = ColorPickerFrame
+        self.hsvSets = (self.hsvSets or 0) + 1
+        self.hsv = { h, s, v }
+        cp.r, cp.g, cp.b = hsvToRgb(h, s, v)
+        if self.echo and cp.info and cp.info.swatchFunc then
+            cp.info.swatchFunc() -- OnColorSelect fires swatchFunc, like the real widget
+        end
+    end,
+}
+ColorPickerFrame.Content.ColorPicker = colorSelect
+-- A player drag on the wheel / value slider. Like Blizzard's picker, black loses hue and saturation in the widget.
+function ColorPickerFrame:Drag(h, s, v)
+    self.r, self.g, self.b = hsvToRgb(h, s, v)
+    if v <= 0 then
+        colorSelect.hsv = { 0, 0, 0 }
+    else
+        colorSelect.hsv = { h, s, v }
+    end
+    self.info.swatchFunc()
+end
+stub.rgbToHsv, stub.hsvToRgb = rgbToHsv, hsvToRgb
 
 -- names / parents (the v0.9 wrapper only keeps the parent)
 local baseCreate = CreateFrame

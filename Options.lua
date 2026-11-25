@@ -615,6 +615,90 @@ local function slider(y, key, labelStr, fmt, unit, onChange, opts)
     Options.rows[key] = row
 end
 
+-- Black has no hue, so a picker that round-trips through RGB snaps its wheel to the centre when the value slider hits 0
+-- (and brings back grey). The ColorSelect widget keeps HSV: the last hue and saturation (value above HS_MIN_V) is
+-- remembered per colour key in db.colorHS and pushed back whenever the picker loses it. All of it is optional: with no
+-- HSV API nothing here does anything.
+local HS_MIN_V = 0.02
+local HS_EPS = 0.002
+local pickerSyncing = false -- SetColorHSV may fire OnColorSelect -> swatchFunc again: ignore that echo
+
+local function colorSelect()
+    local content = ColorPickerFrame and ColorPickerFrame.Content
+    local sel = content and content.ColorPicker
+    if type(sel) == "table" and sel.GetColorHSV and sel.SetColorHSV then
+        return sel
+    end
+end
+
+local function readHSV(sel)
+    local ok, h, s, v = pcall(sel.GetColorHSV, sel)
+    if ok and type(h) == "number" and type(s) == "number" and type(v) == "number" then
+        return h, s, v
+    end
+end
+
+local function pushHSV(sel, h, s, v)
+    pickerSyncing = true
+    pcall(sel.SetColorHSV, sel, h, s, v)
+    pickerSyncing = false
+end
+
+local function rememberHS(key, h, s)
+    local db = settings()
+    if type(db.colorHS) ~= "table" then
+        db.colorHS = {}
+    end
+    db.colorHS[key] = { h, s }
+end
+
+local function savedHS(key)
+    local pair = type(settings().colorHS) == "table" and settings().colorHS[key]
+    if type(pair) == "table" and type(pair[1]) == "number" and type(pair[2]) == "number" then
+        return pair
+    end
+end
+
+-- Called from the picker's swatchFunc with what the widget holds now.
+local function keepHue(key)
+    local sel = colorSelect()
+    if not sel or pickerSyncing then
+        return
+    end
+    local h, s, v = readHSV(sel)
+    if not h then
+        return
+    end
+    if v > HS_MIN_V then
+        rememberHS(key, h, s)
+        return
+    end
+    local saved = savedHS(key)
+    if saved and (math.abs(h - saved[1]) > HS_EPS or math.abs(s - saved[2]) > HS_EPS) then
+        pushHSV(sel, saved[1], saved[2], v)
+    end
+end
+
+-- Right after the picker opens on a colour: remember its hue, or (opened on black) show the remembered one.
+local function openHue(key, r, g, blue)
+    local sel = colorSelect()
+    if not sel then
+        return
+    end
+    local value = math.max(r or 0, g or 0, blue or 0)
+    if value <= HS_MIN_V then
+        local saved = savedHS(key)
+        if saved then
+            pushHSV(sel, saved[1], saved[2], value)
+        end
+        return
+    end
+    local h, s, v = readHSV(sel)
+    if h and v > HS_MIN_V then
+        rememberHS(key, h, s)
+    end
+end
+
 -- A colour swatch at x in the row. Returns the swatch button (hidden when there is no colour picker).
 local function swatch(row, key, x)
     local swatchBtn = CreateFrame("Button", nil, row)
@@ -647,10 +731,14 @@ local function swatch(row, key, x)
             b = prev[3],
             hasOpacity = false,
             swatchFunc = function()
+                if pickerSyncing then
+                    return
+                end
                 local r, g, blue = ColorPickerFrame:GetColorRGB()
                 settings()[key] = { r, g, blue }
                 paint()
                 changed()
+                keepHue(key)
             end,
             cancelFunc = function()
                 settings()[key] = { prev[1], prev[2], prev[3] }
@@ -658,6 +746,7 @@ local function swatch(row, key, x)
                 changed()
             end,
         })
+        openHue(key, prev[1], prev[2], prev[3])
     end)
     if not (ColorPickerFrame and ColorPickerFrame.SetupColorPickerAndShow) then
         swatchBtn:Hide()

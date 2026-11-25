@@ -382,6 +382,22 @@ local function sanitize(db)
             db[key] = copyColour(defaults[key])
         end
     end
+    -- the hue and saturation the colour picker last had per colour key (so black keeps its hue): { h, s } in 0..1 for
+    -- the two colour keys; anything else is dropped. No default: it only exists once the player has used the picker.
+    if db.colorHS ~= nil then
+        local hs, cleanHS = db.colorHS, {}
+        if type(hs) == "table" then
+            for _, key in ipairs(COLOURS) do
+                local pair = hs[key]
+                if type(pair) == "table" and type(pair[1]) == "number" and type(pair[2]) == "number"
+                    and pair[1] == pair[1] and pair[2] == pair[2]
+                    and pair[1] >= 0 and pair[1] <= 1 and pair[2] >= 0 and pair[2] <= 1 then
+                    cleanHS[key] = { pair[1], pair[2] }
+                end
+            end
+        end
+        db.colorHS = next(cleanHS) ~= nil and cleanHS or nil
+    end
     -- an old name in a schema-6 save (hand-edited, or written by an older copy) is mapped like the v6 migration
     local styleName = db.style
     local isCurrentName = styleName == "popstream" or styleName == "crossfade" or styleName == "stream"
