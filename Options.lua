@@ -894,15 +894,25 @@ local function buildGeneral(y)
     return y + 28
 end
 
--- The "Flight style" (db.flightPath, /xporbs path) and "Orb shape" (db.orbShape, /xporbs shape) dropdowns: both apply
+-- The "Flight pathing" (db.flightPath, /xporbs path) and "Orb shape" (db.orbShape, /xporbs shape) dropdowns: both apply
 -- to every kill style, so they never dim. Built like the Sound voice dropdown. Each option explains itself in its own
 -- menu tooltip and the button's tooltip explains the current one, so no description takes page space. Radios replace
 -- the dropdown on a client without the template. "Smooth (default)" inside the dropdown menu only; everywhere else
 -- (button text, tooltips, radios) the plain name.
 local FLIGHT_DROPDOWN = {
-    key = "flightPath", text = "Flight style", order = ns.PATH_ORDER, labels = ns.PATH_LABEL,
+    key = "flightPath", text = "Flight pathing", order = ns.PATH_ORDER, labels = ns.PATH_LABEL,
     desc = FLIGHT_STYLE_DESC, field = "flightDropdown", radioX = { 0, 140, 230 }, -- px right of CTRL_X (the first
     -- label is the long one)
+}
+-- The "Speed type" dropdown (db.flightMode): whether the Flight tab's one slider row is a speed or a time.
+local SPEED_TYPE_DROPDOWN = {
+    key = "flightMode", text = "Speed type", order = { "speed", "time" },
+    labels = { speed = "Constant speed", time = "Relative speed" },
+    desc = {
+        speed = "Orbs always move at the same speed, wherever they start.",
+        time = "Orbs change their speed so they always arrive after a set time.",
+    },
+    field = "speedTypeDropdown", radioX = { 0, 130 },
 }
 local SHAPE_DROPDOWN = {
     key = "orbShape", text = "Orb shape", order = ns.SHAPE_ORDER, labels = ns.SHAPE_LABEL,
@@ -1249,19 +1259,6 @@ end
 local function buildLook(y)
     y = choiceRow(SHAPE_DROPDOWN, y)
     y = buildShapeBox(y)
-    -- both flight rows sit at the same y; the one matching db.flightMode is shown (/xporbs flightmode switches it)
-    slider(y, "flightSpeed", "Flight speed", "%d%%", "%")
-    slider(y, "flightTime", "Flight time", "%.2f s", " s")
-    postRefresh[#postRefresh + 1] = function()
-        local speed = settings().flightMode ~= "time"
-        local show, hide = Options.rows.flightSpeed, Options.rows.flightTime
-        if not speed then
-            show, hide = hide, show
-        end
-        show:Show()
-        hide:Hide()
-    end
-    y = y + 32
     checkbox(y, "trail", "Trail")
     y = y + 28 + GROUP_GAP
 
@@ -1313,11 +1310,27 @@ local function buildLook(y)
     return y + 32
 end
 
--- Style: the Flight Style dropdown, then three radios (row 24 + its description), Popstream's two sub-radios indented
+-- Flight: the Flight pathing dropdown, the Speed type dropdown and its one slider row (Flight speed or Flight time,
+-- both at the same y; the one matching db.flightMode is shown, /xporbs flightmode switches it too), then the Kill style
+-- group: three radios (row 24 + its description) indented 16 px under the header, Popstream's two sub-radios indented
 -- under it at a tighter 42 px pitch with a wider gap after the group (dimmed unless Popstream is picked; clicking one
--- also picks Popstream), then the Zoom-scaled spread checkbox and its description.
-local function buildStyle(y)
+-- also picks Popstream), then the Zoom-scaled spread checkbox and its description (back on the label column).
+local KILL_X = LABEL_X + 16
+local function buildFlight(y)
     y = flightStyleRow(y)
+    y = choiceRow(SPEED_TYPE_DROPDOWN, y)
+    slider(y, "flightSpeed", "Flight speed", "%d%%", "%")
+    slider(y, "flightTime", "Flight time", "%.2f s", " s")
+    postRefresh[#postRefresh + 1] = function()
+        local speed = settings().flightMode ~= "time"
+        local show, hide = Options.rows.flightSpeed, Options.rows.flightTime
+        if not speed then
+            show, hide = hide, show
+        end
+        show:Show()
+        hide:Hide()
+    end
+    y = y + 32 + 4 -- a little air before the next group
     -- the three kill styles are their own group: a label so they don't read as options of the dropdown above
     text(child, "GameFontHighlight", "Kill style", LABEL_X, -y)
     Options.killStyleLabelY = y
@@ -1331,7 +1344,7 @@ local function buildStyle(y)
     end
     local function styleRadio(st, ry)
         local row = newRow(ry, 24)
-        local radio = newRadio(row, LABEL_X, STYLE_NAME[st])
+        local radio = newRadio(row, KILL_X, STYLE_NAME[st])
         radio:SetScript("OnClick", function()
             radioClick("style", st)
         end)
@@ -1339,7 +1352,7 @@ local function buildStyle(y)
         radios[st] = radio
         Options.controls["style_" .. st] = radio
         Options.rows["style_" .. st] = row
-        local desc = text(child, "GameFontHighlight", STYLE_DESC[st], LABEL_X + 24, -(ry + 24), 490)
+        local desc = text(child, "GameFontHighlight", STYLE_DESC[st], KILL_X + 24, -(ry + 24), 474)
         desc:SetTextColor(GREY, GREY, GREY)
         Options.descs[st] = desc
         return row
@@ -1351,7 +1364,7 @@ local function buildStyle(y)
     for i, pm in ipairs(POPMODES) do
         local ry = y + i * 42
         local row = newRow(ry, 24)
-        local radio = newRadio(row, LABEL_X + 24, POPMODE_NAME[pm])
+        local radio = newRadio(row, KILL_X + 24, POPMODE_NAME[pm])
         radio:SetScript("OnClick", function()
             settings().style = "popstream" -- a sub-choice only means something under Popstream
             radioClick("popMode", pm)
@@ -1360,7 +1373,7 @@ local function buildStyle(y)
         subs[pm] = radio
         Options.controls["popMode_" .. pm] = radio
         Options.rows["popMode_" .. pm] = row
-        local desc = text(child, "GameFontHighlight", POPMODE_DESC[pm], LABEL_X + 48, -(ry + 24), 466)
+        local desc = text(child, "GameFontHighlight", POPMODE_DESC[pm], KILL_X + 48, -(ry + 24), 450)
         desc:SetTextColor(GREY, GREY, GREY)
         Options.descs[pm] = desc
     end
@@ -1493,12 +1506,12 @@ end
 -- time); the row helpers hang off the module-level `child`, so building a tab just points it at that tab's frame.
 -- Options.rows / controls / refreshers / resets stay global, so Refresh and the resets work on every tab. The Debug log
 -- row closes the General tab after a 12 px gap.
-local TAB_NAMES = { "General", "Sound", "Look", "Style", "Arrival" }
+local TAB_NAMES = { "General", "Sound", "Look", "Flight", "Arrival" }
 local TAB_BUILDERS = {
     General = function(y)
         return buildAdvanced(buildGeneral(y) + 12)
     end,
-    Sound = buildSound, Look = buildLook, Style = buildStyle, Arrival = buildArrival,
+    Sound = buildSound, Look = buildLook, Flight = buildFlight, Arrival = buildArrival,
 }
 local TAB_TOP, TAB_H, TAB_GAP, TAB_PAD, TAB_MIN_W = 42, 28, 4, 28, 64
 local SCROLL_TOP = TAB_TOP + TAB_H + 4

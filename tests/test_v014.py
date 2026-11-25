@@ -396,7 +396,7 @@ def test_picker_hint_fontstring(m):
 
 def test_content_height_grew_and_rows_below_moved(m):
     assert m.opt.tabHeights.General == 204 and m.opt.rows["debug"].points[1][5] == -160
-    assert m.opt.CONTENT_H == max(m.opt.tabHeights.values()) == 446
+    assert m.opt.CONTENT_H == max(m.opt.tabHeights.values()) == 430
     # the picker hint (one line) clears the shape row
     assert 78 + 30 <= 108
 
@@ -434,7 +434,7 @@ def test_footer_rule_and_reset_all_share_the_right_edge(m):
         ("glowShape_bar", "Horizontal", 260),
         ("glowShape_vertical", "Vertical", 360),
         ("glowShape_round", "Circular", 460),
-        ("style_crossfade", "Crossfade", 32),
+        ("style_crossfade", "Crossfade", 48)  # indented 16 px under the Kill style header,
     ],
 )
 def test_radio_owns_its_label_and_its_hit_rect_covers_it(m, key, name, x):

@@ -60,14 +60,14 @@ back with `/xporbs minimap on` or the "Show minimap button" option).
 | `/xporbs help` | List the commands. |
 | `/xporbs options` | Open the options panel. |
 | `/xporbs status` | Print the version, the settings that matter, and the state of each part of the addon. |
-| `/xporbs test [pct] [rested] [popstream\|crossfade\|stream] [nameplate\|direct] [smooth\|chaos\|helix]` | Fire a test burst. `pct` is the percent of a level it represents (default 5, up to 1000). `rested` colours part of it as rested. A style name overrides the saved style for this burst, `nameplate` or `direct` picks Popstream's pop, and `smooth`, `chaos` or `helix` overrides the flight style. |
+| `/xporbs test [pct] [rested] [popstream\|crossfade\|stream] [nameplate\|direct] [smooth\|chaos\|helix]` | Fire a test burst. `pct` is the percent of a level it represents (default 5, up to 1000). `rested` colours part of it as rested. A style name overrides the saved style for this burst, `nameplate` or `direct` picks Popstream's pop, and `smooth`, `chaos` or `helix` overrides the flight pathing. |
 | `/xporbs test stress [n]` | Fire `n` test bursts (default 20, up to 100) spread over about 2 seconds, to see how a big pull looks and runs. |
 | `/xporbs perf [reset]` | Print the addon's memory use, the average and worst time of an orb frame, and how much of the orb pool is in use. `reset` zeroes the frame timings. |
 | `/xporbs style popstream [nameplate\|direct]` | Set the kill style to Popstream, optionally with its pop on the nameplate or direct. With no argument, print the current style. |
 | `/xporbs style crossfade\|stream` | Set the kill style to Crossfade or Direct Stream (`stream`). The older names still work: `streampop` is Popstream (Direct), and `wide` is Popstream (Nameplate) with zoom-scaled spread on. |
 | `/xporbs shape starlight\|retro\|globe\|crackle` | Set the orb shape: `starlight` (the default), `retro`, `globe` or `crackle` (the first names `wisp` and `power` still work). Size, quantity and opacity are remembered per shape. With no argument, print the current shape. |
-| `/xporbs pulse on\|off` | Turn Globe's gentle swelling and shrinking on or off (on by default). |
-| `/xporbs path smooth\|chaos\|helix` | Set the flight style (how orbs fly): `smooth` (the default), `chaos` or `helix`. With no argument, print the current style. |
+| `/xporbs pulse on\|off` | Turn Globe's gentle swelling and shrinking on or off (off by default). |
+| `/xporbs path smooth\|chaos\|helix` | Set the flight pathing (how orbs fly): `smooth` (the default), `chaos` or `helix`. With no argument, print the current pathing. |
 | `/xporbs wide on\|off` | Turn the zoom-scaled spread on or off (on by default). |
 | `/xporbs unknown wide\|off` | Where orbs start when the mob's position is unknown: `wide` (the default) spreads them over an area that scales with camera zoom, `off` starts them at one point. |
 | `/xporbs pop on\|off` | Shortcut: `on` sets Popstream, `off` sets Direct Stream. |
@@ -78,8 +78,8 @@ back with `/xporbs minimap on` or the "Show minimap button" option).
 | `/xporbs zoomanchor on\|off` | Turn the zoom-aware anchor on or off (on by default): plate effects sit on the mob's body, using the camera zoom to work out how far below the nameplate that is. |
 | `/xporbs calib [off\|reset\|fit\|save]` | Open the anchor calibration panel: target a mob, nudge the marker onto its body, save a point, and repeat at a few zooms. `reset` restores the default curve. |
 | `/xporbs minimap on\|off` | Show or hide the minimap button. |
-| `/xporbs sound on\|off\|glass\|coin\|swish\|pixel` | Turn the arrival chime on or off (off by default), or pick its sound: `glass`, `coin`, `swish` or `pixel` (any also turns it on; the older names `glassa`, `glassb`, `brush` and `ding` still work). With no argument it shows the current state and volume. |
-| `/xporbs sound volume N` | Set the chime volume in percent, 25 to 250 in steps of 25 (default 100); plays a sample if the chime is on. |
+| `/xporbs sound on\|off\|glass\|coin\|swish\|pixel` | Turn the arrival chime on or off (on by default), or pick its sound: `glass`, `coin`, `swish` or `pixel` (any also turns it on; the older names `glassa`, `glassb`, `brush` and `ding` still work). With no argument it shows the current state and volume. |
+| `/xporbs sound volume N` | Set the chime volume in percent, 100 to 250 in steps of 25 (default 100); plays a sample if the chime is on. |
 | `/xporbs debug on\|off` | Turn the debug log on or off. |
 | `/xporbs debug maxlevel on\|off` | Pretend to be at max level until you reload, to try the max-level orbs below the cap. Never saved. |
 | `/xporbs reset` | Restore every setting to its default. |
@@ -87,9 +87,11 @@ back with `/xporbs minimap on` or the "Show minimap button" option).
 The panel has these sections, most-used first:
 
 - **General:** enable, orbs at max level, quest bursts, exploration bursts and the minimap button.
-- **Look:** orb quantity, maximum orbs per burst, orb size, orb opacity, flight time (1 s by default), trail, the orb
-  shape dropdown, pulsing, orb colour (or your class colour), rested tint and rested colour.
-- **Style:** the Flight style dropdown, the kill style and the zoom-scaled spread.
+- **Look:** orb quantity, maximum orbs per burst, orb size, orb opacity, trail, the orb shape dropdown, pulsing,
+  orb colour (or your class colour), rested tint and rested colour.
+- **Flight:** the Flight pathing dropdown, the Speed type dropdown (Constant speed, where orbs always move at the same
+  speed, or Relative speed, where they always arrive after a set time) with its Flight speed or Flight time slider,
+  the kill style and the zoom-scaled spread.
 - **Arrival:** the XP bar frame and its picker, the shape of the target frame, a landing offset, and the arrival glow
   with its intensity.
 - **Sound:** the arrival chime with its sound (Glass, Coin, Swish or Pixel) and volume.
@@ -206,7 +208,7 @@ quantity and opacity are remembered per shape: tune Retro and Starlight keeps it
 **Orb opacity** (Look section) fades every orb texture of every shape: flying orbs, pops, crossfade copies and their
 trails. The arrival glow has its own intensity setting.
 
-**Flight style** (the dropdown in Options, or `/xporbs path`): how the orbs fly to the bar, for every style. The pops and
+**Flight pathing** (the dropdown in Options, or `/xporbs path`): how the orbs fly to the bar, for every style. The pops and
 the arrival glow don't change. Hover an option in the dropdown for a short description.
 
 - **Smooth** (default): a clean curved arc.

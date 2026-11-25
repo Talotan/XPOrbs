@@ -22,7 +22,6 @@ SECTION_ORDER = [
             "opacity",
             "blend",
             "shapeExtra",
-            "flightTime",
             "trail",
             "color",
             "restedTint",
@@ -31,9 +30,11 @@ SECTION_ORDER = [
         ],
     ),
     (
-        "Style",
+        "Flight",
         [
             "flightPath",
+            "flightMode",
+            "flightSpeed",
             "style_popstream",
             "style_crossfade",
             "style_stream",
@@ -83,7 +84,7 @@ def test_content_height_fits_the_last_row_exactly(env):
     # CONTENT_H is the tallest tab
     assert row_y(m, "debug") == row_y(m, "minimap") + 28 + 12 == 160
     assert m.opt.tabHeights.General == row_y(m, "debug") + 28 + 16 == 204
-    assert m.opt.CONTENT_H == max(m.opt.tabHeights.values()) == 446
+    assert m.opt.CONTENT_H == max(m.opt.tabHeights.values()) == 430
     assert m.opt.child.height == m.opt.tabHeights.General
 
 
@@ -124,7 +125,7 @@ def test_flight_style_is_a_dropdown_like_the_voice_one(env):
     )
     assert m.lua.eval("rawequal")(m.opt.controls["flightPath"], dropdown)
     assert dropdown.points[1][4] == 260 and dropdown.width == 150
-    assert "Flight style" in texts(m) and "Kill style" in texts(m) and "Flight path" not in texts(m)
+    assert "Flight pathing" in texts(m) and "Flight style" not in texts(m) and "Kill style" in texts(m) and "Flight path" not in texts(m)
     assert selection(dropdown) == [
         ("Smooth (default)", True),
         ("Chaos", False),
@@ -251,10 +252,10 @@ def test_radios_replace_the_dropdown_when_the_template_is_missing(env):
     assert m.db.flightPath == "helix" and ctl(m, "flightPath_helix").checked
 
 
-def test_help_calls_it_flight_style(env):
+def test_help_calls_it_flight_pathing(env):
     m = build(env)
     m.slash("help")
-    assert any("flight style" in line and "/xporbs path" in line for line in m.say())
+    assert any("flight pathing" in line and "/xporbs path" in line for line in m.say())
 
 
 # ---------------------------------------------------------------- split quest / exploration bursts

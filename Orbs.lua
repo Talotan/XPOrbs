@@ -75,10 +75,11 @@ local FADE_IN_POP = 0.15 -- ... after a pop
 -- PopControl radius multiplier / upward bias for the stream after a pop (defaults 1 / 0.35)
 local POP_STREAM_SPREAD, POP_STREAM_LIFT = 0.45, 0.10
 local GHOST_STEP = 0.015 -- in p, before easing
--- Flight speed mode (db.flightMode "speed"): px per second at flightSpeed 100 % (an estimate, 100 % ~ 1 s over a typical
--- mob-to-bar flight; to be calibrated from the FLIGHT log line) and the first ghost's lag behind the orb in seconds
--- (0.015 = GHOST_STEP at a 1 s flight). Both live in SHAPES.k (refSpeed, ghostLag) so Burst, drawOrb and Shapes share them.
-local REF_SPEED, GHOST_LAG = 500, 0.015
+-- Flight speed mode (db.flightMode "speed"): px per second at flightSpeed 100 % (1000 px/s: calibrated in game so 100 %
+-- feels like the old 1 s flight time over a typical mob-to-bar flight) and the first ghost's lag behind the orb in
+-- seconds (0.015 = GHOST_STEP at a 1 s flight). Both live in SHAPES.k (refSpeed, ghostLag) so Burst, drawOrb and Shapes
+-- share them.
+local REF_SPEED, GHOST_LAG = 1000, 0.015
 local GHOST1_ALPHA, GHOST1_SIZE = 0.55, 0.85
 local GHOST2_ALPHA, GHOST2_SIZE = 0.30, 0.70
 local UNDER_K = 0.25 -- dark underlay = this fraction of the orb's own colour, so bright orbs keep their hue

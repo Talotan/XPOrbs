@@ -19,7 +19,6 @@ LOOK_ORDER = [
     "opacity",
     "blend",
     "shapeExtra",
-    "flightTime",
     "trail",
     "color",
     "restedTint",
@@ -88,11 +87,14 @@ def test_row_order(m):
     ys = [row_y(m, k) for k in LOOK_ORDER]
     assert ys[0] == 8 and ys == sorted(ys) and len(set(ys)) == len(ys)
     assert ys[1:6] == [70, 102, 134, 166, 194]
-    # the global rows are grouped: flight time + trail | colours | cap
-    assert [row_y(m, k) for k in ("flightTime", "trail", "color", "restedTint", "restedColor", "cap")] == [
-        238, 270, 306, 334, 362, 398,
+    # the global rows are grouped: trail | colours | cap (flight speed/time live on the Flight tab)
+    assert [row_y(m, k) for k in ("trail", "color", "restedTint", "restedColor", "cap")] == [
+        238, 274, 302, 330, 366,
     ]
-    assert m.opt.tabHeights.Look == 446
+    assert m.opt.tabHeights.Look == 414
+    for key in ("flightSpeed", "flightTime"):
+        assert same(m, m.opt.rows[key].createdParent, m.opt.tabChildren.Flight), key
+        assert not in_chain(m, m.opt.rows[key].createdParent, m.opt.tabChildren.Look), key
 
 
 def test_box_rows_hang_off_the_box_and_the_others_do_not(m):
@@ -132,9 +134,9 @@ def test_box_geometry_and_indented_labels(m):
     for key in ("size", "density", "opacity", "blend", "shapeExtra"):
         assert m.opt.resets[key].points[1][4] == 544, key
     assert m.opt.resets["cap"].points[1][4] == 548 and cap is not None
-    assert m.opt.resets["flightTime"].points[1][4] == 548
+    assert m.opt.resets["trail"].points[1][4] == 548
     # the box ends 10 px above the next row
-    assert row_y(m, "flightTime") == 42 + box.height + 10
+    assert row_y(m, "trail") == 42 + box.height + 10
 
 
 def test_the_box_has_the_same_height_for_every_shape(m):
@@ -142,7 +144,7 @@ def test_the_box_has_the_same_height_for_every_shape(m):
     for shape in SHAPES:
         pick(m, shape)
         heights.add(
-            (m.opt.shapeBox.height, row_y(m, "flightTime"), row_y(m, "blend"), row_y(m, "shapeExtra"))
+            (m.opt.shapeBox.height, row_y(m, "trail"), row_y(m, "blend"), row_y(m, "shapeExtra"))
         )
     assert len(heights) == 1
 

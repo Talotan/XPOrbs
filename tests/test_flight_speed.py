@@ -1,5 +1,5 @@
 """Flight speed mode (db.flightMode "speed", the default): the duration follows the length of the flight, the trail
-follows the speed, the saved-flight-time migration, the /xporbs flightmode switch and the Look tab's slider."""
+follows the speed, the saved-flight-time migration, the /xporbs flightmode switch, the Flight tab's Speed type dropdown and slider."""
 
 import re
 
@@ -7,12 +7,14 @@ import pytest
 from test_m5 import build
 from test_migration import load
 from test_p2_unknown import fire, live_recs
+from test_v013 import no_template
 from test_v09 import make
 
-REF = 500.0  # OrbShapes.k.refSpeed
+REF = 1000.0  # OrbShapes.k.refSpeed
 LAG = 0.015  # OrbShapes.k.ghostLag
 NEAR = (700, 300)
 FAR = (150, 1000)
+CORNER = (1450, 1050)  # the longest way on the test screen: 1000 px/s at 50 % only clamps past ~1250 px
 
 
 def stream(g, origin, n=1, **kw):
@@ -59,6 +61,16 @@ def test_constants_are_exposed(g):
     assert k.refSpeed == REF and k.ghostLag == LAG
 
 
+def test_100_percent_is_1000_px_per_second(g):
+    assert g.ns.OrbShapes.k.refSpeed == 1000  # was 500: the new 100 % is what 200 % used to be
+    o = stream(g, CORNER)[0]
+    assert arc(g, o) > 1000  # no clamp involved: duration = arc / 1000 exactly, ~1 s per 1000 px
+    assert o.dur == pytest.approx(arc(g, o) / 1000)
+    land(g)
+    o = stream(g, NEAR)[0]
+    assert o.dur == pytest.approx(arc(g, o) / 1000)
+
+
 def test_duration_follows_the_arc_length(g):
     near = stream(g, NEAR)[0]
     near_dur, near_arc = near.dur, arc(g, near)
@@ -85,7 +97,7 @@ def test_duration_is_clamped(g):
     )  # a very short way at the top speed
     land(g)
     g.db.flightSpeed = 50
-    far = stream(g, FAR)[0]
+    far = stream(g, CORNER)[0]
     assert arc(g, far) / (REF * 0.5) > 2.5  # the clamp is what limits it
     assert far.dur == pytest.approx(2.5)
 
@@ -119,7 +131,7 @@ def test_trail_gap_in_px_is_the_same_at_any_distance_and_scales_with_speed(g, sh
     gaps = {}
     for speed in (100, 200):
         g.db.flightSpeed = speed
-        for name, origin in (("near", (500, 450)), ("far", (300, 700))):
+        for name, origin in (("near", (300, 700)), ("far", CORNER)):
             o = stream(g, origin)[0]
             # a trail point `gap` px behind sits gap * pxToProgress of the flight back; times the arc = px along it
             gaps[speed, name] = o.pxToProgress * arc(g, o)
@@ -202,14 +214,14 @@ def test_flightmode_is_not_in_help(env):
     assert not any("flightmode" in line for line in m.say())
 
 
-# ---------------------------------------------------------------- the Look tab
+# ---------------------------------------------------------------- the Flight tab
 
 
 def row_y(m, key):
     return -m.opt.rows[key].points[1][5]
 
 
-def test_look_tab_shows_the_slider_of_the_mode(env):
+def test_flight_tab_shows_the_slider_of_the_mode(env):
     m = build(env)
     assert row_y(m, "flightSpeed") == row_y(m, "flightTime")
     m.slash("flightmode speed")
@@ -221,6 +233,68 @@ def test_look_tab_shows_the_slider_of_the_mode(env):
     assert (
         m.opt.controls.flightSpeed is not None and m.opt.controls.flightTime is not None
     )
+
+
+def test_tab_is_named_flight_and_look_has_no_flight_rows(env):
+    m = build(env)
+    assert [str(t.xpName) for t in m.opt.tabs.values()] == ["General", "Sound", "Look", "Flight", "Arrival"]
+    for key in ("flightPath", "flightMode", "flightSpeed", "flightTime"):
+        assert m.lua.eval("rawequal")(m.opt.rows[key].createdParent, m.opt.tabChildren.Flight), key
+    # pathing, speed type, the slider row, then the kill style group (header y = Options.killStyleLabelY)
+    assert [row_y(m, k) for k in ("flightPath", "flightMode", "flightSpeed")] == [8, 42, 76]
+    assert m.opt.killStyleLabelY == 112 and row_y(m, "style_popstream") == 134
+
+
+def test_kill_style_group_is_indented_under_its_header(env):
+    m = build(env)
+    for key in ("style_popstream", "style_crossfade", "style_stream"):
+        assert ctl(m, key).points[1][4] == 32 + 16 - 2, key  # radio box sits 2 px left of its x
+    for pm in ("nameplate", "direct"):
+        assert ctl(m, "popMode_" + pm).points[1][4] == 32 + 16 + 24 - 2
+        assert m.opt.descs[pm].points[1][4] == 32 + 16 + 48
+    assert m.opt.descs["crossfade"].points[1][4] == 32 + 16 + 24
+    assert ctl(m, "zoomSpread").points[1][4] != 48  # the spread checkbox is back on the label column
+    assert m.opt.descs["zoomSpread"].points[1][4] == 32
+
+
+def ctl(m, key):
+    return m.opt.controls[key]
+
+
+def test_speed_type_dropdown_sets_the_mode_and_swaps_the_slider(env):
+    m = build(env)
+    m.slash("flightmode speed")  # the shared build() harness starts in "time" mode
+    dd = m.opt.speedTypeDropdown
+    assert dd.template == "WowStyle1DropdownTemplate" and dd.points[1][4] == 260
+    assert m.db.flightMode == "speed" and m.opt.rows.flightSpeed.shown and not m.opt.rows.flightTime.shown
+    assert m.stub.pickMenu(dd, "Relative speed") is True
+    assert m.db.flightMode == "time"
+    assert m.opt.rows.flightTime.shown and not m.opt.rows.flightSpeed.shown
+    assert m.stub.pickMenu(dd, "Constant speed (default)") is True
+    assert m.db.flightMode == "speed"
+    assert m.opt.rows.flightSpeed.shown and not m.opt.rows.flightTime.shown
+
+
+def test_speed_type_reset_restores_constant_speed(env):
+    m = build(env)
+    m.slash("flightmode speed")
+    m.stub.pickMenu(m.opt.speedTypeDropdown, "Relative speed")
+    btn = m.opt.resets["flightMode"]
+    assert btn.shown
+    m.stub.click(btn)
+    assert m.db.flightMode == "speed" and not btn.shown
+    assert m.opt.rows.flightSpeed.shown and not m.opt.rows.flightTime.shown
+
+
+def test_speed_type_radio_fallback(env):
+    m = build(env, pre=no_template("WowStyle1DropdownTemplate"))
+    assert m.opt.speedTypeDropdown is None
+    m.slash("flightmode speed")
+    m.stub.click(m.opt.controls["flightMode_time"])
+    assert m.db.flightMode == "time" and m.opt.controls["flightMode_time"].checked
+    assert m.opt.rows.flightTime.shown and not m.opt.rows.flightSpeed.shown
+    m.stub.click(m.opt.controls["flightMode_speed"])
+    assert m.db.flightMode == "speed" and m.opt.rows.flightSpeed.shown and not m.opt.rows.flightTime.shown
 
 
 def test_speed_slider_writes_the_speed(env):

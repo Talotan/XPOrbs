@@ -588,7 +588,7 @@ function commands.help()
     say("  Crossfade: a pop on the nameplate, the orbs reappear just above the bar (nameplate; estimate sets the "
         .. "direction)")
     say("  stream = Direct Stream: a plain stream from the estimated mob position (no pop, no nameplate)")
-    say("/xporbs path smooth|chaos|helix - flight style: a clean arc, an erratic wobble or a spiral (no arg: show)")
+    say("/xporbs path smooth|chaos|helix - flight pathing: a clean arc, an erratic wobble or a spiral (no arg: show)")
     say("/xporbs shape starlight|retro|globe|crackle - orb shape: soft stars, pixel art, glowing globes or "
         .. "crackling orbs (no arg: show). Size, quantity and opacity are remembered per shape")
     say("/xporbs pulse on|off - Globe orbs gently swell and shrink (no arg: show)")

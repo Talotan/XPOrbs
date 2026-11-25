@@ -261,7 +261,7 @@ def test_the_opacity_slider_sits_right_after_size_with_its_range(env):
     def y(key):
         return -rows[key].points[1][5]
 
-    assert y("size") < y("density") < y("opacity") < y("flightTime")
+    assert y("size") < y("density") < y("opacity") < y("trail")
     assert y("density") - y("size") == y("opacity") - y("density") == 32
     slider = ctl(m, "opacity")
     assert (slider.minV, slider.maxV, slider.step) == (20, 100, 5)

@@ -266,9 +266,9 @@ def test_scroll_frame_exists_with_the_specified_anchors_and_content_height(m):
     ]
     assert pts[0][0] == "TOPLEFT" and (pts[0][3], pts[0][4]) == (0, -74)  # under the tab strip
     assert pts[1][0] == "BOTTOMRIGHT" and (pts[1][3], pts[1][4]) == (-28, 44)
-    # CONTENT_H is the tallest tab (Look); the scroll child's own height is that tab's
+    # CONTENT_H is the tallest tab (Flight); the scroll child's own height is that tab's
     assert o.child.width == 584 and o.child.height == o.tabHeights.General
-    assert o.CONTENT_H == max(o.tabHeights.values()) == o.tabHeights.Look
+    assert o.CONTENT_H == max(o.tabHeights.values()) == o.tabHeights.Flight
 
 
 def test_scroll_template_falls_back(env):
@@ -301,20 +301,21 @@ def test_scroll_frame_without_any_template_still_scrolls(env):
         ("soundVoice", 36),
         ("soundVolume", 64),
         ("density", 102),
-        ("cap", 398),
+        ("cap", 366),
         ("size", 70),
-        ("flightTime", 238),
-        ("trail", 270),
-        ("color", 306),
-        ("restedTint", 334),
-        ("restedColor", 362),
+        ("flightTime", 76),
+        ("flightMode", 42),
+        ("trail", 238),
+        ("color", 274),
+        ("restedTint", 302),
+        ("restedColor", 330),
         ("flightPath", 8),
-        ("style_popstream", 64),
-        ("popMode_nameplate", 106),
-        ("popMode_direct", 148),
-        ("style_crossfade", 200),
-        ("style_stream", 246),
-        ("zoomSpread", 300),
+        ("style_popstream", 134),
+        ("popMode_nameplate", 176),
+        ("popMode_direct", 218),
+        ("style_crossfade", 270),
+        ("style_stream", 316),
+        ("zoomSpread", 370),
         ("targetFrame", 8),
         ("glowShape", 108),
         ("glow", 208),
@@ -432,14 +433,14 @@ def test_style_radios_use_the_radio_template_and_each_has_a_description(m):
 def test_style_description_positions(m):
     d = m.opt.descs
     for st, y in (
-        ("popstream", 64 + 24),
-        ("crossfade", 200 + 24),
-        ("stream", 246 + 24),
+        ("popstream", 134 + 24),
+        ("crossfade", 270 + 24),
+        ("stream", 316 + 24),
     ):
         pt = d[st].points[1]
-        assert (pt[4], pt[5]) == (56, -y) and d[
+        assert (pt[4], pt[5]) == (72, -y) and d[
             st
-        ].width == 490  # flush with the label (x + 24)
+        ].width == 474  # flush with the label (x + 24), indented 16 px under Kill style
         assert [d[st].textColor[i] for i in (1, 2, 3)] == pytest.approx([0.7, 0.7, 0.7])
 
 

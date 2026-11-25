@@ -6,7 +6,7 @@ import pytest
 from test_m5 import build, ctl, show
 from test_v013 import no_template
 
-NAMES = ["General", "Sound", "Look", "Style", "Arrival"]
+NAMES = ["General", "Sound", "Look", "Flight", "Arrival"]
 N = len(NAMES)
 
 
@@ -80,7 +80,7 @@ def test_select_tab_swaps_the_child_and_resets_the_scroll(m):
 def test_clicking_a_tab_selects_it(m):
     show(m)
     m.stub.click(m.opt.tabs[4])
-    assert shown_children(m) == ["Style"]
+    assert shown_children(m) == ["Flight"]
 
 
 def test_every_control_hangs_off_a_tab_child(m):
@@ -109,7 +109,7 @@ def test_heights_and_content_h(m):
     assert o.CONTENT_H == max(h.values())
     for n in NAMES:
         assert o.tabChildren[n].height == h[n] and o.tabChildren[n].width == 584
-    assert h["General"] == 204 and h["Sound"] == 112 and h["Look"] == 446 and o.CONTENT_H == h["Look"]
+    assert h["General"] == 204 and h["Sound"] == 112 and h["Look"] == 414 and h["Flight"] == 430 and o.CONTENT_H == h["Flight"]
 
 
 def test_refresh_updates_a_control_on_a_hidden_tab(m):
@@ -192,7 +192,7 @@ def test_a_failing_template_call_is_reported_once_with_debug_on(m):
     assert not any("tab template" in line for line in m.say())
     m.db.debug = True
     m.opt.SelectTab(m.opt, "Look")
-    m.opt.SelectTab(m.opt, "Style")
+    m.opt.SelectTab(m.opt, "Flight")
     assert sum("tab template call failed" in line for line in m.say()) == 1
 
 
@@ -200,15 +200,15 @@ def test_scroll_bar_hides_when_the_tab_fits(m):
     o = m.opt
     bar = m.lua.eval("CreateFrame")("Frame")
     o.scroll.ScrollBar = bar
-    # General is 204 px tall, Style 360
+    # General is 204 px tall, Flight 430
     o.scroll.SetSize(o.scroll, 600, 500)
     o.SelectTab(o, "General")
     assert not bar.IsShown(bar)
-    o.SelectTab(o, "Style")  # 360 <= 500: still fits
+    o.SelectTab(o, "Flight")  # 430 <= 500: still fits
     assert not bar.IsShown(bar)
     o.scroll.SetSize(o.scroll, 600, 300)
     o.scroll.scripts.OnSizeChanged(o.scroll)
-    assert bar.IsShown(bar)  # 360 > 300
+    assert bar.IsShown(bar)  # 430 > 300
     o.SelectTab(o, "Sound")
     assert not bar.IsShown(bar)
     o.scroll.SetSize(o.scroll, 600, 0)  # unknown size: never hide on a guess
