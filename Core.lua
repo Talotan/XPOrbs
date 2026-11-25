@@ -25,7 +25,7 @@ ns.defaults = {
     targetFrame = nil,
     showAtMax = false, -- at max level: a small burst of orbs flies to the portrait when an engaged hostile dies
     sound = false, -- chime as orbs arrive
-    -- which chime: "glass", "glassb", "coin", "brush" or "ding" (media/chime/<volume>/<voice>1-6.ogg)
+    -- which chime: "glass", "coin", "swish" or "pixel" (media/chime/<volume>/<voice>1-6.ogg)
     soundVoice = "glass",
     soundVolume = 100, -- chime volume in percent: pre-rendered files per level, see ns.ranges and tools/make_sounds.py
     debug = false,
@@ -376,8 +376,12 @@ local function sanitize(db)
     if db.glowShape ~= "bar" and db.glowShape ~= "vertical" and db.glowShape ~= "round" then
         db.glowShape = defaults.glowShape
     end
-    if db.soundVoice ~= "glass" and db.soundVoice ~= "glassb" and db.soundVoice ~= "coin"
-        and db.soundVoice ~= "brush" and db.soundVoice ~= "ding" then
+    -- older voice names still load: glassa/glassb/brush/ding became glass/coin/swish/pixel (a saved "coin" is the
+    -- original coin, which is what coin has always meant to released versions)
+    local VOICE_ALIAS = { glassa = "glass", glassb = "coin", brush = "swish", ding = "pixel" }
+    db.soundVoice = VOICE_ALIAS[db.soundVoice] or db.soundVoice
+    if db.soundVoice ~= "glass" and db.soundVoice ~= "coin"
+        and db.soundVoice ~= "swish" and db.soundVoice ~= "pixel" then
         db.soundVoice = defaults.soundVoice
     end
     for _, key in ipairs(BOOLEANS) do
@@ -504,7 +508,7 @@ function commands.help()
     say("/xporbs help - this list")
     say("/xporbs debug on|off - toggle debug logging")
     say("/xporbs debug maxlevel on|off - pretend to be at max level (this session only)")
-    say("/xporbs sound on|off|glassa|glassb|coin|brush|ding - chime when orbs arrive (the name picks the sound)")
+    say("/xporbs sound on|off|glass|coin|swish|pixel - chime when orbs arrive (the name picks the sound)")
     say("/xporbs status - show addon state")
     say("/xporbs test [pct] [rested] [style] [smooth|chaos|helix] - fire a test burst on your target")
     say("/xporbs test stress [n] - fire n test bursts over about 2 seconds (default 20, max 100)")

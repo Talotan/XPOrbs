@@ -30,7 +30,7 @@ local FLASH_SHAPE_TEX = { bar = FLASH_TEX, vertical = FLASH_TEX_VERTICAL, round 
 -- has no per-sound volume, so each volume level (ns.ranges.soundVolume, percent) is its own pre-rendered folder, made
 -- by tools/make_sounds.py.
 local CHIME_NOTES = 6
-local CHIME_PATHS = { glass = {}, glassb = {}, coin = {}, brush = {}, ding = {} }
+local CHIME_PATHS = { glass = {}, coin = {}, swish = {}, pixel = {} }
 do
     local range = ns.ranges.soundVolume
     local lowest, highest, step = range[1], range[2], range[3]
@@ -1976,13 +1976,14 @@ function Orbs:PreviewSound(voice)
     end
 end
 
--- /xporbs sound on|off|glassa|glassb|coin|brush|ding|volume N: the arrival chime. Turning it on also clears a SOUND_ERR
--- shutdown, so it can be retried. A voice name picks the sound (and turns the chime on); "glass" is an alias of glassa
--- (voice id glass). volume N sets the volume in percent
+local SOUND_ALIAS = { glassa = "glass", glassb = "coin", brush = "swish", ding = "pixel" } -- older voice names
+-- /xporbs sound on|off|glass|coin|swish|pixel|volume N: the arrival chime. Turning it on also clears a SOUND_ERR
+-- shutdown, so it can be retried. A voice name picks the sound (and turns the chime on); the older names glassa, glassb,
+-- brush and ding still work (as glass, coin, swish and pixel). volume N sets the volume in percent
 -- (snapped to the options slider's steps) and plays a sample note if the chime is on.
 function ns.commands.sound(arg)
     local word, rest = string.match(arg or "", "^%s*(%S*)%s*(.-)%s*$")
-    local voice = word == "glassa" and "glass" or word
+    local voice = SOUND_ALIAS[word] or word
     if word == "on" or CHIME_PATHS[voice] then
         settings().sound = true
         if word ~= "on" then
@@ -2006,7 +2007,7 @@ function ns.commands.sound(arg)
             Orbs:PreviewSound(settings().soundVoice)
         end
     elseif word ~= "" then
-        ns.Print("sound: use on, off, glassa, glassb, coin, brush, ding or volume N")
+        ns.Print("sound: use on, off, glass, coin, swish, pixel or volume N")
         return
     end
     local note = soundDead and " (switched off this session: the client wouldn't play the file)" or ""

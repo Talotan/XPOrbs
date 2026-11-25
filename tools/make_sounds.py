@@ -1,34 +1,27 @@
-"""Generate the XPOrbs chime sounds: media/chime/<level>/<voice>1..6.ogg for five voices, per volume level.
+"""Generate the XPOrbs chime sounds: media/chime/<level>/<voice>1..6.ogg for four voices, per volume level.
 
-The sounds are original: five voices synthesised by this script, released under the repo's GPL-3.0-or-later like the
+The sounds are original: four voices synthesised by this script, released under the repo's GPL-3.0-or-later like the
 rest of the addon. Each voice is six files, the same sound at six slightly different pitches (a cluster of base
-frequencies around a centre, or for the ding a pentatonic set), so the addon can vary the note per orb.
+frequencies around a centre, or for the pixel voice a pentatonic set), so the addon can vary the note per orb.
 
-coin (the default): a small metal coin "ching" in a 120-cent cluster around 3.1 kHz. Six inharmonic thin-disc modes (ratios
-1, 1.59, 2.14, 2.65, 3.16, 3.50, the higher ones fading faster but not instantly), each as a pair of sines detuned by
-2-7 Hz so the ring shimmers and beats; a 1 ms attack with 3 ms of bright high-passed noise as the strike tick; and a
-second, quieter strike 45 ms later (coin settling on coin). Fundamental decay time constant 0.12 s, 0.42 s long. Loudness:
-RMS-matched to the glass voice (it rings longer and brighter than glass, so a -26 dBFS peak would sound louder).
+glass (the default): a glassy, icy "tink" within about 150 cents of 3 kHz. Four inharmonic partials (ratios 1, 2.76, 5.40,
+8.93, the higher ones fading much faster), a short noise click, no second strike, and a copy of the fundamental detuned
+by 3.5 Hz for a faint shimmer. Fundamental decay time constant 0.09 s, 0.25 s long.
 
-glass: a glassy, icy "tink" within about 150 cents of 3 kHz. Four inharmonic partials (ratios 1, 2.76, 5.40, 8.93, the
-higher ones fading much faster), a short noise click, no second strike, and a copy of the fundamental detuned by 3.5 Hz
-for a faint shimmer. Fundamental decay time constant 0.09 s, 0.25 s long.
+coin: a soft coin "clink" within about 100 cents of 1.7 kHz. Four partials (ratios 1, 1.52, 2.27, 3.11), a 1 ms attack
+with a couple of milliseconds of noise click, a softer second strike 30 ms later and a 6 Hz detuned copy of the
+fundamental. Time constant 0.07 s, 0.22 s long.
 
-glassb ("Glass B" in the options): the older coin voice, kept under a new id: a soft "clink" within about 100 cents of
-1.7 kHz. Four partials (ratios 1, 1.52, 2.27, 3.11), a 1 ms attack with a couple of milliseconds of noise click, a softer
-second strike 30 ms later and a 6 Hz detuned copy of the fundamental. Time constant 0.07 s, 0.22 s long. Owners found it
-more of a thock than a coin, hence the new coin above.
-
-brush: a soft brushed "shew" at one medium-low pitch, not a tink or a tone. White noise through a resonant 2nd-order
+swish: a soft brushed "shew" at one medium-low pitch, not a tink or a tone. White noise through a resonant 2nd-order
 band-pass (RBJ biquad, centre 480 Hz, Q 3.5) whose centre glides down from 1.2x to 0.8x of the pitch over the sound,
 plus a little (10 %) wider-band noise (Q 0.7) for air. The whole thing, air included, rises under a 34 ms raised-cosine
 attack (softer than a 20 ms one, which read as a gunshot-like hit), then decays exponentially (tau 0.08 s), 0.26 s
 long. All six files share the pitch (at most +-15 cents of jitter); the variety is a different noise seed per file
 (SEED + note number). Each file is scaled so its RMS over the whole file equals the mean RMS of the glass files, because
 noise sounds louder than a tink at the same peak, then multiplied by GAIN (2.0, +6 dB): the owner found the RMS-matched
-brush too quiet in game.
+swish too quiet in game.
 
-ding: a retro chip-style "ding" for the Retro orb style. A band-limited pulse wave (duty 25 %, built additively from
+pixel: a retro chip-style "ding" for the Retro orb style. A band-limited pulse wave (duty 25 %, built additively from
 harmonics below 18 kHz with Lanczos smoothing, so nothing aliases) that steps up a fourth (a fifth for C6) after 50 ms,
 under a stepped volume envelope quantised to 16 levels (8-bit era), 0.26 s long. The six notes are G5, C6, D6, E6, G6 and
 A6 (C major pentatonic, so any random run sounds musical); both pitches of every note stay in that scale. Pulse waves are
@@ -41,8 +34,8 @@ identical files.
 Volume: PlaySoundFile has no volume argument on this client, so every sound is pre-rendered at each level in LEVELS
 (percent of the 100 % sound, 100..250 in steps of 25; going quieter than 100 is the game's SFX slider's job) by scaling
 the samples before encoding, one folder per level: media/chime/150/glass3.ogg. 250 % stays below -6 dBFS, so nothing
-clips. Running the script also deletes the older flat media/coin1..6.ogg, media/glass1..6.ogg and media/chime1..6.ogg,
-and any level folder that is no longer in LEVELS (25, 50 and 75).
+clips. Running the script also deletes the older flat (top-level) media/coin1..6.ogg, media/glass1..6.ogg and
+media/chime1..6.ogg (never the ones inside media/chime/<level>/), and any level folder that is no longer in LEVELS (25, 50 and 75).
 
 Needs ffmpeg with libvorbis on PATH (WAVs are written to a temp dir, then encoded with `-c:a libvorbis -q:a 3`).
 
@@ -75,38 +68,13 @@ OLD_PATTERNS = (
     "chime[1-6].ogg",
     "coin[1-6].ogg",
     "glass[1-6].ogg",
-)  # older layouts, deleted on every run
+)  # older FLAT layouts (directly in --out, not recursive, so media/chime/<level>/ is safe), deleted on every run
 
 # Each tonal voice: centre pitch, the six offsets from it (cents), length, decay time constant of the fundamental,
 # (ratio, amp, decay speed-up) partials, the detuned copy of the fundamental, the second strike (BOUNCE_AMP 0 = none),
 # the strike-noise click and the level (PEAK_DBFS, or RMS_MATCH + GAIN). Optional DETUNE: per-partial Hz offsets of a
 # second sine at DETUNE_AMP x that partial's amplitude (the beating pair of a real disc's near-degenerate modes).
 VOICES = {
-    # a small metal coin "ching": bright inharmonic thin-disc modes in beating pairs, strike tick, settling second strike
-    "coin": {
-        "CENTRE": 3100.0,
-        "CENTS": [-60, -35, -10, 15, 40, 60],
-        "LENGTH": 0.42,
-        "TAU": 0.12,
-        "PARTIALS": [
-            (1.0, 1.0, 1.0),
-            (1.59, 0.70, 1.3),
-            (2.14, 0.50, 1.7),
-            (2.65, 0.36, 2.1),
-            (3.16, 0.24, 2.7),
-            (3.50, 0.16, 3.3),
-        ],
-        "DETUNE": [3.0, 4.5, 6.0, 2.5, 7.0, 5.0],
-        "DETUNE_AMP": 0.8,
-        "SHIMMER_HZ": 0.0,
-        "SHIMMER_AMP": 0.0,
-        "BOUNCE_S": 0.045,
-        "BOUNCE_AMP": 0.4,
-        "CLICK_S": 0.003,
-        "CLICK_AMP": 0.30,
-        "RMS_MATCH": "glass",
-        "GAIN": 1.0,
-    },
     "glass": {
         "CENTRE": 3000.0,
         "CENTS": [-140, -80, -30, 25, 70, 130],
@@ -126,8 +94,8 @@ VOICES = {
         "CLICK_AMP": 0.08,
         "PEAK_DBFS": -26.0,
     },
-    # "Glass B": the old coin voice, unchanged synthesis, new id
-    "glassb": {
+    # the soft coin clink (what released versions called "coin")
+    "coin": {
         "CENTRE": 1700.0,
         "CENTS": [-90, -55, -20, 15, 50, 85],
         "LENGTH": 0.22,
@@ -149,7 +117,7 @@ VOICES = {
     # noise voice: no partials. CENTRE is the band-pass pitch, SWEEP the (start, end) multiples of it, AIR the level of
     # the wide (Q 0.7) noise, ATTACK a raised-cosine attack (on narrow and air alike). Loudness is matched to
     # RMS_MATCH's mean RMS, not to a peak.
-    "brush": {
+    "swish": {
         "KIND": "noise",
         "CENTRE": 480.0,
         "CENTS": [-14, -8, -3, 4, 9, 14],
@@ -160,12 +128,12 @@ VOICES = {
         "AIR": 0.10,
         "ATTACK": 0.034,
         "RMS_MATCH": "glass",
-        # x2 (+6 dB) after the RMS match: owner found the RMS-matched brush quieter than coin/glass in game
+        # x2 (+6 dB) after the RMS match: owner found the RMS-matched swish quieter than coin/glass in game
         "GAIN": 2.0,
     },
     # chip voice: a band-limited pulse (or triangle) wave, FREQS the six base pitches (C major pentatonic), STEP_RATIOS
     # the pitch multiple each note jumps to after STEP_S (None = no step), LEVELS the envelope quantisation.
-    "ding": {
+    "pixel": {
         "KIND": "chip",
         "FREQS": [783.99, 1046.50, 1174.66, 1318.51, 1567.98, 1760.00],
         "STEP_RATIOS": [4 / 3, 3 / 2, 4 / 3, 4 / 3, 4 / 3, 4 / 3],
@@ -184,30 +152,24 @@ VOICES = {
 
 # Audition variants for --candidates: name -> (voice, overrides of that voice). The shipped voice is first of each group.
 CANDIDATES = {
-    "brush-B-original": (
-        "brush",
+    "swish-original": (
+        "swish",
         {
             "ATTACK": 0.020,
             "SWEEP": (1.3, 0.8),
             "AIR": 0.15,
         },
     ),
-    "brush-B-soft": ("brush", {}),
-    "brush-B-softer": (
-        "brush",
+    "swish-soft": ("swish", {}),
+    "swish-softer": (
+        "swish",
         {"ATTACK": 0.045, "SWEEP": (1.15, 0.8), "AIR": 0.07},
     ),
-    "coin-ching": ("coin", {}),
-    "coin-bright": (
-        "coin",
-        {"CENTRE": 3800.0, "LENGTH": 0.30, "TAU": 0.09},
-    ),
-    "coin-double": ("coin", {"BOUNCE_AMP": 0.75, "BOUNCE_S": 0.05}),
-    "old-coin": ("glassb", {}),
-    "ding-step": ("ding", {}),
-    "ding-plain": ("ding", {"STEP_RATIOS": [None] * 6}),
-    "ding-soft": (
-        "ding",
+    "coin-clink": ("coin", {}),
+    "pixel-step": ("pixel", {}),
+    "pixel-plain": ("pixel", {"STEP_RATIOS": [None] * 6}),
+    "pixel-soft": (
+        "pixel",
         {
             "WAVE": "triangle",
             "STEP_RATIOS": [None] * 6,
@@ -279,7 +241,7 @@ def _bandpass(x: float, state: list[float], freq: float, q: float) -> float:
 
 
 def _noise_raw(freq: float, v: dict, seed: int) -> list[float]:
-    """The brush: swept band-pass noise (plus a little wide noise) under a soft attack and exponential decay."""
+    """The swish: swept band-pass noise (plus a little wide noise) under a soft attack and exponential decay."""
     rng = random.Random(seed)
     n = int(RATE * v["LENGTH"])
     attack_n = int(RATE * v["ATTACK"])
@@ -299,7 +261,7 @@ def _noise_raw(freq: float, v: dict, seed: int) -> list[float]:
 
 
 def _tone_raw(freq: float, v: dict) -> list[float]:
-    """The ringing voices (coin, glass): inharmonic partials plus a short noise click per strike."""
+    """The ringing voices (glass, coin): inharmonic partials plus a short noise click per strike."""
     rng = random.Random(SEED)
     n = int(RATE * v["LENGTH"])
     click_n = int(RATE * v["CLICK_S"])
@@ -329,7 +291,7 @@ def _tone_raw(freq: float, v: dict) -> list[float]:
 
 
 def _chip_raw(freq: float, v: dict, index: int) -> list[float]:
-    """The ding: a band-limited pulse (or triangle) wave with an optional pitch step and a quantised envelope.
+    """The pixel voice: a band-limited pulse (or triangle) wave with an optional pitch step and a quantised envelope.
 
     The wave is a sum of harmonics below LIMIT_HZ at the current pitch (each damped by a Lanczos sigma factor against
     Gibbs ripple), with a continuous phase across the pitch step. The volume holds, then falls along (1 - u)^CURVE and is
@@ -372,7 +334,7 @@ _reference_cache: dict[str, float] = {}
 
 
 def reference_rms(voice: str) -> float:
-    """Mean RMS (full scale = 1.0, at 100 %) of a tonal voice's six files over their whole length; the brush is matched to it."""
+    """Mean RMS (full scale = 1.0, at 100 %) of a tonal voice's six files over their whole length; the swish and pixel voices are matched to it."""
     if voice not in _reference_cache:
         v = VOICES[voice]
         values = []
@@ -385,12 +347,12 @@ def reference_rms(voice: str) -> float:
 
 
 def synth(
-    freq: float, voice: str | dict = "coin", level: int = 100, index: int | None = None
+    freq: float, voice: str | dict = "glass", level: int = 100, index: int | None = None
 ) -> list[int]:
     """One sound of a voice as 16-bit samples (deterministic), level percent of the 100 % amplitude.
 
     voice is a VOICES key (or a voice dict, for --candidates). index (the 0-based note number) picks the noise seed of
-    the brush and the pitch step of the ding; if omitted it is looked up from freq among the voice's notes (0 if it is
+    the swish and the pitch step of the pixel voice; if omitted it is looked up from freq among the voice's notes (0 if it is
     not one of them). Voices with RMS_MATCH are scaled to that voice's mean RMS (times GAIN), the others to PEAK_DBFS.
     """
     v = _voice(voice)
@@ -471,7 +433,7 @@ def render_candidates(out: Path) -> None:
     )
     lines.append("")
     rng = random.Random(7)
-    for voice in ("coin", "glassb", "glass", "brush", "ding"):
+    for voice in ("glass", "coin", "swish", "pixel"):
         order = list(range(6))
         rng.shuffle(order)
         write_wav(out / f"{voice}-burst.wav", burst(voice, order))
