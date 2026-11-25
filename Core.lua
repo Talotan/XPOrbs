@@ -13,7 +13,9 @@ ns.defaults = {
     cap = 40,
     size = 14,
     opacity = 100, -- orb opacity in % (every orb texture except the arrival flash)
-    flightTime = 1.0,
+    flightTime = 1.0, -- seconds; used when flightMode is "time"
+    flightMode = "speed", -- "speed" (orbs fly at a constant speed, so a longer way takes longer) or "time" (a fixed time)
+    flightSpeed = 100, -- % of Orbs.lua's reference speed; used when flightMode is "speed"
     -- the Forever XP bar is purple (blue when rested); orbs are additive, so these are full-brightness versions
     color = { 0.72, 0.28, 1.00 },
     classColor = false, -- true: normal (non-rested) orbs use the player's class colour instead of `color`
@@ -83,6 +85,7 @@ ns.ranges = {
     size = { 8, 32, 1 },
     opacity = { 20, 100, 5 },
     flightTime = { 0.4, 1.5, 0.05 },
+    flightSpeed = { 50, 250, 10 },
     glowOffsetX = { -100, 100, 1 },
     glowOffsetY = { -100, 100, 1 },
     glowIntensity = { 25, 200, 5 },
@@ -378,6 +381,9 @@ local function sanitize(db)
     if db.popMode ~= "nameplate" and db.popMode ~= "direct" then
         db.popMode = defaults.popMode
     end
+    if db.flightMode ~= "speed" and db.flightMode ~= "time" then
+        db.flightMode = defaults.flightMode
+    end
     if not ns.PATH_LABEL[db.flightPath] then
         db.flightPath = defaults.flightPath
     end
@@ -490,6 +496,16 @@ local function migrateLook(db)
     db.lookRev = LOOK_REV
 end
 
+-- A save that has a flight time but no flight speed gets the speed that flies the same typical way in that time
+-- (100 % = 1 s, see Orbs.lua REF_SPEED), once. Runs before deepFill so the missing speed isn't filled with 100 first.
+local function migrateFlightSpeed(db)
+    if db.flightSpeed == nil and type(db.flightTime) == "number" and db.flightTime > 0 then
+        local r = ns.ranges.flightSpeed
+        local speed = math.floor(100 / db.flightTime / r[3] + 0.5) * r[3]
+        db.flightSpeed = math.max(r[1], math.min(r[2], speed))
+    end
+end
+
 function ns:InitDB()
     if type(XPOrbsDB) ~= "table" then
         XPOrbsDB = {}
@@ -505,6 +521,7 @@ function ns:InitDB()
         XPOrbsDB.exploreBursts = XPOrbsDB.questBursts
     end
     migrateLook(XPOrbsDB)
+    migrateFlightSpeed(XPOrbsDB)
     deepFill(XPOrbsDB, ns.defaults)
     sanitize(XPOrbsDB)
     -- a save from a newer addon version keeps its number (stamping it down would make the next upgrade re-migrate)

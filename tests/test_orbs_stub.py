@@ -10,6 +10,7 @@ def m2(env):
     env.load_addon()
     env.ns.fire("ADDON_LOADED", "XPOrbs")
     env.ns.stub.makeBar("MainStatusTrackingBarContainer", 400, 20, 800, 10, True)
+    env.G.XPOrbsDB.flightMode = "time"  # these tests assume a fixed flight time
     env.orbs = env.ns.Orbs
     env.stub = env.ns.stub
     env.slash = env.G.SlashCmdList.XPORBS

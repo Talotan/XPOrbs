@@ -158,7 +158,8 @@ local function behind(orb, progress, gap, dx, dy, control2X, control2Y, orbX, or
     if orb.group and progress < orb.fadeIn then
         return orbX - orb.ux * gap, orbY - orb.uy * gap, 1, 1
     end
-    local earlier = progress - gap / max(orb.flightDist, 60)
+    -- speed mode: the px gap is a time at the reference speed (orb.pxToProgress, set at spawn); else a share of the way
+    local earlier = progress - (orb.pxToProgress and gap * orb.pxToProgress or gap / max(orb.flightDist, 60))
     if earlier <= 0 then
         return nil
     end

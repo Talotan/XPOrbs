@@ -1249,7 +1249,18 @@ end
 local function buildLook(y)
     y = choiceRow(SHAPE_DROPDOWN, y)
     y = buildShapeBox(y)
+    -- both flight rows sit at the same y; the one matching db.flightMode is shown (/xporbs flightmode switches it)
+    slider(y, "flightSpeed", "Flight speed", "%d%%", "%")
     slider(y, "flightTime", "Flight time", "%.2f s", " s")
+    postRefresh[#postRefresh + 1] = function()
+        local speed = settings().flightMode ~= "time"
+        local show, hide = Options.rows.flightSpeed, Options.rows.flightTime
+        if not speed then
+            show, hide = hide, show
+        end
+        show:Show()
+        hide:Hide()
+    end
     y = y + 32
     checkbox(y, "trail", "Trail")
     y = y + 28 + GROUP_GAP

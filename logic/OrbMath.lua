@@ -117,6 +117,20 @@ function OrbMath.HomeControl(c1x, c1y, dx, dy, dist0, bowX, bowY)
     return dx + acrossX * across + bowX * 0.30 * dist0, dy + acrossY * across + bowY * 0.30 * dist0
 end
 
+-- Approximate length of an orb's flight curve (px): the mean of the chord and the control polygon, the usual cheap
+-- estimate for a Bezier. Start (x0, y0), first control point (c1x, c1y), destination (dx, dy); the second control
+-- point is HomeControl's, kept on screen like the renderer does (screen w x h, margin; both optional). dist0 is the
+-- start-to-destination distance and (bowX, bowY) the bow direction (see HomeControl).
+function OrbMath.ArcLength(x0, y0, c1x, c1y, dx, dy, dist0, bowX, bowY, w, h, margin)
+    local c2x, c2y = OrbMath.HomeControl(c1x, c1y, dx, dy, dist0, bowX, bowY)
+    c2x, c2y = OrbMath.ClampToScreen(c2x, c2y, w, h, margin or 0, dx, dy)
+    local function seg(ax, ay, bx, by)
+        return sqrt((bx - ax) * (bx - ax) + (by - ay) * (by - ay))
+    end
+    local chord = seg(x0, y0, dx, dy)
+    return (chord + seg(x0, y0, c1x, c1y) + seg(c1x, c1y, c2x, c2y) + seg(c2x, c2y, dx, dy)) / 2
+end
+
 -- Pop ease: fast start (ease-out half, weight w) blended with a slow-in finish (ease-in half, weight 1 - w).
 -- p is progress 0..1 (clamped). w defaults to 0.5 (launch slope 1.5); crossfade uses a smaller w for a gentler launch.
 function OrbMath.PopEase(p, w)

@@ -20,6 +20,7 @@ def make(env, probe=False, fixed_random=True, trail=False):
     g.stub.makeBar("MainStatusTrackingBarContainer", 400, 20, 800, 10, True)
     g.orbs = env.ns.Orbs
     g.db.trail = trail
+    g.db.flightMode = "time"  # these tests assume a fixed flight time, not a flight speed
     g.slash = env.G.SlashCmdList.XPORBS
     return g
 

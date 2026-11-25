@@ -25,6 +25,7 @@ def build(env, settings=True, colorpicker=True, mouse_foci=True, pre=None):
     env.db = env.G.XPOrbsDB
     env.db.zoomAnchor, env.db.zoomA, env.db.zoomB, env.db.zoomMin = False, 10, 500, 2  # old anchor, see Game
     env.db.unknownOrigin = "off"
+    env.db.flightMode = "time"  # tests assume a fixed flight time, not a flight speed
     env.opt = env.ns.Options
     env.orbs = env.ns.Orbs
     env.slash = env.G.SlashCmdList.XPORBS

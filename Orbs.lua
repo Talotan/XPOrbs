@@ -75,6 +75,10 @@ local FADE_IN_POP = 0.15 -- ... after a pop
 -- PopControl radius multiplier / upward bias for the stream after a pop (defaults 1 / 0.35)
 local POP_STREAM_SPREAD, POP_STREAM_LIFT = 0.45, 0.10
 local GHOST_STEP = 0.015 -- in p, before easing
+-- Flight speed mode (db.flightMode "speed"): px per second at flightSpeed 100 % (an estimate, 100 % ~ 1 s over a typical
+-- mob-to-bar flight; to be calibrated from the FLIGHT log line) and the first ghost's lag behind the orb in seconds
+-- (0.015 = GHOST_STEP at a 1 s flight). Both live in SHAPES.k (refSpeed, ghostLag) so Burst, drawOrb and Shapes share them.
+local REF_SPEED, GHOST_LAG = 500, 0.015
 local GHOST1_ALPHA, GHOST1_SIZE = 0.55, 0.85
 local GHOST2_ALPHA, GHOST2_SIZE = 0.30, 0.70
 local UNDER_K = 0.25 -- dark underlay = this fraction of the orb's own colour, so bright orbs keep their hue
@@ -196,7 +200,8 @@ XF_PROFILE.sp = SP_PROFILE -- reached through XF_PROFILE from Burst, which canno
 -- of one orb, no trail; size is db.size scaled, never GLOW; grow, when given (a pop or bloom), is 0.4..1 of the flight
 -- size, see SHAPES.grow) and optionally trail(...), see Shapes.lua. `st` is the
 -- table holding the orb's shape state: the orb record, or a per-slot table of a pop group.
-local SHAPES = { by = {}, host = {}, k = { glow = GLOW, ghostStep = GHOST_STEP, ghost1Alpha = GHOST1_ALPHA,
+local SHAPES = { by = {}, host = {}, k = { glow = GLOW, ghostStep = GHOST_STEP, refSpeed = REF_SPEED,
+    ghostLag = GHOST_LAG, ghost1Alpha = GHOST1_ALPHA,
     ghost1Size = GHOST1_SIZE, ghost2Alpha = GHOST2_ALPHA, ghost2Size = GHOST2_SIZE, underK = UNDER_K,
     sparkleWhite = SPARKLE_WHITE, extras = EXTRAS, underSize = UNDER_SIZE, underAlpha = UNDER_ALPHA,
     sparkle = SPARKLE, sparkleAlpha = SPARKLE_ALPHA, restedSize = RESTED_SIZE } }
@@ -735,7 +740,8 @@ local function drawOrb(orb, progress, dx, dy)
         orb.spark:SetRotation(orb.startRotation + TWO_PI * (orb.elapsed - orb.delay))
     end
     if orb.ghost1 then
-        local ghostProgress = progress - GHOST_STEP
+        local ghostStep = orb.ghostStep or GHOST_STEP -- speed mode: a fixed lag in seconds (set at spawn)
+        local ghostProgress = progress - ghostStep
         if group and progress < fadeIn then
             -- crossfade B fading in: the ghosts sit behind it along -u, so it arrives "from" the implied path
             local profile = orb.profile
@@ -753,7 +759,7 @@ local function drawOrb(orb, progress, dx, dy)
         else
             hideTex(orb.ghost1)
         end
-        ghostProgress = progress - 2 * GHOST_STEP
+        ghostProgress = progress - 2 * ghostStep
         if ghostProgress > 0 then
             local ghostX, ghostY, ghostSizeMul, ghostAlphaMul = flightPoint(orb, ghostProgress, dx, dy, control2X,
                 control2Y)
@@ -1416,6 +1422,9 @@ function Orbs:Burst(params)
         n, nPurple, scale = shape.adjust(n, nPurple, scale)
         flightTime = flightTime * shape.timeMul
     end
+    -- speed mode: px per second for the whole burst (nil = fixed flight time); a shape's time multiplier slows it
+    XF_PROFILE.flightSpeed = config.flightMode == "speed"
+        and XF_PROFILE.shapes.k.refSpeed * config.flightSpeed / 100 / (shape and shape.timeMul or 1) or nil
     local x, y = params.x, params.y
     local style = ns.RenderStyle(params.style or config.style, params.popMode or config.popMode)
     if params.kind == "other" then
@@ -1638,8 +1647,25 @@ function Orbs:Burst(params)
             if pathJitterLow then
                 jitterLow, jitterSpan = pathJitterLow, pathJitterSpan -- a helix's strands keep their spacing
             end
-            orb.dur = max(MIN_DUR,
-                flightTime * (orb.group and flightScale or 1) * (jitterLow + random() * jitterSpan))
+            local flightSpeed, baseDur = XF_PROFILE.flightSpeed, flightTime
+            local arcLen = nil
+            if flightSpeed or (i == 1 and config.debug) then
+                arcLen = OrbMath.ArcLength(orb.x0, orb.y0, orb.control1X, orb.control1Y, dx, dy, orb.flightDist, bowX,
+                    bowY, orb.screenW, orb.screenH, orb.clampMargin)
+            end
+            if flightSpeed then
+                baseDur = math.min(2.5, math.max(0.35, arcLen / flightSpeed))
+            end
+            baseDur = baseDur * (orb.group and flightScale or 1)
+            orb.dur = max(MIN_DUR, baseDur * (jitterLow + random() * jitterSpan))
+            if i == 1 then
+                ns:Log("FLIGHT mode=%s dist=%d dur=%.2f", flightSpeed and "speed" or "time", floor((arcLen or 0) + 0.5),
+                    baseDur)
+            end
+            -- the trail follows the flight: in speed mode it is a lag in seconds (Starlight ghosts) or a px gap at the
+            -- reference speed (Retro, Globe), so it is as long at any distance and longer when faster
+            orb.ghostStep = flightSpeed and XF_PROFILE.shapes.k.ghostLag / orb.dur or nil
+            orb.pxToProgress = flightSpeed and 1 / (XF_PROFILE.shapes.k.refSpeed * orb.dur) or nil
             orb.elapsed = 0
             orb.fadeIn = fadeIn -- plate-copy orbs fade in during the hold (profile.fadeIn); crossfade's B over bFade
             if orb.group then
@@ -2042,6 +2068,21 @@ function ns.commands.style(arg)
         refreshPanel()
     end
     ns.Print("kill style: " .. ns.StyleLabel(settings()))
+end
+
+-- /xporbs flightmode time|speed: debug switch between a fixed flight time and a flight speed (db.flightMode); not in
+-- /xporbs help. No argument shows the current mode.
+function ns.commands.flightmode(arg)
+    local word = string.match(arg or "", "^%s*(%S*)")
+    if word ~= "" then
+        if word ~= "time" and word ~= "speed" then
+            ns.Print("flightmode: use time or speed (now " .. tostring(settings().flightMode) .. ")")
+            return
+        end
+        settings().flightMode = word
+        refreshPanel()
+    end
+    ns.Print("flight mode: " .. tostring(settings().flightMode))
 end
 
 -- /xporbs path smooth|chaos|helix: how orbs fly (db.flightPath). No argument shows the current one.
