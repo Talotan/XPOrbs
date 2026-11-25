@@ -1,5 +1,7 @@
 """Options panel tabs: one child frame per section under a tab strip, one shared scroll frame."""
 
+import itertools
+
 import pytest
 from test_m5 import build, ctl, show
 from test_v013 import no_template
@@ -27,7 +29,7 @@ def test_five_tabs_in_order_sized_to_their_labels(m):
     assert o.tabTemplate == "PanelTopTabButtonTemplate"
     tabs = [o.tabs[i] for i in range(1, N + 1)]
     assert tabs[0].xpX == 16 and all(t.xpW >= 64 for t in tabs)
-    for prev, nxt in zip(tabs, tabs[1:]):
+    for prev, nxt in itertools.pairwise(tabs):
         assert nxt.xpX == prev.xpX + prev.xpW + 4  # 4 px gap, anchored to the previous tab's right edge
         assert nxt.points[1][2] is not None and nxt.points[1][3] == "TOPRIGHT" and nxt.points[1][4] == 4
     assert tabs[-1].xpX + tabs[-1].xpW <= 16 + 552
@@ -92,7 +94,7 @@ def test_every_control_hangs_off_a_tab_child(m):
             node = node.createdParent
             seen += 1
         assert node is not None and any(same(m, node, c) for c in children), key
-    for key in m.opt.rows.keys():
+    for key in m.opt.rows:
         node = m.opt.rows[key].createdParent
         seen = 0
         while node is not None and seen < 20 and not any(same(m, node, c) for c in children):

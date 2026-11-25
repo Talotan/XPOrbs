@@ -264,7 +264,7 @@ def test_retro_calls_it_pixel_size_with_a_hint(m):
 
 def test_the_size_slider_follows_the_shape(m):
     s = ctl(m, "size")
-    text = lambda: str(m.opt.valueTexts["size"].text)  # noqa: E731
+    text = lambda: str(m.opt.valueTexts["size"].text)
     assert (s.minV, s.maxV, s.step) == (8, 32, 1) and text() == "14"
     pick(m, "retro")
     assert (s.minV, s.maxV, s.step) == (1, 7, 1) and text() == "2 px" and s.value == 2
