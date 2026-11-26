@@ -51,7 +51,12 @@ def test_the_slash_command_still_takes_the_old_names(env):
 
 def test_the_labels_and_order(env):
     m = build(env)
-    assert [str(m.ns.SHAPE_ORDER[i]) for i in range(1, 5)] == SHAPES
+    assert [str(m.ns.SHAPE_ORDER[i]) for i in range(1, 5)] == [
+        "starlight",
+        "bubble",
+        "retro",
+        "crackle",
+    ]
     assert [str(m.ns.SHAPE_LABEL[s]) for s in SHAPES] == [
         "Starlight",
         "Retro",

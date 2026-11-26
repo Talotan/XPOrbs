@@ -259,12 +259,17 @@ def test_class_colour_checkbox_refreshes_from_the_db(m):
 def test_scroll_frame_exists_with_the_specified_anchors_and_content_height(m):
     o = m.opt
     assert o.scrollTemplate == "ScrollFrameTemplate"
-    assert raw(m)(o.scroll.scrollChild, o.child) and raw(m)(o.child, o.tabChildren.General)
+    assert raw(m)(o.scroll.scrollChild, o.child) and raw(m)(
+        o.child, o.tabChildren.General
+    )
     pts = [
         [p[i] for i in (1, 2, 3, 4, 5)]
         for p in (o.scroll.points[1], o.scroll.points[2])
     ]
-    assert pts[0][0] == "TOPLEFT" and (pts[0][3], pts[0][4]) == (0, -74)  # under the tab strip
+    assert pts[0][0] == "TOPLEFT" and (pts[0][3], pts[0][4]) == (
+        0,
+        -74,
+    )  # under the tab strip
     assert pts[1][0] == "BOTTOMRIGHT" and (pts[1][3], pts[1][4]) == (-28, 44)
     # CONTENT_H is the tallest tab (Flight); the scroll child's own height is that tab's
     assert o.child.width == 584 and o.child.height == o.tabHeights.General
@@ -325,7 +330,11 @@ def test_scroll_frame_without_any_template_still_scrolls(env):
 )
 def test_row_positions_follow_the_spec(m, key, y):
     pt = m.opt.rows[key].points[1]
-    assert (pt[1], pt[4], pt[5]) == ("TOPLEFT", 0, -y)  # y is per tab: every tab's first row is at 8
+    assert (pt[1], pt[4], pt[5]) == (
+        "TOPLEFT",
+        0,
+        -y,
+    )  # y is per tab: every tab's first row is at 8
     assert any(raw(m)(pt[2], c) for c in m.opt.tabChildren.values())
 
 
@@ -369,7 +378,9 @@ def test_labels_are_in_the_label_column_controls_in_the_control_column(m):
 def test_the_title_is_fixed_and_the_footer_buttons_are_on_the_panel(m):
     b = buttons(m)
     assert set(b) >= {"Reset all to default", "Pick XP bar frame"}
-    assert "Test Kill" not in b  # it moved under the Test target window (Preview.lua) until the panel is shown
+    assert (
+        "Test Kill" not in b
+    )  # it moved under the Test target window (Preview.lua) until the panel is shown
     assert raw(m)(b["Reset all to default"].createdParent, m.opt.panel)
     assert (b["Reset all to default"].width, b["Reset all to default"].height) == (
         160,
@@ -380,7 +391,11 @@ def test_the_title_is_fixed_and_the_footer_buttons_are_on_the_panel(m):
 
 def test_label_rename(m):
     texts = panel_texts(m)
-    assert "Orb quantity" in texts and "Orb quantity multiplier" not in texts and "Orb multiplier" not in texts
+    assert (
+        "Orb quantity multiplier" in texts
+        and "Orb quantity" not in texts
+        and "Orb multiplier" not in texts
+    )
     for t in (
         "Enabled",
         "Trail",
@@ -404,7 +419,9 @@ def test_label_rename(m):
 
 
 def test_style_radios_use_the_radio_template_and_each_has_a_description(m):
-    descs = {st: m.opt.descs[st] for st in ("popstream", "crossfade", "stream", "nameplate")}
+    descs = {
+        st: m.opt.descs[st] for st in ("popstream", "crossfade", "stream", "nameplate")
+    }
     texts = {st: d.text for st, d in descs.items()}
     assert texts == {
         "popstream": "A pop of orbs at the mob, then a stream to the bar. Pick where it pops:",
@@ -438,9 +455,9 @@ def test_style_description_positions(m):
         ("stream", 192 + 24),
     ):
         pt = d[st].points[1]
-        assert (pt[4], pt[5]) == (72 - 32, -y) and d[
-            st
-        ].width == 474  # flush with the label (x + 24), inside the kill style box; coordinates are box-relative
+        assert (
+            (pt[4], pt[5]) == (72 - 32, -y) and d[st].width == 474
+        )  # flush with the label (x + 24), inside the kill style box; coordinates are box-relative
         assert [d[st].textColor[i] for i in (1, 2, 3)] == pytest.approx([0.7, 0.7, 0.7])
 
 
@@ -467,7 +484,9 @@ def test_glow_shape_radios(m):
     )  # clicking the selected one keeps it selected
     assert ctl(m, "glowShape_round").checked
     m.stub.hover(ctl(m, "glowShape_bar"))  # the shape descriptions are tooltips now
-    assert "fill edge" in str(m.stub.tooltip.text) or "Horizontal" in str(m.stub.tooltip.text)
+    assert "fill edge" in str(m.stub.tooltip.text) or "Horizontal" in str(
+        m.stub.tooltip.text
+    )
     # C3: the third radio, in the order Horizontal, Vertical, Circular
     assert ctl(m, "glowShape_vertical").template == "UIRadioButtonTemplate"
     m.stub.click(ctl(m, "glowShape_vertical"))
@@ -488,7 +507,11 @@ def test_rested_colour_dims_with_rested_tint(m):
     m.stub.click(ctl(m, "restedTint"))
     assert m.db.restedTint is False
     # only the swatch dims: the row's label and tickbox stay bright (they turn it back on)
-    assert sw.alpha == pytest.approx(0.35) and not sw.IsEnabled(sw) and row.alpha in (None, 1)
+    assert (
+        sw.alpha == pytest.approx(0.35)
+        and not sw.IsEnabled(sw)
+        and row.alpha in (None, 1)
+    )
     m.stub.click(ctl(m, "restedTint"))
     assert sw.alpha == 1 and sw.IsEnabled(sw)
 

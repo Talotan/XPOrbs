@@ -1470,7 +1470,8 @@ local function buildShapeBox(y)
             return isRetro() and PIXEL_TIP or nil
         end,
     })
-    slider(ry + 32, "density", "Orb quantity", "%d%%", "%", nil, { labelX = BOX_LABEL_X, resetX = BOX_RESET_X })
+    slider(ry + 32, "density", "Orb quantity multiplier", "%d%%", "%", nil,
+        { labelX = BOX_LABEL_X, resetX = BOX_RESET_X })
     slider(ry + 64, "opacity", "Orb opacity", "%d%%", "%", nil, { labelX = BOX_LABEL_X, resetX = BOX_RESET_X })
     blendRow(ry + 96)
     extraRow(ry + 126)

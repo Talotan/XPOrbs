@@ -2156,14 +2156,14 @@ function ns.commands.path(arg)
     ns.Print("flight pathing: " .. (ns.PATH_LABEL[settings().flightPath] or "Smooth"))
 end
 
--- /xporbs shape starlight|retro|bubble|crackle: how the orbs are drawn (db.orbShape; the old names power and wisp still
+-- /xporbs shape starlight|bubble|retro|crackle: how the orbs are drawn (db.orbShape; the old names power and wisp still
 -- work). Size, quantity and opacity are remembered per shape (ns.SetOrbShape). No argument shows the current one.
 function ns.commands.shape(arg)
     local word = string.match(arg or "", "^%s*(%S*)")
     if word ~= "" then
         settings()
         if not ns.SetOrbShape(word) then
-            ns.Print("shape: use starlight, retro, bubble or crackle")
+            ns.Print("shape: use starlight, bubble, retro or crackle")
             return
         end
         refreshPanel()

@@ -50,7 +50,9 @@ def art_ok(tex, expected):
 
 def set_shape(g, shape):
     g.db.orbShape = shape
-    if shape == "retro" and g.db.size > 5:  # Retro's size is px per art pixel (1..5), not an orb size
+    if (
+        shape == "retro" and g.db.size > 5
+    ):  # Retro's size is px per art pixel (1..5), not an orb size
         g.db.size = 2
 
 
@@ -111,7 +113,7 @@ def test_slash_shape_sets_prints_and_rejects(env):
     m.slash("shape bogus")
     assert (
         m.db.orbShape == "retro"
-        and "shape: use starlight, retro, bubble or crackle" in m.say()[-1]
+        and "shape: use starlight, bubble, retro or crackle" in m.say()[-1]
     )
 
 
@@ -119,7 +121,7 @@ def test_help_and_status_mention_the_shape(env):
     m = build(env)
     m.slash("help")
     assert any(
-        "/xporbs shape" in line and "starlight|retro|bubble|crackle" in line
+        "/xporbs shape" in line and "starlight|bubble|retro|crackle" in line
         for line in m.say()
     )
     m.db.orbShape = "bubble"
@@ -149,16 +151,19 @@ def test_orb_shape_dropdown_in_the_look_section(env):
     assert "Orb shape" in texts(m)
     assert selection(dropdown) == [
         ("Starlight (default)", True),
-        ("Retro", False),
         ("Bubble", False),
+        ("Retro", False),
         ("Crackle", False),
     ]
+
     def y(key):
         return -m.opt.rows[key].points[1][5]
 
     assert y("orbShape") < y("pulse") < y("trail") < y("color")
     # the Look and Style sections are separate tabs now (Look first): the dropdown lives on Look's child
-    assert m.lua.eval("rawequal")(m.opt.rows["orbShape"].createdParent, m.opt.tabChildren.Look)
+    assert m.lua.eval("rawequal")(
+        m.opt.rows["orbShape"].createdParent, m.opt.tabChildren.Look
+    )
 
 
 def test_picking_a_shape_saves_it_and_shows_the_reset(env):
@@ -168,7 +173,7 @@ def test_picking_a_shape_saves_it_and_shows_the_reset(env):
     assert not btn.shown
     assert m.stub.pickMenu(m.opt.shapeDropdown, "Bubble") is True
     assert m.db.orbShape == "bubble" and btn.shown
-    assert [s for _, s in selection(m.opt.shapeDropdown)] == [False, False, True, False]
+    assert [s for _, s in selection(m.opt.shapeDropdown)] == [False, True, False, False]
     m.stub.click(btn)
     assert m.db.orbShape == "starlight" and not btn.shown
     assert selection(m.opt.shapeDropdown)[0][1] is True
@@ -238,7 +243,9 @@ def test_flying_orbs_wear_their_shapes_art(env, shape):
     recs = flying(g)
     assert len(recs) == 3
     for o in recs:
-        assert art_ok(o.under, under) and art_ok(o.body, body) and art_ok(o.spark, spark)
+        assert (
+            art_ok(o.under, under) and art_ok(o.body, body) and art_ok(o.spark, spark)
+        )
         if shape == "retro":
             assert (
                 o.ghost1.calls["SetColorTexture"] and o.ghost2.calls["SetColorTexture"]
@@ -273,7 +280,9 @@ def test_crossfade_copies_a_and_b_wear_their_shapes_art(env, shape):
     a = [t for t in pop_textures(g) if t.shown]
     assert any(art_ok(t, body) for t in a) and any(art_ok(t, under) for t in a)
     g.tick(0.05, 12)  # A has left; copy B is flying
-    b = [t for t in b_orbs(g) if t.calls["SetTexture"]]  # (Retro's trail squares have no art)
+    b = [
+        t for t in b_orbs(g) if t.calls["SetTexture"]
+    ]  # (Retro's trail squares have no art)
     assert b and all(art_ok(t, body) for t in b)
     assert [o.shape is None for o in flying(g)] == [shape == "starlight"] * len(
         flying(g)
@@ -341,11 +350,15 @@ def test_a_tight_pool_drops_the_trail_per_shapes_plain_need(env):
     set_shape(g, "bubble")
     g.db.trail = True
     g.db.cap = 10
-    assert g.orbs.Info(g.orbs)[3] == 10 * 7 * 2 + 8  # 148, one slot of it the arrival flash's
+    assert (
+        g.orbs.Info(g.orbs)[3] == 10 * 7 * 2 + 8
+    )  # 148, one slot of it the arrival flash's
     fire(g, "stream", n=10)  # 10 orbs, 7 textures each
     fire(g, "stream", n=10)
     assert in_use(g) == 140
-    fire(g, "stream", n=10)  # 7 free: no room for 7 per orb, so the trail goes and 3 per orb fit
+    fire(
+        g, "stream", n=10
+    )  # 7 free: no room for 7 per orb, so the trail goes and 3 per orb fit
     assert in_use(g) == 146
     assert [o.ghost1 is None for o in flying(g)] == [False] * 20 + [True] * 2
     g.tick(0.05, 80)
@@ -368,7 +381,9 @@ def test_bubble_has_no_count_size_or_time_multiplier(env):
     recs = flying(g)
     assert len(recs) == 10 and sum(1 for o in recs if o.rested) == 4
     size = float(g.db.size)
-    assert sorted({round(o.size, 6) for o in recs}) == pytest.approx(sorted({size, size * 1.15}))
+    assert sorted({round(o.size, 6) for o in recs}) == pytest.approx(
+        sorted({size, size * 1.15})
+    )
     assert all(o.dur == pytest.approx(1.0) for o in recs)  # fixed random: jitter 1.0
     assert {k: g.db[k] for k in saved} == saved
 
@@ -404,7 +419,9 @@ def test_bubble_breathes_and_draws_at_one_and_a_half_times_the_size(env):
     base = o.size * 1.5
     assert min(sizes) < base < max(sizes)
     assert all(base * 0.94 - 1e-6 <= s <= base * 1.06 + 1e-6 for s in sizes)  # +-6 %
-    assert o.under.width == pytest.approx(o.body.width)  # the dark disc is the body's size
+    assert o.under.width == pytest.approx(
+        o.body.width
+    )  # the dark disc is the body's size
 
 
 def test_pulse_off_keeps_the_bubble_at_a_constant_size(env):
@@ -438,7 +455,9 @@ def test_retro_sparkle_is_fixed_when_the_orb_is_set_up(env):
     g.db.sparkle = False
     go(g, "retro", n=1, trail=False, advance=0.05)
     (o,) = flying(g)
-    g.db.sparkle = True  # e.g. the shape was switched mid-flight: this orb is not affected
+    g.db.sparkle = (
+        True  # e.g. the shape was switched mid-flight: this orb is not affected
+    )
     for _ in range(14):
         g.tick(0.05, 1)
         assert not o.spark.shown
@@ -611,7 +630,9 @@ def test_retro_trail_is_two_squares_on_the_grid(env):
     bx, by = o.body.points[1][4], o.body.points[1][5]
     d_big = math.hypot(big.points[1][4] - bx, big.points[1][5] - by) / cell
     d_small = math.hypot(small.points[1][4] - bx, small.points[1][5] - by) / cell
-    assert 5 <= d_big <= 7.5 and 8 <= d_small <= 10.5  # about 6 and 9 cells behind (the big one touches the rim)
+    assert (
+        5 <= d_big <= 7.5 and 8 <= d_small <= 10.5
+    )  # about 6 and 9 cells behind (the big one touches the rim)
     assert tuple(big.calls["SetColorTexture"].values())[:3] == pytest.approx(
         tuple(g.db.color.values())[:3], abs=1
     )
@@ -771,7 +792,8 @@ def test_crackle_pop_bolts_tick_too(env):
 
 
 @pytest.mark.parametrize(
-    "first, second", [("starlight", "retro"), ("bubble", "crackle"), ("crackle", "starlight")]
+    "first, second",
+    [("starlight", "retro"), ("bubble", "crackle"), ("crackle", "starlight")],
 )
 def test_the_shape_is_fixed_for_the_burst(env, first, second):
     g = make(env, trail=True)
@@ -956,6 +978,7 @@ def test_retro_octagon_has_the_specified_alphas():
     w, h, rows = read_tga(MEDIA / "retro.tga")
     assert (w, h) == (64, 64)
     assert alpha_at(rows, 2, 2) == 0 and alpha_at(rows, 61, 61) == 0  # cut corners
+
     def cell(c, r):
         return alpha_at(rows, c * 8 + 4, r * 8 + 4)
 
@@ -1006,11 +1029,12 @@ def test_the_generators_keep_the_original_textures_byte_identical():
         assert (MEDIA / f"{name}.tga").read_bytes() == committed, name
 
 
-
 def test_bubble_glint_is_a_soft_blob_that_fades_well_inside_the_quad():
     w, h, rows = read_tga(MEDIA / "bubble_glint.tga")
     assert (w, h) == (64, 64)
-    assert alpha_at(rows, 31, 31) == 255 and alpha_at(rows, 32, 32) == 255  # peak alpha 1.0 in the middle
+    assert (
+        alpha_at(rows, 31, 31) == 255 and alpha_at(rows, 32, 32) == 255
+    )  # peak alpha 1.0 in the middle
     ring = [
         alpha_at(rows, x, y)
         for y in range(h)
@@ -1021,14 +1045,19 @@ def test_bubble_glint_is_a_soft_blob_that_fades_well_inside_the_quad():
     # slightly elongated (along the diagonal running up and to the right), smooth with no hard edge
     assert alpha_at(rows, 40, 24) > alpha_at(rows, 40, 40)
     steps = [alpha_at(rows, 32 + i, 32) for i in range(0, 30)]
-    assert all(a >= b for a, b in pairwise(steps)) and max(a - b for a, b in pairwise(steps)) < 60
+    assert (
+        all(a >= b for a, b in pairwise(steps))
+        and max(a - b for a, b in pairwise(steps)) < 60
+    )
 
 
 def test_the_crackle_core_is_fuller_with_a_clear_edge():
     w, h, rows = read_tga(MEDIA / "crackle_core.tga")
     assert (w, h) == (64, 64)
     assert alpha_at(rows, 32, 32) == 255
-    assert alpha_at(rows, round(32 + 0.4 * 32), 32) >= 64  # the halo reaches further than the old 0.55 / 0.62
+    assert (
+        alpha_at(rows, round(32 + 0.4 * 32), 32) >= 64
+    )  # the halo reaches further than the old 0.55 / 0.62
     assert alpha_at(rows, round(32 + 0.72 * 32), 32) == 0  # and ends at 0.70
 
 
@@ -1041,7 +1070,9 @@ def test_the_bolts_hug_the_cores_rim(name):
         for x in range(w)
         if alpha_at(rows, x, y) > 128
     ]
-    assert 0.40 <= sum(radii) / len(radii) <= 0.55  # arcs at 0.40-0.50 of the half quad (was 0.44-0.58)
+    assert (
+        0.40 <= sum(radii) / len(radii) <= 0.55
+    )  # arcs at 0.40-0.50 of the half quad (was 0.44-0.58)
     assert max(radii) < 0.75  # the spike is shorter too
 
 
@@ -1089,7 +1120,9 @@ def test_solid_body_is_the_solid_texture_blended_in_a_lifted_colour(env, shape):
         colour = [float(g.db.color[i]) for i in (1, 2, 3)]
         rested = [float(g.db.restedColor[i]) for i in (1, 2, 3)]
         want = rested if o.rested else colour
-        lift = 0.0 if shape == "retro" else SOLID_LIFT  # Retro's Solid is cut for the plain orb colour
+        lift = (
+            0.0 if shape == "retro" else SOLID_LIFT
+        )  # Retro's Solid is cut for the plain orb colour
         assert tint_of(o.body) == pytest.approx([c + (1 - c) * lift for c in want])
 
 
@@ -1177,15 +1210,36 @@ def test_a_solid_orb_leaves_nothing_behind_in_the_pool(env):
     star = flying(g)
     assert star
     for o in star:
-        assert (path_of(o.under), mode_of(o.under), layer_of(o.under)) == (PRE + "orb", "BLEND", -1)
-        assert (path_of(o.body), mode_of(o.body), layer_of(o.body)) == (PRE + "orb", "ADD", 0)
-        assert (path_of(o.spark), mode_of(o.spark), layer_of(o.spark)) == (PRE + "sparkle", "ADD", 1)
-        assert all((path_of(t), mode_of(t), layer_of(t)) == (PRE + "orb", "ADD", 0) for t in ghosts_of(o))
-        assert "NEAREST" not in tuple(o.body.calls["SetTexture"].values())  # the filter went with the Retro art
+        assert (path_of(o.under), mode_of(o.under), layer_of(o.under)) == (
+            PRE + "orb",
+            "BLEND",
+            -1,
+        )
+        assert (path_of(o.body), mode_of(o.body), layer_of(o.body)) == (
+            PRE + "orb",
+            "ADD",
+            0,
+        )
+        assert (path_of(o.spark), mode_of(o.spark), layer_of(o.spark)) == (
+            PRE + "sparkle",
+            "ADD",
+            1,
+        )
+        assert all(
+            (path_of(t), mode_of(t), layer_of(t)) == (PRE + "orb", "ADD", 0)
+            for t in ghosts_of(o)
+        )
+        assert "NEAREST" not in tuple(
+            o.body.calls["SetTexture"].values()
+        )  # the filter went with the Retro art
     for _ in range(80):
         g.tick(0.05, 1)
     g.db.blend = "natural"
     go(g, "retro", n=3, trail=True, advance=0.25)
     for o in flying(g):
-        assert (path_of(o.body), mode_of(o.body), layer_of(o.body)) == (PRE + "retro", "ADD", 0)
+        assert (path_of(o.body), mode_of(o.body), layer_of(o.body)) == (
+            PRE + "retro",
+            "ADD",
+            0,
+        )
         assert layer_of(o.under) == -1 and all(layer_of(t) == 0 for t in ghosts_of(o))

@@ -88,15 +88,27 @@ def test_row_order(m):
     assert ys[0] == 8 and ys == sorted(ys) and len(set(ys)) == len(ys)
     assert ys[1:6] == [70, 102, 134, 166, 196]
     # the global rows are grouped: trail | colours | cap (flight speed/time live on the Flight tab)
-    assert [row_y(m, k) for k in ("trail", "trailOpacity", "color", "restedTint", "cap")] == [
-        240, 268, 308, 338, 374,
+    assert [
+        row_y(m, k) for k in ("trail", "trailOpacity", "color", "restedTint", "cap")
+    ] == [
+        240,
+        268,
+        308,
+        338,
+        374,
     ]
-    assert same(m, m.opt.rows.restedTint, m.opt.rows.restedColor)  # one row holds the tickbox and the swatch
-    assert row_y(m, "crackleSpeed") == row_y(m, "shapeExtra") - 2  # the 32 px slider row, centred on the 28 px slot
+    assert same(
+        m, m.opt.rows.restedTint, m.opt.rows.restedColor
+    )  # one row holds the tickbox and the swatch
+    assert (
+        row_y(m, "crackleSpeed") == row_y(m, "shapeExtra") - 2
+    )  # the 32 px slider row, centred on the 28 px slot
     assert m.opt.tabHeights.Look == 422
     for key in ("flightSpeed", "flightTime"):
         assert same(m, m.opt.rows[key].createdParent, m.opt.tabChildren.Flight), key
-        assert not in_chain(m, m.opt.rows[key].createdParent, m.opt.tabChildren.Look), key
+        assert not in_chain(m, m.opt.rows[key].createdParent, m.opt.tabChildren.Look), (
+            key
+        )
 
 
 def test_box_rows_hang_off_the_box_and_the_others_do_not(m):
@@ -123,7 +135,7 @@ def test_box_geometry_and_indented_labels(m):
         ]
         for key, txt in (
             ("size", "Orb size"),
-            ("density", "Orb quantity"),
+            ("density", "Orb quantity multiplier"),
             ("cap", "Max orbs per burst"),
         )
     }
@@ -146,7 +158,12 @@ def test_the_box_has_the_same_height_for_every_shape(m):
     for shape in SHAPES:
         pick(m, shape)
         heights.add(
-            (m.opt.shapeBox.height, row_y(m, "trail"), row_y(m, "blend"), row_y(m, "shapeExtra"))
+            (
+                m.opt.shapeBox.height,
+                row_y(m, "trail"),
+                row_y(m, "blend"),
+                row_y(m, "shapeExtra"),
+            )
         )
     assert len(heights) == 1
 
@@ -157,7 +174,9 @@ def test_the_caption_follows_the_shape(m):
         assert str(m.opt.shapeBoxCaption.text) == name + " settings"
     cap = m.opt.shapeBoxCaption
     assert [cap.textColor[i] for i in (1, 2, 3)] == pytest.approx([0.7, 0.7, 0.7])
-    assert cap.points[1][4] == 16 and cap.points[1][5] == -8  # on the rows' label column
+    assert (
+        cap.points[1][4] == 16 and cap.points[1][5] == -8
+    )  # on the rows' label column
 
 
 @pytest.mark.parametrize(
@@ -183,11 +202,14 @@ def test_the_options_row_shows_what_the_shape_uses(m, shape, expect):
 
 def test_the_extra_checkbox_sits_like_a_standard_checkbox_row(m):
     c = m.opt.controls
-    assert c.sparkle.points[1][4] == 257 and c.pulse.points[1][4] == 257  # CTRL_X - 3, like Trail
+    assert (
+        c.sparkle.points[1][4] == 257 and c.pulse.points[1][4] == 257
+    )  # CTRL_X - 3, like Trail
     assert c.sparkle.points[1][4] == m.opt.controls.trail.points[1][4]
     for text in ("Sparkle", "Pulsing"):
         label = next(
-            f for f in m.stub.frames.values()
+            f
+            for f in m.stub.frames.values()
             if f.kind == "FontString" and f.text == text and f.points[1][4] == 48
         )
         assert label is not None
@@ -220,9 +242,13 @@ def test_blend_tooltips(m):
     pick(m, "crackle")
     c = m.opt.controls
     m.stub.hover(c.blend_natural)
-    assert "brightening where they overlap" in " ".join(str(x) for x in m.stub.tooltip.lines.values())
+    assert "brightening where they overlap" in " ".join(
+        str(x) for x in m.stub.tooltip.lines.values()
+    )
     m.stub.hover(c.blend_solid)
-    assert "colours stay true on bright ground" in " ".join(str(x) for x in m.stub.tooltip.lines.values())
+    assert "colours stay true on bright ground" in " ".join(
+        str(x) for x in m.stub.tooltip.lines.values()
+    )
 
 
 def test_sparkle_and_pulse_checkboxes_write_per_shape(m):
@@ -326,11 +352,15 @@ def test_the_two_option_resets_are_separate_and_per_shape(m):
     m.stub.click(extra_btn)
     assert m.db.pulse is False and not extra_btn.shown
     # Retro's own entry is untouched
-    assert m.db.shapeLook.retro.blend == "solid" and m.db.shapeLook.retro.sparkle is False
+    assert (
+        m.db.shapeLook.retro.blend == "solid" and m.db.shapeLook.retro.sparkle is False
+    )
     pick(m, "retro")
     m.stub.click(blend_btn)
     m.stub.click(extra_btn)
-    assert m.db.shapeLook.retro.blend == "natural" and m.db.shapeLook.retro.sparkle is True
+    assert (
+        m.db.shapeLook.retro.blend == "natural" and m.db.shapeLook.retro.sparkle is True
+    )
     assert not blend_btn.shown and not extra_btn.shown
 
 
@@ -344,7 +374,9 @@ def test_starlight_and_crackle_have_no_extra_to_reset(m):
 
 
 def test_the_cap_comes_last_with_its_tooltip(m):
-    assert row_y(m, "cap") > row_y(m, "restedColor")  # restedColor is the Rested orb colour row
+    assert row_y(m, "cap") > row_y(
+        m, "restedColor"
+    )  # restedColor is the Rested orb colour row
     m.stub.hover(ctl(m, "cap"))
     assert (
         str(m.stub.tooltip.text)
@@ -356,4 +388,4 @@ def test_the_quantity_label(m):
     texts = [
         str(f.text) for f in m.stub.frames.values() if f.kind == "FontString" and f.text
     ]
-    assert "Orb quantity" in texts and "Orb quantity multiplier" not in texts
+    assert "Orb quantity multiplier" in texts and "Orb quantity" not in texts

@@ -143,7 +143,7 @@ ns.STYLE_LABEL = { popstream = "Popstream", crossfade = "Crossfade", stream = "D
 ns.POPMODE_LABEL = { nameplate = "Nameplate", direct = "Direct" }
 ns.PATH_ORDER = { "smooth", "chaos", "helix" }
 ns.PATH_LABEL = { smooth = "Smooth", chaos = "Chaos", helix = "Helix" } -- the valid db.flightPath values
-ns.SHAPE_ORDER = { "starlight", "retro", "bubble", "crackle" }
+ns.SHAPE_ORDER = { "starlight", "bubble", "retro", "crackle" }
 ns.SHAPE_LABEL = { starlight = "Starlight", retro = "Retro", bubble = "Bubble", crackle = "Crackle" } -- valid orbShape
 ns.SHAPE_ALIAS = { power = "crackle", wisp = "bubble" } -- the first names of these shapes, still accepted
 -- what each shape remembers
@@ -637,7 +637,7 @@ function commands.help()
         .. "direction)")
     say("  stream = Direct Stream: a plain stream from the estimated mob position (no pop, no nameplate)")
     say("/xporbs path smooth|chaos|helix - flight pathing: a clean arc, an erratic wobble or a spiral (no arg: show)")
-    say("/xporbs shape starlight|retro|bubble|crackle - orb shape: soft stars, pixel art, glowing bubbles or "
+    say("/xporbs shape starlight|bubble|retro|crackle - orb shape: soft stars, glowing bubbles, pixel art or "
         .. "crackling orbs (no arg: show). Size, quantity and opacity are remembered per shape")
     say("/xporbs pulse on|off - Bubble orbs gently swell and shrink (no arg: show)")
     say("/xporbs wide on|off - zoom-scaled spread: pops and stream starts spread wider when zoomed in, tighter "
