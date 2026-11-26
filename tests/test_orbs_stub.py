@@ -158,6 +158,8 @@ def test_command_parsing(m2, arg, orbs):
 
 
 def test_command_rested_split_and_origin(m2):
+    # time mode (1.0 s flights): at constant speed a jittered orb can be near the bar by 0.5 s, making this flaky
+    m2.ns.db.flightMode = "time"
     m2.stub.cursor.x, m2.stub.cursor.y = 200, 300
     m2.slash("test 10 rested")
     assert "(10 purple)" in m2.stub.chat[len(m2.stub.chat)]
