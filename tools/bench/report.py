@@ -27,6 +27,8 @@ matplotlib.use("Agg")
 import itertools
 
 import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
+from matplotlib.ticker import MaxNLocator
 
 try:
     import lupa.lua51 as lupa_rt
@@ -53,6 +55,13 @@ SCENARIO_SHORT = {
     "max": "Max stress test",
 }
 SCENARIO_COLOUR = {"typical": "#2a9d8f", "aoe": "#c99a06", "max": "#e76f51"}
+SCENARIO_TEXT = {"typical": "#21867a", "aoe": "#8a6a00", "max": "#c4502f"}  # text
+FS_TICK = 14
+FS_LABEL = 14
+FS_TITLE = 17
+FS_NOTE = 12
+FS_DIRECT = 13
+YLABEL = "ms per frame\n(lower is better)"
 TEXT = "#222222"
 GRID = "#e5e5e5"
 
@@ -341,6 +350,15 @@ def build_scenario(runs: list[dict]) -> dict:
     target = summary["netMeanMs"]
     pick = min(range(len(reps)), key=lambda i: abs(reps[i]["netMeanMs"] - target))
     first = runs[0]
+    timeline = _clean_timeline(runs[pick].get("timeline")) or {
+        "step": 0.5,
+        "addonMs": [],
+        "addonMaxMs": [],
+        "frameMs": [],
+        "live": [],
+    }
+    # the timeline rep's idle baseline, so charts can show net cost like the table
+    timeline["baselineMs"] = _round(reps[pick]["baselineMeanMs"])
     return {
         "scenarioVersion": int(_num(first.get("scenarioVersion")) or 1),
         "settings": _clean_settings(first.get("settings")),
@@ -354,8 +372,7 @@ def build_scenario(runs: list[dict]) -> dict:
             }
             for r in reps
         ],
-        "timeline": _clean_timeline(runs[pick].get("timeline"))
-        or {"step": 0.5, "addonMs": [], "addonMaxMs": [], "frameMs": [], "live": []},
+        "timeline": timeline,
     }
 
 
@@ -557,7 +574,9 @@ def _style():
             "xtick.color": TEXT,
             "ytick.color": TEXT,
             "axes.edgecolor": "#bbbbbb",
-            "font.size": 10,
+            "font.size": FS_TICK,
+            "xtick.labelsize": FS_TICK,
+            "ytick.labelsize": FS_TICK,
         }
     )
 
@@ -570,27 +589,40 @@ def _new_axes():
     ax.grid(axis="y", color=GRID, linewidth=0.8)
     ax.grid(axis="x", visible=False)
     ax.set_axisbelow(True)
+    ax.yaxis.set_major_locator(MaxNLocator(5))
     return fig, ax
 
 
-def _finish(fig, ax, path: Path, title: str, ylabel: str = "ms per frame"):
-    ax.set_title(title, loc="left", fontsize=13, color=TEXT, pad=12)
-    ax.set_ylabel(ylabel, fontsize=10)
+def _title(prefix: str, label: str, suffix: str = "") -> str:
+    """One line when it fits at 17 pt, else the scenario name on a second line."""
+    one = f"{prefix}: {label}{suffix}"
+    return one if len(one) <= 46 else f"{prefix}:\n{label}{suffix}"
+
+
+def _finish(fig, ax, path: Path, title: str, ylabel: str = YLABEL):
+    pad = 34 if ax.get_legend() else 12  # room for the reference-line key
+    ax.set_title(title, loc="left", fontsize=FS_TITLE, color=TEXT, pad=pad)
+    ax.set_ylabel(ylabel, fontsize=FS_LABEL)
     fig.savefig(path, dpi=200)
     plt.close(fig)
 
 
-def spread(ys: list[float], gap: float) -> list[float]:
-    """Nudge label positions upward so neighbours are at least `gap` apart."""
+def spread(ys: list[float], gap: float, heights: list[float] | None = None):
+    """Nudge label positions upward so neighbours do not overlap.
+
+    `gap` is the separation needed between two one-line labels (data units);
+    `heights` scales it per label (2 for a two-line label)."""
+    heights = heights or [1.0] * len(ys)
     order = sorted(range(len(ys)), key=lambda i: ys[i])
     out = list(ys)
     for a, b in itertools.pairwise(order):
-        if out[b] - out[a] < gap:
-            out[b] = out[a] + gap
+        need = gap * (heights[a] + heights[b]) / 2
+        if out[b] - out[a] < need:
+            out[b] = out[a] + need
     return out
 
 
-def label_room(n: int, inches: float, axes_in: float = 6.9) -> float:
+def label_room(n: int, inches: float, axes_in: float = 6.0) -> float:
     """Extra x range (category units) so a right-hand label of `inches` fits."""
     span = max(n - 1, 1) + 0.6
     frac = inches / axes_in
@@ -602,15 +634,76 @@ def _categorical_x(ax, versions: list[str], room: float):
     ax.set_xticks(range(n), versions)
     ax.set_xlim(-0.5, n - 1 + 0.15 + room)
     ax.tick_params(axis="x", length=0)
-    ax.set_xlabel("XP Orbs release", fontsize=10)
-    if n > 8:
+    ax.set_xlabel("XP Orbs release", fontsize=FS_LABEL)
+    if n > 6:
         for lbl in ax.get_xticklabels():
             lbl.set_rotation(45)
             lbl.set_ha("right")
 
 
+def _ref_line(ax, top: float) -> float:
+    """Dashed '1 fps at 60 fps' line when it fits within ~3x the data; returns new top.
+
+    Labelled through a small key just above the plot (under the title)."""
+    ref = one_fps_ms()
+    if ref > 3 * top:
+        return top
+    ax.axhline(ref, color="#777777", linestyle="--", linewidth=1.2, zorder=1)
+    handle = Line2D([], [], color="#777777", linestyle="--", linewidth=1.2)
+    ax.legend(
+        [handle],
+        [f"costs 1 fps at 60 fps ({ref:.2f} ms)"],
+        loc="lower left",
+        bbox_to_anchor=(0.0, 1.0),
+        frameon=False,
+        fontsize=FS_NOTE,
+        labelcolor="#555555",
+        borderaxespad=0.2,
+        handlelength=2.2,
+    )
+    return max(top, ref)
+
+
+def _change_points(points: list[dict]) -> list[tuple[float, str]]:
+    """(x between the two points, version where the new test starts) per break."""
+    out = []
+    for i in range(1, len(points)):
+        if points[i]["sv"] != points[i - 1]["sv"]:
+            x = (points[i]["idx"] + points[i - 1]["idx"]) / 2
+            out.append((x, points[i]["version"]))
+    return out
+
+
+def _mark_changes(ax, xs: list[float]):
+    for x in sorted(set(xs)):
+        ax.axvline(x, color="#999999", linestyle=":", linewidth=1.2)
+        ax.text(
+            x,
+            0.97,
+            " scenario changed",
+            transform=ax.get_xaxis_transform(),
+            fontsize=FS_NOTE,
+            color="#555555",
+            va="top",
+        )
+
+
+def _first_release_note(ax):
+    ax.text(
+        0.99,
+        0.97,
+        "first measured release",
+        transform=ax.transAxes,
+        ha="right",
+        va="top",
+        fontsize=FS_NOTE,
+        color="#555555",
+    )
+
+
 def chart_trend(path: Path, scen: str, versions: list[str], points: list[dict]):
     colour = SCENARIO_COLOUR[scen]
+    dark = SCENARIO_TEXT[scen]
     n = len(versions)
     with _style():
         fig, ax = _new_axes()
@@ -621,7 +714,7 @@ def chart_trend(path: Path, scen: str, versions: list[str], points: list[dict]):
                 [p["p99"] if p["p99"] is not None else p["net"] for p in seg],
                 color=colour,
                 alpha=0.4,
-                linewidth=1.6,
+                linewidth=1.4,
                 marker="o",
                 markersize=4,
                 zorder=2,
@@ -630,53 +723,27 @@ def chart_trend(path: Path, scen: str, versions: list[str], points: list[dict]):
                 xs,
                 [p["net"] for p in seg],
                 color=colour,
-                linewidth=2.4,
+                linewidth=2.6,
                 marker="o",
-                markersize=7,
+                markersize=8,
                 zorder=3,
             )
-        # mark scenario changes
-        for i in range(1, len(points)):
-            if points[i]["sv"] != points[i - 1]["sv"]:
-                x = (points[i]["idx"] + points[i - 1]["idx"]) / 2
-                ax.axvline(x, color="#999999", linestyle=":", linewidth=1)
-                ax.text(
-                    x,
-                    0.97,
-                    " scenario changed",
-                    transform=ax.get_xaxis_transform(),
-                    fontsize=8,
-                    color="#666666",
-                    va="top",
-                )
+        _mark_changes(ax, [x for x, _ in _change_points(points)])
         top = max((p["p99"] or p["net"]) for p in points)
         top = max(top, max(p["net"] for p in points), 0.05)
-        ref = one_fps_ms()
-        if ref <= 3 * top:
-            ax.axhline(ref, color="#777777", linestyle="--", linewidth=1, zorder=1)
-            ax.text(
-                0.01,
-                ref,
-                "1 fps at 60 fps",
-                transform=ax.get_yaxis_transform(),
-                fontsize=8.5,
-                color="#555555",
-                va="bottom",
-            )
-            top = max(top, ref)
-        ax.set_ylim(0, top * 1.18)
-        room = label_room(n, 1.0)
-        _categorical_x(ax, versions, room)
+        top = _ref_line(ax, top)
+        ylim = top * 1.18
+        ax.set_ylim(0, ylim)
+        _categorical_x(ax, versions, label_room(n, 1.3))
         last = points[-1]
-        gap = top * 1.18 * 0.07
         ys = [last["net"], last["p99"] if last["p99"] is not None else last["net"]]
-        ly = spread(ys, gap)
+        ly = spread(ys, ylim * 0.065)
         ax.text(
             last["idx"] + 0.15,
             ly[0],
             "Average",
-            color=colour,
-            fontsize=10,
+            color=dark,
+            fontsize=FS_DIRECT,
             fontweight="bold",
             va="center",
         )
@@ -685,28 +752,14 @@ def chart_trend(path: Path, scen: str, versions: list[str], points: list[dict]):
                 last["idx"] + 0.15,
                 ly[1],
                 "Worst 1%",
-                color=colour,
-                alpha=0.6,
-                fontsize=10,
+                color=dark,
+                fontsize=FS_DIRECT,
                 va="center",
             )
         if len(points) == 1:
-            ax.text(
-                0.99,
-                0.97,
-                "first measured release",
-                transform=ax.transAxes,
-                ha="right",
-                va="top",
-                fontsize=9,
-                color="#555555",
-            )
-        _finish(
-            fig,
-            ax,
-            path,
-            f"Cost per frame across releases: {SCENARIO_LABEL[scen]}",
-        )
+            _first_release_note(ax)
+        title = _title("Cost per frame across releases", SCENARIO_LABEL[scen])
+        _finish(fig, ax, path, title)
 
 
 def chart_overview(path: Path, versions: list[str], series: dict[str, list[dict]]):
@@ -714,6 +767,8 @@ def chart_overview(path: Path, versions: list[str], series: dict[str, list[dict]
     with _style():
         fig, ax = _new_axes()
         top = 0.05
+        notes: dict[str, str] = {}
+        change_x: list[float] = []
         for scen, pts in series.items():
             colour = SCENARIO_COLOUR[scen]
             for seg in segments(pts):
@@ -721,49 +776,66 @@ def chart_overview(path: Path, versions: list[str], series: dict[str, list[dict]
                     [p["idx"] for p in seg],
                     [p["net"] for p in seg],
                     color=colour,
-                    linewidth=2.4,
+                    linewidth=2.6,
                     marker="o",
-                    markersize=7,
+                    markersize=8,
+                    zorder=3,
                 )
             top = max(top, max(p["net"] for p in pts))
+            changes = _change_points(pts)
+            change_x += [x for x, _ in changes]
+            if changes:
+                notes[scen] = changes[-1][1]
+        _mark_changes(ax, change_x)
+        top = _ref_line(ax, top)
         ylim = top * 1.2
         ax.set_ylim(0, ylim)
-        _categorical_x(ax, versions, label_room(n, 1.35))
+        _categorical_x(ax, versions, label_room(n, 1.8 if notes else 1.4))
         names = list(series)
         ys = [series[s][-1]["net"] for s in names]
-        ly = spread(ys, ylim * 0.07)
-        for scen, y0, y1 in zip(names, ys, ly):
+        heights = [2.1 if s in notes else 1.0 for s in names]
+        ly = spread(ys, ylim * 0.065, heights)
+        for scen, y1 in zip(names, ly):
             last = series[scen][-1]
+            label = SCENARIO_SHORT[scen]
+            if scen in notes:
+                label += f"\n(new test from {notes[scen]})"
             ax.text(
                 last["idx"] + 0.15,
                 y1,
-                SCENARIO_SHORT[scen],
-                color=SCENARIO_COLOUR[scen],
-                fontsize=10,
+                label,
+                color=SCENARIO_TEXT[scen],
+                fontsize=FS_DIRECT,
                 fontweight="bold",
                 va="center",
+                linespacing=1.15,
             )
         if n == 1:
-            ax.text(
-                0.99,
-                0.97,
-                "first measured release",
-                transform=ax.transAxes,
-                ha="right",
-                va="top",
-                fontsize=9,
-                color="#555555",
-            )
+            _first_release_note(ax)
         _finish(fig, ax, path, "Average cost per frame across releases")
+
+
+def net_timeline(tl: dict) -> list[float]:
+    """Bucket addonMs minus the timeline rep's idle baseline, clamped at 0."""
+    base = tl.get("baselineMs") or 0.0
+    return [
+        max(0.0, (v if v is not None else 0.0) - base) for v in tl.get("addonMs", [])
+    ]
+
+
+def _peak_ha(x: float, xmax: float) -> str:
+    return "left" if x < xmax * 0.2 else "right" if x > xmax * 0.8 else "center"
 
 
 def chart_timeline(path: Path, scen: str, version: str, tl: dict):
     colour = SCENARIO_COLOUR[scen]
-    ms = [v if v is not None else 0.0 for v in tl.get("addonMs", [])]
+    dark = SCENARIO_TEXT[scen]
+    ms = net_timeline(tl)
     live = [v if v is not None else 0.0 for v in tl.get("live", [])]
     n = len(ms)
     step = tl.get("step") or 0.5
     xs = [i * step for i in range(n)]
+    xmax = max(xs[-1], step) if xs else 1
     with _style():
         fig, ax = _new_axes()
         ax2 = ax.twinx()
@@ -771,32 +843,50 @@ def chart_timeline(path: Path, scen: str, version: str, tl: dict):
         ax.patch.set_visible(False)
         for side in ("top", "right"):
             ax2.spines[side].set_visible(False)
+        ax2.grid(False)
+        ax2.yaxis.set_major_locator(MaxNLocator(5))
+        ax2.set_ylabel("orbs on screen", fontsize=FS_LABEL)
+        ax.set_xlim(0, xmax)
+        ax.set_xlabel("seconds into the run", fontsize=FS_LABEL)
+        ax.plot(xs, ms, color=colour, linewidth=2.4)
+        top = max(max(ms, default=0.0), 0.05)
+        top = _ref_line(ax, top)
+        ax.set_ylim(0, top * 1.35)
+        if ms:  # direct label on the cost line, at its peak
+            ipk = max(range(n), key=lambda i: ms[i])
+            ax.text(
+                xs[ipk],
+                ms[ipk] + top * 0.04,
+                "XP Orbs cost",
+                color=dark,
+                fontsize=FS_DIRECT,
+                fontweight="bold",
+                ha=_peak_ha(xs[ipk], xmax),
+                va="bottom",
+            )
         if live:
             m = min(n, len(live))
             ax2.fill_between(xs[:m], live[:m], color="#d9d9d9", alpha=0.8, linewidth=0)
-            ax2.set_ylim(0, max(max(live), 1) * 1.18)
-        ax2.set_ylabel("orbs on screen", fontsize=10)
-        ax2.grid(False)
-        ax.plot(xs, ms, color=colour, linewidth=2.0)
-        ax.set_ylim(0, max(max(ms), 0.05) * 1.18)
-        ax.set_xlim(0, max(xs[-1], step) if xs else 1)
-        ax.set_xlabel("seconds into the run", fontsize=10)
-        _finish(
-            fig,
-            ax,
-            path,
-            f"What happens during one run: {SCENARIO_LABEL[scen]} (version {version})",
-            ylabel="XP Orbs ms per frame",
+            ylim2 = max(max(live), 1) * 1.3
+            ax2.set_ylim(0, ylim2)
+            ipk = max(range(m), key=lambda i: live[i])
+            ax2.text(
+                xs[ipk],
+                ylim2 * 0.03,
+                "orbs on screen",
+                color="#555555",
+                fontsize=FS_DIRECT,
+                fontweight="bold",
+                ha=_peak_ha(xs[ipk], xmax),
+                va="bottom",
+            )
+        title = _title(
+            "What happens during one run", SCENARIO_LABEL[scen], f" (version {version})"
         )
+        _finish(fig, ax, path, title)
 
 
 # --------------------------------------------------------------------------- README
-
-
-def cost_phrase(ms: float) -> str:
-    fc = fps_cost(60, ms)
-    fps = "under 1 fps" if fc < 1 else f"about {fc:.1f} fps"
-    return f"about {ms:.2f} ms per frame, which is {fps} at 60 fps"
 
 
 def headline_rows(ds: dict) -> list[str]:
@@ -817,27 +907,38 @@ def headline_rows(ds: dict) -> list[str]:
     return rows
 
 
+def _names(items: list[str]) -> str:
+    return items[0] if len(items) == 1 else ", ".join(items[:-1]) + " and " + items[-1]
+
+
 def summary_paragraph(ds: dict) -> str:
     sc = ds["scenarios"]
-    parts = []
-    if "typical" in sc:
-        parts.append(
-            f"In typical play XP Orbs costs {cost_phrase(sc['typical']['summary']['netMeanMs'])}."
-        )
-    if "aoe" in sc:
-        parts.append(
-            "While farming big groups of mobs it costs "
-            f"{cost_phrase(sc['aoe']['summary']['netMeanMs'])}."
-        )
-    if "max" in sc:
-        parts.append(
-            "In the maximum-settings stress test, a worst case nobody plays in, it costs "
-            f"{cost_phrase(sc['max']['summary']['netMeanMs'])}."
-        )
-    head = (
-        f"**Version {ds['version']}**, measured on {ds['rig']} "
-        f"(game build {ds['build']}, {ds['screen']} screen)."
+    screen = ds["screen"]
+    height = screen.split("x")[-1]
+    rig_has_screen = screen in ds["rig"] or (
+        height != "unknown" and height in ds["rig"]
     )
+    head = f"**Version {ds['version']}**, measured on {ds['rig']} (game build {ds['build']}"
+    head += ")." if rig_has_screen else f", {screen} screen)."
+    sentence_names = {
+        "typical": "Typical play",
+        "aoe": "AoE farming",
+        "max": "The maximum-settings stress test (a worst case nobody plays in)",
+    }
+    nets = {s: sc[s]["summary"]["netMeanMs"] for s in SCENARIOS if s in sc}
+    low = [s for s in nets if fps_cost(60, nets[s]) < 1]
+    parts = []
+    if low:
+        ms = _names([f"{nets[s]:.2f}" for s in low])
+        names = _names([sentence_names[s] for s in low])
+        verb = "each cost" if len(low) > 1 else "costs"
+        parts.append(f"{names} {verb} under 1 fps at 60 fps ({ms} ms per frame).")
+    for s, net in nets.items():
+        if s not in low:
+            parts.append(
+                f"{sentence_names[s]} costs about {fps_cost(60, net):.1f} fps at 60 fps "
+                f"({net:.2f} ms per frame)."
+            )
     return head + " " + " ".join(parts)
 
 
@@ -925,8 +1026,14 @@ def build_readme(sets: list[dict], img_scens: dict) -> str:
     L += ["", f"## Inside one run (version {newest['version']})", ""]
     L += [
         (
-            "XP Orbs' cost per frame (coloured line) over the length of a test run, against "
-            "how many orbs are on screen (grey area)."
+            "XP Orbs' cost per frame (coloured line) over the length of a test run, "
+            "against how many orbs are on screen (grey area). The cost shown is after "
+            "subtracting the idle baseline, the same way as in the table above."
+        ),
+        "",
+        (
+            f"<details><summary>Inside one run (version {newest['version']}): "
+            "click to show</summary>"
         ),
         "",
     ]
@@ -938,6 +1045,7 @@ def build_readme(sets: list[dict], img_scens: dict) -> str:
             ),
             "",
         ]
+    L += ["</details>", ""]
     L += [
         "## How this is measured",
         "",
