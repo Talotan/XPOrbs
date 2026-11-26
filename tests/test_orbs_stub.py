@@ -8,6 +8,7 @@ from conftest import TESTS
 def m2(env):
     env.load_chunk(TESTS / "stubs_m2.lua", "stubs_m2.lua")(env.ns)
     env.load_addon()
+    env.lua.execute("math.randomseed(7)")  # jitter and stagger are random
     env.ns.fire("ADDON_LOADED", "XPOrbs")
     env.ns.stub.makeBar("MainStatusTrackingBarContainer", 400, 20, 800, 10, True)
     env.G.XPOrbsDB.flightMode = "time"  # these tests assume a fixed flight time
@@ -158,14 +159,19 @@ def test_command_parsing(m2, arg, orbs):
 
 
 def test_command_rested_split_and_origin(m2):
-    # time mode (1.0 s flights): at constant speed a jittered orb can be near the bar by 0.5 s, making this flaky
-    m2.ns.db.flightMode = "time"
     m2.stub.cursor.x, m2.stub.cursor.y = 200, 300
     m2.slash("test 10 rested")
     assert "(10 purple)" in m2.stub.chat[len(m2.stub.chat)]
-    m2.stub.tick(0.5)  # positions are only set once an orb's stagger delay has elapsed
-    xs = [f.points[1][4] for f in m2.stub.frames.values() if f.kind == "Texture" and len(f.points) > 0]
-    assert xs and all(x < 960 for x in xs)  # started near the cursor at x=200, not screen centre
+    # Where the orbs STARTED: the first tick after the stagger delay, before any flight has carried them anywhere. (This
+    # used to assert every position after 0.5 s, which random jitter pushed past the limit now and then.) The stream
+    # starts at the screen-centre estimate (x=960, unknown origin), not at the bar (x ~ 800-1200) or off screen.
+    xs = []
+    for _ in range(20):  # the first tick on which anything has been placed (the stagger is random)
+        m2.stub.tick(0.05)
+        xs = [f.points[1][4] for f in m2.stub.frames.values() if f.kind == "Texture" and len(f.points) > 0]
+        if xs:
+            break
+    assert xs and all(700 < x < 1220 for x in xs)
 
 
 def test_pick_prompt_and_status(m2):
