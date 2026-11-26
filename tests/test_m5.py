@@ -87,7 +87,7 @@ def test_panel_registers_a_canvas_category(m5):
     for key in ("enabled", "restedTint", "trail", "questBursts", "showAtMax", "debug"):
         assert ctl(m5, key).template == "UICheckButtonTemplate"
     for key in ("density", "cap", "size", "flightTime"):
-        assert ctl(m5, key).template == "OptionsSliderTemplate"
+        assert ctl(m5, key).template == "MinimalSliderWithSteppersTemplate"
 
 
 def test_options_command_opens_the_category(m5):
@@ -344,6 +344,7 @@ def test_lowering_cap_with_live_orbs_drains_cleanly(m5):
     m5.run(0.3)
     _, in_use, created, _ = m5.orbs.Info(m5.orbs)
     assert in_use > 0
+    show(m5)  # the panel opens (and reads the saved cap) before the player drags
     m5.stub.slide(ctl(m5, "cap"), 5)
     assert m5.orbs.Info(m5.orbs)[3] == 5 * 6 * 2 + 8
     m5.slash("test 400")  # over the new ceiling: draws nothing new, must not error

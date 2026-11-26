@@ -217,21 +217,7 @@ end
 
 local function addSlider(parent, key, x, y)
     local low, high, step = ns.ranges[key][1], ns.ranges[key][2], ns.ranges[key][3]
-    local created, slider = pcall(CreateFrame, "Slider", nil, parent, "OptionsSliderTemplate")
-    if created and slider then
-        for _, part in ipairs({ "Text", "Low", "High" }) do
-            if slider[part] and slider[part].Hide then
-                slider[part]:Hide()
-            end
-        end
-    else
-        slider = CreateFrame("Slider", nil, parent)
-        slider:SetOrientation("HORIZONTAL")
-        slider:SetThumbTexture("Interface\\Buttons\\UI-SliderBar-Button-Horizontal")
-        local track = slider:CreateTexture(nil, "BACKGROUND")
-        track:SetColorTexture(0, 0, 0, 0.5)
-        track:SetAllPoints(slider)
-    end
+    local slider = ns.Options.NewSlider(parent) -- the options panel's adapter: stepper template, else the old slider
     slider:SetPoint("TOPLEFT", parent, "TOPLEFT", x, y)
     slider:SetSize(SLIDER_W, 16)
     slider:SetMinMaxValues(low, high)
@@ -295,6 +281,10 @@ local function startPick()
 end
 
 local function addBackground(frame)
+    if frame.xpTooltipStyle then
+        pcall(frame.SetBackdropColor, frame, 0.07, 0.07, 0.10, 0.95)
+        return
+    end
     local styled = frame.SetBackdrop and pcall(frame.SetBackdrop, frame, BACKDROP)
     if styled then
         pcall(frame.SetBackdropColor, frame, 0.07, 0.07, 0.10, 0.95)
@@ -328,10 +318,7 @@ local function addShapeRadios(frame)
 end
 
 local function buildWindow()
-    local created, frame = pcall(CreateFrame, "Frame", nil, UIParent, "BackdropTemplate")
-    if not (created and frame) then
-        frame = CreateFrame("Frame", nil, UIParent)
-    end
+    local frame = ns.Preview.NewWindow(UIParent)
     frame:SetSize(WINDOW_W, WINDOW_H)
     frame:SetPoint("CENTER", UIParent, "CENTER", 0, 120)
     frame:SetFrameStrata("DIALOG")

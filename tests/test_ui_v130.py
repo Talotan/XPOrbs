@@ -121,10 +121,11 @@ def test_flight_style_is_a_dropdown_like_the_voice_one(env):
     dropdown = m.opt.flightDropdown
     assert (
         dropdown.kind == "DropdownButton"
-        and dropdown.template == "WowStyle1DropdownTemplate"
+        and dropdown.template == "WowStyle2DropdownTemplate"
+        and dropdown.xpHost.template == "XPOrbsDropdownWithSteppersTemplate"
     )
     assert m.lua.eval("rawequal")(m.opt.controls["flightPath"], dropdown)
-    assert dropdown.points[1][4] == 260 and dropdown.width == 150
+    assert dropdown.xpHost.points[1][4] == 260 - 8 and dropdown.width == 150
     assert "Flight pathing" in texts(m) and "Flight style" not in texts(m) and "Kill style" in texts(m) and "Flight path" not in texts(m)
     assert selection(dropdown) == [
         ("Smooth (default)", True),

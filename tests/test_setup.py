@@ -3,6 +3,7 @@
 import pytest
 from conftest import ROOT, lua_list
 from test_m5 import build
+from test_v013 import no_template
 
 
 @pytest.fixture
@@ -293,6 +294,7 @@ def test_the_window_is_unnamed_movable_and_draggable(m):
 def test_a_plain_frame_stands_in_when_the_backdrop_template_is_missing(env):
     def break_backdrop(e):
         e.lua.execute("local fm = getmetatable(UIParent).__index; fm.SetBackdrop = function() error('no backdrop') end")
+        no_template("TooltipBackdropTemplate", "BackdropTemplate")(e)  # neither window template exists
 
     m = build(env, pre=break_backdrop)
     win = open_now(m)

@@ -30,8 +30,8 @@ def toc_files():
 
 
 def addon_files():
-    """toc_files() minus the bundled third-party libraries (Libs/): they are neither loaded nor linted here."""
-    return [f for f in toc_files() if not f.startswith("Libs/")]
+    """toc_files() minus the bundled third-party libraries (Libs/) and the XML templates: only Lua is loaded here."""
+    return [f for f in toc_files() if not f.startswith("Libs/") and f.endswith(".lua")]
 
 
 def make_runtime():

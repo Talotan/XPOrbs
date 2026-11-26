@@ -24,6 +24,7 @@ read_globals = {
     "StaticPopup_Show",
     "ColorPickerFrame",
     "CreateFrame",
+    "MinimalSliderWithSteppersMixin",
     "UIParent",
     "GetTime",
     "UnitGUID",

@@ -713,7 +713,7 @@ def test_play_button_sits_on_the_voice_row(env):
     m = make(env)
     show(m)
     pt = ctl(m, "chimeSample").points[1]
-    assert pt[4] == 260 + 156 and m.same(pt[2], m.opt.rows["soundVoice"])
+    assert pt[4] == 260 + 204 and m.same(pt[2], m.opt.rows["soundVoice"])  # right of the dropdown's right arrow
 
 
 def drawn_offsets(m):

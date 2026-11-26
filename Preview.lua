@@ -135,9 +135,33 @@ local function isNumber(v)
     return type(v) == "number" and (not issecretvalue or not issecretvalue(v)) and v == v
 end
 
--- Same look as the setup window (Setup.lua keeps its helper private, so the table is repeated here). Shared with the
--- orb preview window (ShapePreview.lua) as Preview.AddBackground.
+-- A window frame shared by the preview, test target, setup and calibration windows (Preview.NewWindow). It prefers
+-- TooltipBackdropTemplate: the client's own nine-slice tooltip border (bronze on Forever, and reskin addons restyle it
+-- like any other Blizzard frame). Without it: a BackdropTemplate frame, then a plain Frame. Only the first is flagged
+-- (xpTooltipStyle), because it takes its border from the art and must not be tinted.
+function Preview.NewWindow(parent)
+    local created, frame = pcall(CreateFrame, "Frame", nil, parent, "TooltipBackdropTemplate")
+    if created and frame and frame.SetBackdropColor then
+        frame.xpTooltipStyle = true
+        return frame
+    end
+    if created and frame then
+        pcall(frame.Hide, frame) -- a half-working template frame must not sit under the fallback
+    end
+    created, frame = pcall(CreateFrame, "Frame", nil, parent, "BackdropTemplate")
+    if not (created and frame) then
+        frame = CreateFrame("Frame", nil, parent)
+    end
+    return frame
+end
+
+-- The window's fill and border (also Setup.lua's and, as Preview.AddBackground, the orb preview's). A
+-- TooltipBackdropTemplate frame only gets its centre colour; the border keeps the client's art.
 local function addBackground(frame)
+    if frame.xpTooltipStyle then
+        pcall(frame.SetBackdropColor, frame, 0.07, 0.07, 0.10, 0.95)
+        return
+    end
     local styled = frame.SetBackdrop and pcall(frame.SetBackdrop, frame, BACKDROP)
     if styled then
         pcall(frame.SetBackdropColor, frame, 0.07, 0.07, 0.10, 0.95)
@@ -519,10 +543,7 @@ local function buildMoveHandle(parent)
 end
 
 local function buildWindow()
-    local created, frame = pcall(CreateFrame, "Frame", nil, UIParent, "BackdropTemplate")
-    if not (created and frame) then
-        frame = CreateFrame("Frame", nil, UIParent)
-    end
+    local frame = Preview.NewWindow(UIParent)
     window = frame
     standIn = pickStandIn()
     currentFacing = standIn.facing

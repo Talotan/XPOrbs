@@ -424,10 +424,113 @@ local function checkbox(y, key, labelStr, opts)
     return row, cb
 end
 
+-- The slider adapter: the one place that knows the template's API. MinimalSliderWithSteppersTemplate is the slider the
+-- game's own Settings panel uses (arrows either side, a bronze thumb on Forever), so reskin addons treat it like the
+-- game's. Its host Frame is dressed here as the plain Slider the rest of the panel was written against:
+-- SetMinMaxValues, SetValueStep (the template wants min, max and a step COUNT, so each change re-Inits), SetValue /
+-- GetValue, Enable / Disable, SetScript("OnValueChanged") and OnEnter / OnLeave (forwarded to the bar and arrows).
+-- minV, maxV, step and value mirror what was set. An Init never reaches the OnValueChanged handler, so only a real
+-- change (a drag, an arrow or our own SetValue) does; Refresh guards its own SetValue with `refreshing`, as before.
+local function dressMinimalSlider(host)
+    local inner, mixin = host.Slider, MinimalSliderWithSteppersMixin
+    if not (inner and inner.SetValue and inner.GetValue and mixin and mixin.Event and host.Init
+        and host.RegisterCallback) then
+        return false
+    end
+    local tplSetEnabled, noLabels, rebuilding = host.SetEnabled, {}, false
+    for _, k in ipairs({ "LeftText", "RightText", "TopText", "MinText", "MaxText" }) do
+        if host[k] and host[k].Hide then
+            host[k]:Hide() -- our own label and value text sit beside it
+        end
+    end
+    local function rebuild()
+        if not (host.minV and host.maxV and host.step and host.step > 0) then
+            return
+        end
+        local steps = math.max(1, floor((host.maxV - host.minV) / host.step + 0.5))
+        local v = math.max(host.minV, math.min(host.maxV, host.value or host.minV))
+        rebuilding = true
+        local ok = pcall(host.Init, host, v, host.minV, host.maxV, steps, noLabels)
+        rebuilding = false
+        host.value = ok and inner:GetValue() or v
+    end
+    local onChanged
+    host:RegisterCallback(mixin.Event.OnValueChanged, function(_, v)
+        host.value = v
+        if onChanged and not rebuilding then
+            onChanged(host, v)
+        end
+    end, host)
+    function host:SetMinMaxValues(lo, hi)
+        self.minV, self.maxV = lo, hi
+        rebuild()
+    end
+    function host:SetValueStep(step)
+        self.step = step
+        rebuild()
+    end
+    function host:SetValue(v)
+        inner:SetValue(v)
+        self.value = inner:GetValue()
+    end
+    function host:GetValue()
+        return inner:GetValue()
+    end
+    local function setEnabled(self, on)
+        self.xpEnabled = on
+        if tplSetEnabled then
+            tplSetEnabled(self, on)
+        else
+            pcall(inner[on and "Enable" or "Disable"], inner)
+        end
+    end
+    function host:SetEnabled(on)
+        setEnabled(self, on and true or false)
+    end
+    function host:Enable()
+        setEnabled(self, true)
+    end
+    function host:Disable()
+        setEnabled(self, false)
+    end
+    function host:IsEnabled()
+        return self.xpEnabled ~= false
+    end
+    local setScript = host.SetScript
+    function host:SetScript(name, fn)
+        if name == "OnValueChanged" then
+            onChanged = fn
+        elseif name == "OnEnter" or name == "OnLeave" then
+            for _, part in ipairs({ inner, host.Back, host.Forward }) do
+                if part and part.SetScript then
+                    local hook = part.HookScript or part.SetScript -- keeps the template's own highlight
+                    pcall(hook, part, name, fn and function(_, ...)
+                        fn(host, ...)
+                    end or nil)
+                end
+            end
+        else
+            setScript(self, name, fn)
+        end
+    end
+    return true
+end
+
+-- A slider in `row`: the stepper template (see dressMinimalSlider), else OptionsSliderTemplate, else a bare Slider.
+-- Also Options.NewSlider, for the setup window.
 local function newSlider(row)
-    local ok, sliderFrame = pcall(CreateFrame, "Slider", nil, row, "OptionsSliderTemplate")
+    local ok, host = pcall(CreateFrame, "Frame", nil, row, "MinimalSliderWithSteppersTemplate")
+    if ok and host then
+        local dressed, usable = pcall(dressMinimalSlider, host)
+        if dressed and usable then
+            return host
+        end
+        pcall(host.Hide, host)
+    end
+    local sliderFrame
+    ok, sliderFrame = pcall(CreateFrame, "Slider", nil, row, "OptionsSliderTemplate")
     if ok and sliderFrame then
-        -- the template'sliderFrame own title and min/max captions are replaced by our label and value text
+        -- the template's own title and min/max captions are replaced by our label and value text
         for _, k in ipairs({ "Text", "Low", "High" }) do
             if sliderFrame[k] and sliderFrame[k].Hide then
                 sliderFrame[k]:Hide()
@@ -445,6 +548,7 @@ local function newSlider(row)
     bg:SetHeight(6)
     return sliderFrame
 end
+Options.NewSlider = newSlider
 
 -- Right-click the value to type one: an InputBoxTemplate box replaces the text; Enter or losing focus applies the
 -- nearest permitted value, Escape cancels, junk restores the old value. Returns nothing when the template is missing.
@@ -788,7 +892,50 @@ local function radioClick(key, v)
     Options:Refresh()
 end
 
--- The "Sound" row under the chime checkbox: Blizzard's modern dropdown (WowStyle1DropdownTemplate + SetupMenu radios),
+-- Dropdown geometry (px). The stepper template puts an arrow either side of the 150 px menu button, so the host starts
+-- PAD left of the control column and the voice row's play button moves right of the right arrow.
+local DD = { W = 150, PAD = 8, ARROW = 28, PLAY_X = 204 }
+
+-- A dropdown in `row` whose menu is built by setup(owner, root) (radio items). Returns the DropdownButton that carries
+-- the menu, or nothing when this client has no usable template (the caller then draws radios). First choice: our
+-- XPOrbsDropdownWithSteppersTemplate (Templates.xml: Blizzard's DropdownWithSteppersTemplate around a WowStyle2
+-- dropdown, the Settings panel's own look); the arrows cycle the radio items through the menu's own selection, so they
+-- reach the same setSelected callbacks as picking from the list. The host Frame is dropdown.xpHost. Second: the plain
+-- WowStyle1DropdownTemplate button.
+local function newDropdown(row, setup)
+    local tiers = {
+        function()
+            local host = CreateFrame("Frame", nil, row, "XPOrbsDropdownWithSteppersTemplate")
+            local dropdown = host.Dropdown
+            if not (dropdown and dropdown.SetupMenu) then
+                pcall(host.Hide, host)
+                error("no inner dropdown")
+            end
+            host:SetPoint("LEFT", row, "LEFT", CTRL_X - DD.PAD, 0)
+            host:SetSize(DD.W + 2 * DD.ARROW, 26)
+            dropdown:SetWidth(DD.W)
+            dropdown.xpHost = host
+            return dropdown, host
+        end,
+        function()
+            local dropdown = CreateFrame("DropdownButton", nil, row, "WowStyle1DropdownTemplate")
+            dropdown:SetPoint("LEFT", row, "LEFT", CTRL_X, 0)
+            dropdown:SetSize(DD.W, 26)
+            return dropdown, dropdown
+        end,
+    }
+    for _, build in ipairs(tiers) do
+        local made, dropdown, host = pcall(build)
+        if made and dropdown and pcall(dropdown.SetupMenu, dropdown, setup) then
+            return dropdown
+        end
+        if made and host then
+            pcall(host.Hide, host) -- a half-built dropdown must not sit over the radios
+        end
+    end
+end
+
+-- The "Sound" row under the chime checkbox: a modern dropdown (newDropdown) with arrows,
 -- or one radio per voice when this client has no such template. Picking a voice plays one sample note,
 -- even with the chime off, so the player can audition them before turning the chime on. The row stays enabled.
 local function soundVoiceRow(y)
@@ -802,23 +949,17 @@ local function soundVoiceRow(y)
         end
         Options:Refresh()
     end
-    local dropdown
-    local playX = PLAY_X
-    local okMenu = pcall(function()
-        dropdown = CreateFrame("DropdownButton", nil, row, "WowStyle1DropdownTemplate")
-        dropdown:SetPoint("LEFT", row, "LEFT", CTRL_X, 0)
-        dropdown:SetSize(150, 26)
-        dropdown:SetupMenu(function(_, root)
-            for _, v in ipairs(VOICES) do
-                root:CreateRadio(VOICE_NAME[v], function()
-                    return settings().soundVoice == v
-                end, function()
-                    pick(v)
-                end)
-            end
-        end)
+    local dropdown = newDropdown(row, function(_, root)
+        for _, v in ipairs(VOICES) do
+            root:CreateRadio(VOICE_NAME[v], function()
+                return settings().soundVoice == v
+            end, function()
+                pick(v)
+            end)
+        end
     end)
-    if okMenu and dropdown then
+    local playX = dropdown and dropdown.xpHost and DD.PLAY_X or PLAY_X
+    if dropdown then
         Options.soundDropdown = dropdown
         Options.controls.soundVoice = dropdown
         refreshers[#refreshers + 1] = function()
@@ -827,9 +968,6 @@ local function soundVoiceRow(y)
             end
         end
     else
-        if dropdown then
-            pcall(dropdown.Hide, dropdown) -- a half-built dropdown must not sit over the radios
-        end
         Options.soundDropdown = nil
         local radioBtns = {}
         playX = #VOICES * RADIO_STEP + 4 -- the sample button sits after the last radio
@@ -1034,28 +1172,22 @@ local function choiceRow(spec, y)
         end
         Options:Refresh()
     end
-    local dropdown
-    local okMenu = pcall(function()
-        dropdown = CreateFrame("DropdownButton", nil, row, "WowStyle1DropdownTemplate")
-        dropdown:SetPoint("LEFT", row, "LEFT", CTRL_X, 0)
-        dropdown:SetSize(150, 26)
-        dropdown:SetupMenu(function(_, root)
-            for _, kind in ipairs(spec.order) do
-                local name = choiceName(spec, kind, true)
-                local element = root:CreateRadio(name, function()
-                    return settings()[key] == kind
-                end, function()
-                    pick(kind)
+    local dropdown = newDropdown(row, function(_, root)
+        for _, kind in ipairs(spec.order) do
+            local name = choiceName(spec, kind, true)
+            local element = root:CreateRadio(name, function()
+                return settings()[key] == kind
+            end, function()
+                pick(kind)
+            end)
+            if element and element.SetTooltip then
+                pcall(element.SetTooltip, element, function(tooltip)
+                    fillMenuTooltip(tooltip, name, spec.desc[kind])
                 end)
-                if element and element.SetTooltip then
-                    pcall(element.SetTooltip, element, function(tooltip)
-                        fillMenuTooltip(tooltip, name, spec.desc[kind])
-                    end)
-                end
             end
-        end)
+        end
     end)
-    if okMenu and dropdown then
+    if dropdown then
         Options[spec.field] = dropdown
         Options.controls[key] = dropdown
         local function showCurrent(self)
@@ -1076,9 +1208,6 @@ local function choiceRow(spec, y)
             end
         end
     else
-        if dropdown then
-            pcall(dropdown.Hide, dropdown) -- a half-built dropdown must not sit over the radios
-        end
         Options[spec.field] = nil
         local radioBtns = {}
         for i, kind in ipairs(spec.order) do

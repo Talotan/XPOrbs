@@ -114,6 +114,69 @@ stub.rgbToHsv, stub.hsvToRgb = rgbToHsv, hsvToRgb
 
 -- names / parents (the v0.9 wrapper only keeps the parent)
 local baseCreate = CreateFrame
+
+-- Blizzard's MinimalSliderWithSteppersTemplate: a host Frame with .Slider (a real Slider), .Back / .Forward stepper
+-- buttons, label font strings, Init(value, min, max, steps, formatters), SetValue, SetEnabled and the callback
+-- registry (events fire for any value change, programmatic or not, but never for Init). stub.initCalls counts Inits.
+MinimalSliderWithSteppersMixin = {
+    Event = { OnValueChanged = "OnValueChanged", OnInteractStart = "OnInteractStart", OnInteractEnd = "OnInteractEnd" },
+    Label = { Left = 1, Right = 2, Top = 3, Min = 4, Max = 5 },
+}
+stub.initCalls = 0
+function stub.buildStepperSlider(f)
+    local inner = baseCreate("Slider")
+    inner.parentFrame = f
+    f.Slider, f.Back, f.Forward = inner, baseCreate("Button"), baseCreate("Button")
+    function inner:GetValue() -- (the shared GetValue below is the StatusBar reading)
+        return self.value or 0
+    end
+    for _, k in ipairs({ "LeftText", "RightText", "TopText", "MinText", "MaxText" }) do
+        f[k] = baseCreate("FontString")
+    end
+    f.callbacks = {}
+    function f:RegisterCallback(event, fn, owner)
+        self.callbacks[event] = self.callbacks[event] or {}
+        table.insert(self.callbacks[event], { fn = fn, owner = owner })
+    end
+    function f:Init(value, lo, hi, steps, formatters)
+        stub.initCalls = stub.initCalls + 1
+        self.initArgs = { value = value, min = lo, max = hi, steps = steps, formatters = formatters }
+        inner.minV, inner.maxV, inner.step, inner.value = lo, hi, (hi - lo) / steps, value
+        inner.enabled = true
+    end
+    function f:SetValue(v)
+        inner:SetValue(v)
+    end
+    function f:SetEnabled(on)
+        inner.enabled = on
+        self.tplEnabled = on
+    end
+    inner.scripts.OnValueChanged = function(_, v)
+        for _, cb in ipairs(f.callbacks.OnValueChanged or {}) do
+            cb.fn(cb.owner, v)
+        end
+    end
+    -- the arrows move the bar by one step, like a click on them
+    f.Back.scripts.OnClick = function()
+        inner:SetValue((inner.value or inner.minV) - inner.step)
+    end
+    f.Forward.scripts.OnClick = function()
+        inner:SetValue((inner.value or inner.minV) + inner.step)
+    end
+end
+
+-- Our XPOrbsDropdownWithSteppersTemplate (Templates.xml): the host with the inner WowStyle2 .Dropdown the XML adds and
+-- the two arrow buttons DropdownWithSteppersTemplate makes; they call the dropdown's Increment / Decrement.
+function stub.buildStepperDropdown(f)
+    f.Dropdown = CreateFrame("DropdownButton", nil, f, "WowStyle2DropdownTemplate")
+    f.IncrementButton, f.DecrementButton = baseCreate("Button"), baseCreate("Button")
+    f.IncrementButton.scripts.OnClick = function()
+        f.Dropdown:Increment()
+    end
+    f.DecrementButton.scripts.OnClick = function()
+        f.Dropdown:Decrement()
+    end
+end
 function CreateFrame(kind, name, parent, template)
     local f = baseCreate(kind, name, parent)
     f.name, f.template = name, template
@@ -122,6 +185,13 @@ function CreateFrame(kind, name, parent, template)
     end
     if kind == "CheckButton" then
         f.checked = false
+    end
+    if template == "MinimalSliderWithSteppersTemplate" then
+        stub.buildStepperSlider(f)
+    elseif template == "XPOrbsDropdownWithSteppersTemplate" then
+        stub.buildStepperDropdown(f)
+    elseif template == "TooltipBackdropTemplate" then
+        f.NineSlice = baseCreate("Frame") -- the border art; SetBackdropColor / SetBackdropBorderColor are recorders below
     end
     if kind == "DropdownButton" then
         -- Blizzard's modern dropdown: SetupMenu keeps the generator, GenerateMenu runs it against a root that records
@@ -145,6 +215,26 @@ function CreateFrame(kind, name, parent, template)
             if self.menuGen then
                 self.menuGen(self, root)
             end
+        end
+        -- the arrows: step the selected radio one entry (no wrap), through the same setSelected callback a pick runs
+        local function step(self, by)
+            self:GenerateMenu()
+            local entries = self.menuRoot.entries
+            for i, e in ipairs(entries) do
+                if e.selected then
+                    local target = entries[i + by]
+                    if target then
+                        target.setSelected()
+                    end
+                    return
+                end
+            end
+        end
+        function f:Increment()
+            step(self, 1)
+        end
+        function f:Decrement()
+            step(self, -1)
         end
     end
     return f
@@ -402,12 +492,14 @@ function stub.rightClick(f)
     end
 end
 function stub.hover(f)
+    f = f.Slider or f -- a stepper slider's tooltip hooks sit on its bar (and arrows)
     local fn = f.scripts.OnEnter
     if fn then
         fn(f)
     end
 end
 function stub.unhover(f)
+    f = f.Slider or f
     local fn = f.scripts.OnLeave
     if fn then
         fn(f)

@@ -394,10 +394,7 @@ end
 -- ---------------------------------------------------------------- the window
 
 local function build()
-    local created, frame = pcall(CreateFrame, "Frame", nil, UIParent, "BackdropTemplate")
-    if not (created and frame) then
-        frame = CreateFrame("Frame", nil, UIParent)
-    end
+    local frame = ns.Preview.NewWindow(UIParent)
     window = frame
     frame:SetSize(WINDOW_W, WINDOW_H)
     frame:SetFrameStrata("DIALOG") -- above the settings panel (HIGH); the orbs (FULLSCREEN_DIALOG) draw over it

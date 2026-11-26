@@ -217,7 +217,7 @@ local function button(parent, text, w, x, onClick)
 end
 
 local function makePanel()
-    local f = CreateFrame("Frame", nil, UIParent, BackdropTemplateMixin and "BackdropTemplate" or nil)
+    local f = ns.Preview.NewWindow(UIParent)
     f:SetSize(400, 124)
     f:SetFrameStrata("DIALOG")
     f:SetPoint("TOP", UIParent, "TOP", 0, -80)
@@ -233,10 +233,14 @@ local function makePanel()
     f:SetScript("OnMouseWheel", function(_, delta)
         bump(delta > 0 and -1 or 1) -- wheel up moves the marker up (the marker sits at -(offset + nudge))
     end)
-    local bg = f:CreateTexture(nil, "BACKGROUND")
-    bg:SetAllPoints(f)
-    bg:SetColorTexture(0, 0, 0, 0.8)
-    if f.SetBackdrop then
+    if f.xpTooltipStyle then
+        pcall(f.SetBackdropColor, f, 0.07, 0.07, 0.10, 0.95) -- the client's border art stays untinted
+    else
+        local bg = f:CreateTexture(nil, "BACKGROUND")
+        bg:SetAllPoints(f)
+        bg:SetColorTexture(0, 0, 0, 0.8)
+    end
+    if not f.xpTooltipStyle and f.SetBackdrop then
         pcall(f.SetBackdrop, f, { edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border", edgeSize = 12 })
         if f.SetBackdropBorderColor then
             pcall(f.SetBackdropBorderColor, f, 0.8, 0.8, 0.8, 0.8)

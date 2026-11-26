@@ -350,7 +350,8 @@ def test_speed_type_dropdown_sets_the_mode_and_swaps_the_slider(env):
     m = build(env)
     m.slash("flightmode speed")  # the shared build() harness starts in "time" mode
     dd = m.opt.speedTypeDropdown
-    assert dd.template == "WowStyle1DropdownTemplate" and dd.points[1][4] == 260
+    assert dd.template == "WowStyle2DropdownTemplate" and dd.xpHost.template == "XPOrbsDropdownWithSteppersTemplate"
+    assert dd.xpHost.points[1][4] == 260 - 8  # the host starts one arrow gap left of the control column
     assert m.db.flightMode == "speed" and m.opt.rows.flightSpeed.shown and not m.opt.rows.flightTime.shown
     assert m.stub.pickMenu(dd, "Relative speed") is True
     assert m.db.flightMode == "time"
@@ -372,7 +373,7 @@ def test_speed_type_reset_restores_constant_speed(env):
 
 
 def test_speed_type_radio_fallback(env):
-    m = build(env, pre=no_template("WowStyle1DropdownTemplate"))
+    m = build(env, pre=no_template("XPOrbsDropdownWithSteppersTemplate", "WowStyle1DropdownTemplate"))
     assert m.opt.speedTypeDropdown is None
     m.slash("flightmode speed")
     m.stub.click(m.opt.controls["flightMode_time"])

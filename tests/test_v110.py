@@ -1064,7 +1064,8 @@ def test_dropdown_is_built_from_the_modern_template(env):
     assert (
         dd is not None
         and dd.kind == "DropdownButton"
-        and dd.template == "WowStyle1DropdownTemplate"
+        and dd.template == "WowStyle2DropdownTemplate"
+        and dd.xpHost.template == "XPOrbsDropdownWithSteppersTemplate"
     )
     assert m.lua.eval("rawequal")(m.opt.controls["soundVoice"], dd)
     assert entries(dd) == [("Glass", True), ("Coin", False), ("Swish", False), ("Pixel", False)]
@@ -1075,8 +1076,9 @@ def test_dropdown_row_sits_under_the_chime_checkbox_inside_the_panel(env):
     row, chk = m.opt.rows["soundVoice"], m.opt.rows["sound"]
     assert row.points[1][5] == chk.points[1][5] - 28 and row.height == 28
     dd = m.opt.soundDropdown
-    assert dd.points[1][4] == 260 and dd.width == 150
-    assert dd.points[1][4] + dd.width < 548  # clear of the reset button column
+    host = dd.xpHost
+    assert host.points[1][4] == 260 - 8 and dd.width == 150 and host.width == 150 + 2 * 28
+    assert host.points[1][4] + host.width < 548  # clear of the reset button column, arrows included
     assert "Sound" in {str(t.xpName) for t in m.opt.tabs.values()}  # the section is a tab now
 
 

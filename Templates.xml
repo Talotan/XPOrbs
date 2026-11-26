@@ -1,0 +1,14 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/">
+    <!-- DropdownWithSteppersTemplate's OnLoad needs a child with parentKey "Dropdown" to exist already, so the stock
+         template cannot be created on its own. This virtual template adds the child (a WowStyle2 dropdown, the one the
+         game's Settings panel puts between its arrows); Options.lua sizes it and sets up the menu. -->
+    <Frame name="XPOrbsDropdownWithSteppersTemplate" inherits="DropdownWithSteppersTemplate" virtual="true">
+        <Frames>
+            <DropdownButton parentKey="Dropdown" inherits="WowStyle2DropdownTemplate">
+                <Anchors>
+                    <Anchor point="CENTER"/>
+                </Anchors>
+            </DropdownButton>
+        </Frames>
+    </Frame>
+</Ui>
