@@ -90,8 +90,9 @@ The panel has these sections, most-used first:
 - **Look:** the orb shape dropdown and, in a box under it, that shape's own size, quantity multiplier, opacity and extras
   (Overlap Type, Sparkle, Pulsing, Crackle speed); then the trail and its opacity, orb colour (or your class colour),
   rested orb colour (a tickbox and a swatch in one row) and the maximum orbs per burst.
-- **Flight:** the Flight pathing dropdown, the Speed type dropdown (Constant speed, where orbs always move at the same
-  speed, or Relative speed, where they always arrive after a set time) with its Flight speed or Flight time slider,
+- **Flight:** the Flight pathing dropdown, the Speed type dropdown (Relative speed, the default, where orbs always
+  arrive after a set time, or Constant speed, where they always move at the same speed) with its Flight time or Flight
+  speed slider,
   the kill style and the zoom-scaled spread.
 - **Arrival:** the XP bar frame and its picker, the shape of the target frame, a landing offset, and the arrival glow
   with its intensity.
@@ -235,9 +236,6 @@ the arrival glow don't change. Hover an option in the dropdown for a short descr
 The trail follows the same path.
 
 ![The three flight pathings, Smooth, Chaos and Helix, side by side](docs/images/flight-paths.gif)
-
-(The animation uses Relative speed with a 1.0 s flight time, so each path has time to show its shape on a short
-flight.)
 
 **Zoom-scaled spread** (on by default): the pops and the stream's start spread wider when you zoom the camera in and
 tighter when you zoom out, because the mob looks bigger or smaller on screen. At the default zoom nothing changes. It

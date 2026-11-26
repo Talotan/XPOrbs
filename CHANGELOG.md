@@ -1,6 +1,11 @@
 # Changelog
 
-## 1.4.1 (unreleased)
+## 1.4.1 (2026-11-26)
+
+### Changed
+
+- Relative speed (orbs always arrive after the set flight time) is the default Speed type again. Settings from 1.4.0
+  switch back to it once; pick Constant speed in the Flight tab if you prefer it.
 
 ### Fixed
 
