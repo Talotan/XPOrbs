@@ -1,5 +1,6 @@
 std = "lua51"
 max_line_length = 120
+unused_args = false -- WoW callback signatures carry arguments we do not always use
 
 globals = {
     "XPOrbsDB",
@@ -66,6 +67,28 @@ read_globals = {
     "COMBATLOG_XPGAIN_EXHAUSTION5_GROUP",
     "COMBATLOG_XPGAIN_EXHAUSTION5_RAID",
     "_G",
+    "IsShiftKeyDown",
+    "UnitThreatSituation",
+    "SettingsPanel",
+    "InCombatLockdown",
+    "HideUIPanel",
+    "GameTooltip_SetTitle",
+    "GameTooltip_AddNormalLine",
+    "PixelUtil",
+    "GameFontNormal",
+    "GameFontHighlight",
+    "PanelTemplates_SelectTab",
+    "PanelTemplates_DeselectTab",
+    "PanelTemplates_TabResize",
+    "GetCameraZoom",
+    "PlaySoundFile",
+    "debugprofilestop",
+    "UpdateAddOnMemoryUsage",
+    "GetAddOnMemoryUsage",
+    "UnitFactionGroup",
+    "C_Timer",
+    "IsMouseButtonDown",
+    "EnumerateFrames",
 }
 
 exclude_files = { "tests/", "Libs/" }

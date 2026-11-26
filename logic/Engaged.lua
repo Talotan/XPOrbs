@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: GPL-3.0-or-later
-local ADDON, ns = ...
+local _, ns = ...
 
 -- Pure logic: remembers the GUIDs of the units the player has been fighting, for a few seconds. At max level the game
 -- pays no XP, so a death only earns orbs when the dead unit was one of these. GUIDs are opaque strings: never logged,

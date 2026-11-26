@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: GPL-3.0-or-later
-local ADDON, ns = ...
+local _, ns = ...
 
 -- "Find your XP bar" window: a small movable dialog that opens by itself when the addon can't find an XP bar (orbs
 -- would fly to the bottom centre) and on /xporbs setup. It lets the player pick the bar, choose the glow shape and the

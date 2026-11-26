@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: GPL-3.0-or-later
-local ADDON, ns = ...
+local _, ns = ...
 
 -- Pure logic: decides which of the six chime notes (if any) to play as an orb arrives. Each played note is a random
 -- one of the six that differs from the previous note, so the pitch wobbles instead of climbing. At most one note per

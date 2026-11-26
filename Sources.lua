@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: GPL-3.0-or-later
-local ADDON, ns = ...
+local _, ns = ...
 
 -- Where non-kill XP comes from. Watches the events that travel with a quest turn-in or an exploration discovery and
 -- hands the kill matcher a "source hint" (what the XP was, and the screen point its orbs should start from). The

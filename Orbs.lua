@@ -847,7 +847,7 @@ end
 -- Fills group for orbCount orbs (rested: the first restedCount). Anchors group.frame to the plate with a single point.
 -- (ux, uy) is the exit vector the pop orbs launch along; spreadFactor scales the ring radius and drift (the
 -- zoom-scaled spread, 1 = fixed). Errors propagate (pcall'd).
-local function setupPop(group, plate, orbCount, scale, restedCount, restedColour, normalColour, ux, uy, bodyAnchorY,
+local function setupPop(group, plate, orbCount, scale, restedCount, restedColour, bodyColour, ux, uy, bodyAnchorY,
                         spreadFactor)
     local config = ns.db
     local shape = group.shape -- nil: Starlight
@@ -864,7 +864,7 @@ local function setupPop(group, plate, orbCount, scale, restedCount, restedColour
     end
     for i = 1, orbCount do
         local rested = i <= restedCount
-        local colour = rested and restedColour or normalColour
+        local colour = rested and restedColour or bodyColour
         local red, green, blue = colour[1], colour[2], colour[3]
         local slotBase = (i - 1) * 3
         local underTex, orbTex, sparkleTex = tex[slotBase + 1], tex[slotBase + 2], tex[slotBase + 3]
@@ -1976,7 +1976,7 @@ local function runTest(arg, quiet)
         startStress(count)
         return
     end
-    local config = settings()
+    settings() -- loads the db if it is not up yet
     local pct, rested, force, forceMode, path = 5, false, nil, nil, nil
     for tok in string.gmatch(arg or "", "%S+") do
         if tok == "rested" then

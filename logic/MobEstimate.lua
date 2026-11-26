@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: GPL-3.0-or-later
-local ADDON, ns = ...
+local _, ns = ...
 
 -- Pure logic: estimates where a dying mob is on screen (plates can't be measured on Forever). Mouseover samples are
 -- the cursor position seen while hovering a hostile GUID; an estimate blends a fresh sample with the cursor and a

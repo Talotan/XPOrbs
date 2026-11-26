@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: GPL-3.0-or-later
-local ADDON, ns = ...
+local _, ns = ...
 
 -- Pure logic: orb counts, curves and coordinate maths. Touches no WoW globals.
 

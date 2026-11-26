@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: GPL-3.0-or-later
-local ADDON, ns = ...
+local _, ns = ...
 
 -- Kill pipeline: wires UNIT_DIED / plate removal / chat XP / XP deltas into one KillMatcher and turns its bursts into
 -- ns.Orbs:Burst calls. Deaths carry no position (plates can't be measured); the origin is estimated. Never throws.
@@ -23,7 +23,7 @@ Kills.matcher = matcher
 
 local xpCache = { xp = nil, max = nil }
 local xpStale = false -- the last PLAYER_XP_UPDATE was unreadable: the cache can't be trusted until it is re-primed
-local unitDiedRegistered = false
+local unitDiedRegistered
 local pendingChat, pendingDelta -- { amount, t, kind } awaiting their counterpart for AMOUNTCHECK
 local lastDropped = 0
 
@@ -39,10 +39,6 @@ local accumDrop, accumT = 0, 0
 local xpEntries = {} -- { amount, drop, t } one per positive XP delta not yet claimed by a burst
 local awaiting = {} -- { amount, t } kill bursts emitted before their XP update arrived (it must not be kept)
 local lastOtherChat -- { amount, rested, t } most recent non-kill chat XP with a rested bonus
-
-local function log(...)
-    ns:Log(...)
-end
 
 local function num(v)
     if readable(v) and type(v) == "number" then
@@ -197,7 +193,7 @@ local function emitBurst(burst)
         estX, estY, estMethod, estWeight = ns.Mouseover:Estimate(burst.guid)
     end
     local now = GetTime()
-    local chatRested, exhDrop = burst.rested, nil
+    local chatRested, exhDrop = burst.rested
     local restedAmt, restedSrc
     if burst.n then
         restedAmt, restedSrc = nil, "none"

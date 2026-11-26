@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: GPL-3.0-or-later
-local ADDON, ns = ...
+local _, ns = ...
 
 -- Mouseover sampler: while the cursor is over a hostile unit it remembers (GUID -> cursor position), which is the best
 -- on-screen clue we get to where a mob is (plates can't be measured). Kills ask for an estimate when a mob dies.

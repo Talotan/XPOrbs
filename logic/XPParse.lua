@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: GPL-3.0-or-later
-local ADDON, ns = ...
+local _, ns = ...
 
 -- Pure logic: turns Blizzard XP-gain format strings into Lua patterns and parses chat messages.
 -- Touches no WoW globals; the caller passes the globals table to Build.

@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: GPL-3.0-or-later
-local ADDON, ns = ...
+local _, ns = ...
 
 -- Nameplate tracker. Remembers which hostile plates exist (unit token -> GUID, name, hostile) so a kill can be
 -- matched to its plate after the plate is gone, and keeps the plate frame as an anchor parent for Orbs.lua.

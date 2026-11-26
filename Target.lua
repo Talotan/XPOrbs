@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: GPL-3.0-or-later
-local ADDON, ns = ...
+local _, ns = ...
 
 -- Where the orbs fly to: the fill edge of the XP bar, in UIParent coordinates. Only reads Blizzard frames.
 
@@ -647,7 +647,7 @@ end
 local MAX_AREA_FRACTION = 0.5 -- frames covering more than this share of UIParent (full-screen containers) are skipped
 local PICK_SCAN_STEP = 0.25 -- seconds between hover scans
 local scanElapsed = PICK_SCAN_STEP
-local scanPick, scanLabel, scanFrame -- last hover scan result, reused between scans
+local scanLabel, scanFrame -- last hover scan result, reused between scans
 Target.scanCount = 0
 
 local function areaOf(f)
@@ -1044,13 +1044,14 @@ end
 local function updateHighlight()
     local pick, label, frame = smartPick(pointedFrame())
     if pick then
-        scanPick, scanLabel, scanFrame = nil, nil, nil
+        scanLabel, scanFrame = nil, nil
     else
         if scanElapsed >= PICK_SCAN_STEP then
             scanElapsed = 0
-            scanPick, scanLabel, scanFrame = resolvePick(true)
+            local _, scanned, scannedFrame = resolvePick(true)
+            scanLabel, scanFrame = scanned, scannedFrame
         end
-        pick, label, frame = scanPick, scanLabel, scanFrame
+        label, frame = scanLabel, scanFrame
     end
     if not frame then
         hideHighlight()
@@ -1084,7 +1085,7 @@ local function disarm(msg)
     picking = false
     hideHighlight()
     highlightBad = nil
-    scanPick, scanLabel, scanFrame = nil, nil, nil
+    scanLabel, scanFrame = nil, nil
     if pickFrame then
         pcall(pickFrame.UnregisterEvent, pickFrame, "GLOBAL_MOUSE_DOWN")
         pickFrame:SetScript("OnUpdate", nil)
