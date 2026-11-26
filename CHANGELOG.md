@@ -38,6 +38,7 @@
 - Trails no longer break into separate dots at high flight speeds.
 - The test target retries loading its model if it appears blank.
 - Reset all to default keeps the minimap button where you put it.
+- The calibration window's status line (`/xporbs calib`) no longer runs past the window's edge.
 
 ## 1.3.0 (2026-11-24)
 

@@ -466,6 +466,17 @@ def test_fit_is_disabled_until_two_points_are_saved(env):
     assert fit.disabled is True
 
 
+def test_readout_sits_under_the_title_and_cannot_spill(env):
+    g = make(env)
+    g.slash("calib")
+    panel = g.ns.Calib.panel
+    fs = [f for f in lua_list(g.stub.frames) if f.kind == "FontString" and OWN(g, f.parentFrame, panel)]
+    title = next(f for f in fs if str(f.text) == "XP Orbs Calibration")
+    readout = panel_texts(g)["zoom"]
+    assert readout.points[1][5] < title.points[1][5]  # lower on screen than the title
+    assert readout.points[1][4] + readout.width <= panel.width - 12  # inside the 12 px side padding
+
+
 def test_readout_says_what_is_missing_without_a_plate(env):
     g = make(env)
     plate = target_plate(g, zoom=12)

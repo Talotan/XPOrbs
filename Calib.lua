@@ -218,7 +218,7 @@ end
 
 local function makePanel()
     local f = ns.Preview.NewWindow(UIParent)
-    f:SetSize(400, 124)
+    f:SetSize(400, 142)
     f:SetFrameStrata("DIALOG")
     f:SetPoint("TOP", UIParent, "TOP", 0, -80)
     f:SetClampedToScreen(true)
@@ -238,10 +238,12 @@ local function makePanel()
     title:SetPoint("TOPLEFT", f, "TOPLEFT", 12, -10)
     title:SetText("XP Orbs Calibration")
     readout = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    readout:SetPoint("TOPLEFT", f, "TOPLEFT", 180, -10)
+    readout:SetPoint("TOPLEFT", f, "TOPLEFT", 12, -28) -- its own line under the title; fixed width so it can't spill
+    readout:SetWidth(376)
+    pcall(readout.SetWordWrap, readout, false)
     readout:SetJustifyH("LEFT")
     local hint = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    hint:SetPoint("TOPLEFT", f, "TOPLEFT", 12, -30)
+    hint:SetPoint("TOPLEFT", f, "TOPLEFT", 12, -48)
     hint:SetWidth(376)
     hint:SetJustifyH("LEFT")
     hint:SetText("Nudge the marker onto the target's body (mouse wheel; Shift = 10 px), then Save point. "
