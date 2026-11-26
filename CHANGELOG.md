@@ -1,5 +1,44 @@
 # Changelog
 
+## 1.4.0 (unreleased)
+
+### Added
+
+- Orb shapes: Starlight (the existing look, still the default), Bubble, Retro and Crackle. Pick one in the Look tab
+  or with `/xporbs shape`.
+- Each shape keeps its own size, quantity multiplier and opacity.
+- Overlap Type for Bubble, Retro and Crackle: Glow (orbs brighten where they overlap) or Solid (opaque orbs that stack).
+- Shape options: Pulsing for Bubble (also `/xporbs pulse`), Sparkle for Retro, Crackle speed (50 to 200 %) for
+  Crackle. Retro's size is a pixel size from 1 to 5 px.
+- Orb opacity (20 to 100 %) and Trail opacity (0 to 100 %).
+- Speed type in the Flight tab: Constant speed (Flight speed, 50 to 250 %) or Relative speed (Flight time). Constant
+  speed is the new default; a saved flight time becomes the matching flight speed.
+- A preview window next to the options shows orbs with the current look: 8 at a 100 % quantity multiplier, 2 to 24
+  across its range. A Cluster tickbox piles them up as they look after a kill.
+- The test target window can be moved anywhere with its move icon or by dragging the window, and put back with its
+  reset icon.
+- Two chime voices: Swish and Pixel.
+
+### Changed
+
+- The options are in tabs: General, Sound, Look, Flight, Arrival. The kill style and the flight settings are in the
+  Flight tab, with the kill style options in their own box. Flight style is now called Flight pathing.
+- Sliders and dropdowns use the Forever settings style, with arrow buttons, and the extra windows use the Forever
+  border.
+- Orb quantity multiplier range: 25 to 300 % (was 25 to 400 %). Higher saved values become 300 %.
+- Chime volume range: 100 to 250 % (was 25 to 250 %). Lower saved values become 100 %.
+- The chime is on by default for new installs. Existing settings keep their choice.
+- Rested tint and Rested colour are one row, Rested orb colour: a tickbox and its colour swatch.
+- Orbs are drawn above other windows, including popup dialogs, so they stay visible over the options and the test
+  target.
+
+### Fixed
+
+- Very dark orb colours keep their hue, and their trails show as a darker shadow instead of disappearing.
+- Trails no longer break into separate dots at high flight speeds.
+- The test target retries loading its model if it appears blank.
+- Reset all to default keeps the minimap button where you put it.
+
 ## 1.3.0 (2026-11-24)
 
 - **Works with more UIs.** XP bars from EllesmereUI, FlareUI, DaylightUI and Smooth Experience Bar are found

@@ -65,7 +65,7 @@ back with `/xporbs minimap on` or the "Show minimap button" option).
 | `/xporbs perf [reset]` | Print the addon's memory use, the average and worst time of an orb frame, and how much of the orb pool is in use. `reset` zeroes the frame timings. |
 | `/xporbs style popstream [nameplate\|direct]` | Set the kill style to Popstream, optionally with its pop on the nameplate or direct. With no argument, print the current style. |
 | `/xporbs style crossfade\|stream` | Set the kill style to Crossfade or Direct Stream (`stream`). The older names still work: `streampop` is Popstream (Direct), and `wide` is Popstream (Nameplate) with zoom-scaled spread on. |
-| `/xporbs shape starlight\|retro\|bubble\|crackle` | Set the orb shape: `starlight` (the default), `retro`, `bubble` or `crackle` (the first names `wisp` and `power` still work). Size, quantity and opacity are remembered per shape. With no argument, print the current shape. |
+| `/xporbs shape starlight\|bubble\|retro\|crackle` | Set the orb shape: `starlight` (the default), `bubble`, `retro` or `crackle` (the first names `wisp` and `power` still work). Size, quantity multiplier and opacity are remembered per shape. With no argument, print the current shape. |
 | `/xporbs pulse on\|off` | Turn Bubble's gentle swelling and shrinking on or off (off by default). |
 | `/xporbs path smooth\|chaos\|helix` | Set the flight pathing (how orbs fly): `smooth` (the default), `chaos` or `helix`. With no argument, print the current pathing. |
 | `/xporbs wide on\|off` | Turn the zoom-scaled spread on or off (on by default). |
@@ -87,7 +87,7 @@ back with `/xporbs minimap on` or the "Show minimap button" option).
 The panel has these sections, most-used first:
 
 - **General:** enable, orbs at max level, quest bursts, exploration bursts, the minimap button and the debug log.
-- **Look:** the orb shape dropdown and, in a box under it, that shape's own size, quantity, opacity and extras
+- **Look:** the orb shape dropdown and, in a box under it, that shape's own size, quantity multiplier, opacity and extras
   (Overlap Type, Sparkle, Pulsing, Crackle speed); then the trail and its opacity, orb colour (or your class colour),
   rested orb colour (a tickbox and a swatch in one row) and the maximum orbs per burst.
 - **Flight:** the Flight pathing dropdown, the Speed type dropdown (Constant speed, where orbs always move at the same
@@ -99,11 +99,15 @@ The panel has these sections, most-used first:
 
 The panel also has a reset button. To try your settings, use the Test Kill button on the test target, below.
 
-While the XP Orbs options are open, two small windows sit to the right of them. The Preview shows a few orbs with your
-current look; tick **Cluster** to pile them up the way they look right after a kill. Under it, a stand-in mob (Hogger,
-or Gamon for Horde characters) waits with a Test Kill button: it makes the mob die and fires a burst from it with your
-current settings, so you can tune the look without finding a mob. Drag the model to rotate it, or drag the window (the
-move cross in its corner) to put it anywhere; it goes back next to the panel when you close the options.
+While the XP Orbs options are open, two small windows sit to the right of them. The Preview shows stationary orbs with
+your current look: 8 at the default quantity multiplier of 100 %, from 2 at 25 % up to 24 at 300 %, laid out as a
+pentagon or a star that grows at its edge. With a rested colour on, the bottom rows are rested orbs. Tick **Cluster**
+to pile them up the way they look right after a kill. The window grows taller for big orbs, up to 400 px; past that
+the orbs sit closer together. Under it, a stand-in mob (Hogger, or Gamon for Horde characters) waits with a Test Kill
+button: it makes the mob die and fires a burst from it with your current settings, so you can tune the look without
+finding a mob. Drag the model to rotate it, or drag the window (or the move cross in its top left corner) to put it
+anywhere. The reset icon in its top right corner puts it back next to the panel, and so does opening the options
+again.
 
 The default colours are a purple for normal orbs and a blue for rested ones, picked to match the Forever XP bar. If
 you had kept the old default colours or the old 0.75 s flight time, they update to the new ones automatically; colours
@@ -158,7 +162,8 @@ pct = gain / xpToLevel * 100
 orbs = round((3 + 5 * sqrt(pct)) * quantity / 100), clamped to 1 .. maximum
 ```
 
-`quantity` defaults to 100 and the maximum to 40. For example, 5% of a level gives 14 orbs, 10% gives 19 and 25% gives
+`quantity` is the Orb quantity multiplier of the current shape (25 to 300 %, default 100) and the maximum is "Max orbs
+per burst" (default 40). For example, 5% of a level gives 14 orbs, 10% gives 19 and 25% gives
 28. When the formula asks for more than the maximum, the orbs are drawn larger instead, up to 1.5 times.
 
 ### Where orbs start
@@ -200,10 +205,10 @@ never swaps the art on orbs already in the air. Hover an option in the dropdown 
 quantity and opacity are remembered per shape: tune Retro and Starlight keeps its own values.
 
 - **Starlight** (default): soft glowing orbs with a spinning sparkle and a fading trail.
-- **Retro**: chunky pixel-art orbs on an 8 x 8 grid that move in blocky steps, with a blinking twinkle and a trail of
-  two square pixels.
 - **Bubble**: smooth, solid, glossy orbs with a small highlight up and to the left, breathing slightly (untick
   **Pulsing**, or `/xporbs pulse off`, to keep them steady), with a long four-ghost tail.
+- **Retro**: chunky pixel-art orbs on an 8 x 8 grid that move in blocky steps, with a blinking twinkle and a trail of
+  two square pixels. Its size is **Pixel size**, 1 to 5 screen px per art pixel.
 - **Crackle**: a steady bright core with a bolt of lightning crackling round its edge that jumps to a new shape and
   angle about every 80 ms. **Crackle speed** (50 to 200 %) makes the lightning change slower or faster.
 
