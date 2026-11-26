@@ -95,6 +95,58 @@ def test_options_command_opens_the_category(m5):
     assert list(m5.stub.settings.opened.values()) == [m5.stub.settings.registered[1].id]
 
 
+def opened_count(m5):
+    return len(list(m5.stub.settings.opened.values()))
+
+
+def test_options_in_combat_waits_for_combat_to_end(m5):
+    m5.stub.inCombat = True
+    m5.slash("options")
+    assert opened_count(m5) == 0
+    assert "after combat" in m5.say()[-1]
+    m5.stub.inCombat = False
+    m5.ns.fire("PLAYER_REGEN_ENABLED")
+    assert opened_count(m5) == 1
+    m5.ns.fire("PLAYER_REGEN_ENABLED")  # unregistered again: a later combat end opens nothing
+    assert opened_count(m5) == 1
+
+
+def test_options_twice_in_combat_opens_once(m5):
+    m5.stub.inCombat = True
+    m5.slash("options")
+    m5.slash("options")
+    m5.stub.inCombat = False
+    m5.ns.fire("PLAYER_REGEN_ENABLED")
+    assert opened_count(m5) == 1
+
+
+def test_options_prefers_securecallfunction_and_the_settings_util(m5):
+    m5.lua.execute(
+        """
+        rec = { calls = {}, plain = 0 }
+        securecallfunction = function(f, ...) f(...) end
+        C_SettingsUtil = { OpenSettingsPanel = function(id) rec.calls[#rec.calls + 1] = id end }
+        local orig = Settings.OpenToCategory
+        Settings.OpenToCategory = function(...) rec.plain = rec.plain + 1 return orig(...) end
+        """
+    )
+    m5.slash("options")
+    rec = m5.lua.eval("rec")
+    assert list(rec.calls.values()) == [m5.stub.settings.registered[1].id]
+    assert rec.plain == 0
+
+
+def test_options_secure_open_failure_is_caught(m5):
+    m5.lua.execute(
+        """
+        securecallfunction = function(f, ...) f(...) end
+        C_SettingsUtil = { OpenSettingsPanel = function() error('forbidden') end }
+        """
+    )
+    m5.slash("options")
+    assert "couldn't open" in m5.say()[-1]
+
+
 def test_options_without_settings_api_prints_a_fallback(env):
     m5 = build(env, settings=False)
     assert m5.opt.category is None

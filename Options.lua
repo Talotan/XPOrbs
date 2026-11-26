@@ -2099,18 +2099,53 @@ if Settings and Settings.RegisterCanvasLayoutCategory and Settings.RegisterAddOn
     end
 end
 
+local openWhenCombatEnds = false -- a click in combat is waiting for PLAYER_REGEN_ENABLED
+local combatFrame -- built on first use; PLAYER_REGEN_ENABLED is registered only while waiting
+
+local function openNow()
+    local id = Options.category:GetID()
+    local ok
+    -- Blizzard's Settings.OpenToCategory runs gamepad focus code on the addon's call path (blocked-action errors on
+    -- Forever); C_SettingsUtil.OpenSettingsPanel through securecallfunction avoids that.
+    if type(securecallfunction) == "function" and C_SettingsUtil
+        and type(C_SettingsUtil.OpenSettingsPanel) == "function" then
+        ok = pcall(securecallfunction, C_SettingsUtil.OpenSettingsPanel, id)
+    else
+        ok = pcall(Settings.OpenToCategory, id)
+    end
+    if not ok then
+        ns.Print("options: couldn't open the settings panel; try Esc > Options > AddOns > XP Orbs")
+    end
+end
+
+local function onCombatFrameEvent(self, event)
+    if event ~= "PLAYER_REGEN_ENABLED" then
+        return
+    end
+    pcall(self.UnregisterEvent, self, "PLAYER_REGEN_ENABLED")
+    if openWhenCombatEnds then
+        openWhenCombatEnds = false
+        openNow()
+    end
+end
+
 function ns.commands.options()
     if not Options.category then
         ns.Print("options: the settings panel isn't available ("
             .. (Options.err or "no Settings API on this client") .. "); use /xporbs commands instead")
         return
     end
-    local ok = pcall(function()
-        Settings.OpenToCategory(Options.category:GetID())
-    end)
-    if not ok then
-        ns.Print("options: couldn't open the settings panel; try Esc > Options > AddOns > XP Orbs")
+    if InCombatLockdown and InCombatLockdown() then
+        if not openWhenCombatEnds then
+            openWhenCombatEnds = true
+            combatFrame = combatFrame or CreateFrame("Frame")
+            combatFrame:SetScript("OnEvent", onCombatFrameEvent)
+            pcall(combatFrame.RegisterEvent, combatFrame, "PLAYER_REGEN_ENABLED")
+        end
+        ns.Print("options will open after combat")
+        return
     end
+    openNow()
 end
 
 table.insert(ns.statusProviders, function()

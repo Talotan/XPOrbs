@@ -15,6 +15,8 @@ globals = {
 read_globals = {
     "C_NamePlate",
     "C_AddOns",
+    "C_SettingsUtil",
+    "securecallfunction",
     "Settings",
     "C_ClassColor",
     "C_Texture",
