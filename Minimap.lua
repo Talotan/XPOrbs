@@ -46,13 +46,15 @@ local function optionsOpen()
 end
 
 -- Closing the Settings window from addon code can be blocked (or taint the UIPanel manager) in combat, so don't try
--- then.
+-- then. Close(true) is skipTransitionBackToOpeningPanel: without it Blizzard goes on to ToggleGameMenu, whose protected
+-- calls (SpellStopCasting, ClearTarget) raise ADDON_ACTION_FORBIDDEN from our call path.
 local function closeOptions()
     if InCombatLockdown and InCombatLockdown() then
         ns.Print("can't close the options in combat")
         return
     end
-    if SettingsPanel and type(SettingsPanel.Close) == "function" and pcall(SettingsPanel.Close, SettingsPanel) then
+    if SettingsPanel and type(SettingsPanel.Close) == "function"
+        and pcall(SettingsPanel.Close, SettingsPanel, true) then
         return
     end
     if HideUIPanel then

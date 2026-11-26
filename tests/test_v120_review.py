@@ -115,9 +115,12 @@ def stub_settings(m, close=True, combat=None):
         """function(G, sp, close, combat)
             sp.hideUI = 0
             sp.closes = 0
+            sp.closeArg = nil
             sp.Close = nil
-            if close then
-                function sp:Close() self.shown = false; self.closes = self.closes + 1 end
+            if close == "error" then
+                function sp:Close(skip) self.closeArg = skip; self.closes = self.closes + 1; error("boom") end
+            elseif close then
+                function sp:Close(skip) self.closeArg = skip; self.shown = false; self.closes = self.closes + 1 end
             end
             G.HideUIPanel = function(f) sp.hideUI = sp.hideUI + 1; f:Hide() end
             G.InCombatLockdown = function() return combat end
@@ -142,6 +145,27 @@ def test_minimap_close_out_of_combat_prefers_settingspanel_close(env):
     sp = stub_settings(m, close=True, combat=False)
     m.p2a.object.OnClick(None, "LeftButton")
     assert sp.shown is False and sp.closes == 1 and sp.hideUI == 0 and sp.hides == 0
+
+
+def test_minimap_close_skips_the_transition_back_to_the_game_menu(env):
+    m = make_p2a(env)
+    sp = stub_settings(m, close=True, combat=False)
+    m.p2a.object.OnClick(None, "LeftButton")
+    assert sp.closeArg is True  # Close(true): no ToggleGameMenu, so no protected-call chain
+
+
+def test_minimap_close_error_falls_back_to_hideuipanel(env):
+    m = make_p2a(env)
+    sp = stub_settings(m, close="error", combat=False)
+    m.p2a.object.OnClick(None, "LeftButton")
+    assert sp.closes == 1 and sp.hideUI == 1 and sp.shown is False
+
+
+def test_minimap_close_in_combat_never_calls_close_or_hideuipanel(env):
+    m = make_p2a(env)
+    sp = stub_settings(m, close=True, combat=True)
+    m.p2a.object.OnClick(None, "LeftButton")
+    assert sp.closes == 0 and sp.hideUI == 0 and sp.closeArg is None
 
 
 def test_minimap_close_falls_back_to_hideuipanel(env):
