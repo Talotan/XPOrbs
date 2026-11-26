@@ -50,7 +50,7 @@ def art_ok(tex, expected):
 
 def set_shape(g, shape):
     g.db.orbShape = shape
-    if shape == "retro" and g.db.size > 7:  # Retro's size is px per art pixel (1..7), not an orb size
+    if shape == "retro" and g.db.size > 5:  # Retro's size is px per art pixel (1..5), not an orb size
         g.db.size = 2
 
 

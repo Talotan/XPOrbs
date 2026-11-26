@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: GPL-3.0-or-later
-local ADDON, ns = ...
+local _, ns = ...
 
 -- The orb shapes other than Starlight (db.orbShape): Retro, Bubble and Crackle. Starlight is the original drawing in
 -- Orbs.lua; this file registers the other three in ns.OrbShapes.by (see the SHAPES comment in Orbs.lua for what a shape
@@ -18,7 +18,7 @@ local host, k = SHAPES.host, SHAPES.k
 local take, putAt, place, hideTex, flightPoint = host.take, host.putAt, host.place, host.hide, host.flightPoint
 
 local random = math.random
-local floor, ceil, max, min, sin = math.floor, math.ceil, math.max, math.min, math.sin
+local floor, max, sin = math.floor, math.max, math.sin
 local TWO_PI = math.pi * 2
 
 local ORB_TEX = "Interface\\AddOns\\XPOrbs\\media\\orb"
@@ -56,7 +56,7 @@ local CRACKLE_SOLID_UNDER, CRACKLE_SOLID_UNDER_ALPHA = 1.25, 0.40 -- x body, alp
 local SUB_NATURAL = { under = -1, trail = 0, body = 0, top = 1 } -- ARTWORK sublayers
 local SUB_SOLID = { under = -2, trail = -1, body = 0, top = 1 }
 
--- Retro: the art is 8 x 8 "pixels" (cells). Retro's db.size is the px per cell (1..7); ns.OrbSize turns it into the
+-- Retro: the art is 8 x 8 "pixels" (cells). Retro's db.size is the px per cell (1..5); ns.OrbSize turns it into the
 -- generic orb size (8 cells across), so st.base = OrbSize x the burst scale and base * RETRO_K / 8 = the stored step x
 -- the scale. One cell size serves a whole burst (no rested or pop multiplier), so every orb of it has the same pixels.
 local RETRO_K = ns.RETRO_K

@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: GPL-3.0-or-later
-local ADDON, ns = ...
+local _, ns = ...
 
 -- Orb preview window: a framed window like the "Test target" one (Preview.lua), docked to the right of the settings
 -- panel with the test target window hung under it (anchored to its bottom edge, so it follows when the window grows).
@@ -422,7 +422,7 @@ local function build()
     -- the Cluster tickbox in the top right corner, on the title's row (small, its label to its left)
     local check = CreateFrame("CheckButton", nil, frame, "UICheckButtonTemplate")
     check:SetSize(CHECK, CHECK)
-    check:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -4, -4)
+    check:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -4, -7) -- its centre (y -17) sits on the title's (about -16)
     local text = frame:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
     text:SetPoint("RIGHT", check, "LEFT", 0, 1)
     text:SetText("Cluster")

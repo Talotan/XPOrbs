@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: GPL-3.0-or-later
-local ADDON, ns = ...
+local _, ns = ...
 
 -- Test window: a small window docked to the right of the settings panel that shows a stand-in mob (Hogger for the
 -- Alliance, Gamon for the Horde) and a fake nameplate above it. While the window is shown, "Test Kill" fires the
@@ -9,8 +9,9 @@ local ADDON, ns = ...
 -- origin" spread and misrepresents the common case, where the mob is located and has a nameplate. The model dies when
 -- Test is pressed and gets up again a few seconds later. The "Test Kill" button sits inside the window, under the
 -- model. Dragging on the model turns it around its vertical axis; the rest of the window (the plate area, the title
--- strip) and the move cross shown in its top right corner while the mouse is over it drag the window itself, anywhere
--- on screen. It goes back to its dock under the orb preview the next time the options panel opens.
+-- strip) and the move cross in its top left corner (always visible) drag the window itself, anywhere on screen. The
+-- reset icon in its top right corner, the same art as the options' reset buttons, puts it back in its dock under the
+-- orb preview; so does the next time the options panel opens.
 -- The window is ours, unnamed, built on first show;
 -- every model call is pcall'd because the model API differs between clients (a missing method just means a blank or
 -- static model). An OnUpdate exists only during the death sequence and, on the model, while the mouse button is held
@@ -23,8 +24,16 @@ local WINDOW_W = 200
 local BUTTON_W, BUTTON_H = 100, 22 -- the Test Kill button, bottom centre of the window
 -- px from the window's bottom edge to the model area's: the button row (the window's padding, the button, a gap)
 local BOTTOM_H = 8 + BUTTON_H + 4
-local HANDLE_ALPHA = 0.6 -- the move cross while the window is hovered; 1 while the cross itself is
-local MOVE_ICON = 16 -- px: the move cross in the window's top right corner
+local ICON_ALPHA = 0.75 -- the move cross and the reset icon; 1 while the mouse is over one
+local ICON_SIZE = 16 -- px: the move cross (top left) and the reset icon (top right), each ICON_INSET from the corner
+local ICON_INSET = 8
+-- the hue of the "transmog-icon-revert" atlas: the move cross is drawn in it, and so is the fallback reset texture
+local ICON_GOLD = { 1.0, 0.78, 0.18 }
+local ICON_ATLAS = "transmog-icon-revert"
+local ICON_FALLBACK = "Interface\\Buttons\\UI-RefreshButton"
+local ICON_HILITE = "Interface\\Buttons\\ButtonHilight-Square"
+-- the mob's name stays clear of both icons: a gap of 4 px beyond each
+local TITLE_W = WINDOW_W - 2 * (ICON_INSET + ICON_SIZE + 4)
 local GAP = 4 -- px between the settings panel and the window
 local PAD = 8
 local PLATE_TOP_Y = 12 -- px from the window's top to the plate's top (the mob's name sits there)
@@ -108,7 +117,7 @@ local BACKDROP = {
     insets = { left = 4, right = 4, top = 4, bottom = 4 },
 }
 
-local window, model, plate, healthFill, popAnchor, moveHandle
+local window, model, plate, healthFill, popAnchor
 local modelLoaded = false
 local buildFailed = false -- buildWindow threw once: do not try again this session (every attempt would leak a frame)
 local loadCheckPending = false -- a C_Timer.After for the load fallback is in flight
@@ -319,6 +328,8 @@ local function buildPlate(parent)
         end
     end
     name:SetPoint("TOP", frame, "TOP", 0, -NAME_DROP)
+    try(name, "SetWidth", TITLE_W) -- a long name is cut short rather than run under the move or reset icon
+    try(name, "SetWordWrap", false)
     name:SetText(standIn.name)
     local back = frame:CreateTexture(nil, "BACKGROUND")
     back:SetPoint("BOTTOM", frame, "BOTTOM", 0, 0)
@@ -485,37 +496,35 @@ local function stopMove()
     end
 end
 
--- Shown while the mouse is over the window (or the cross itself), hidden otherwise. A child frame taking the mouse
--- ends the window's own OnEnter, so the leave handlers check whether the mouse is still inside the window.
-local function showHandle(shown)
-    if moveHandle then
-        if shown then
-            moveHandle:SetAlpha(HANDLE_ALPHA)
-            moveHandle:Show()
-        elseif not (window and window:IsMouseOver()) then
-            moveHandle:Hide()
-        end
-    end
+-- Shared by the move cross and the reset icon: dim at rest, full while the mouse is over it, with a tooltip.
+local function styleIcon(btn, tip, anchor)
+    btn:SetAlpha(ICON_ALPHA)
+    btn:SetScript("OnEnter", function(self)
+        self:SetAlpha(1)
+        pcall(function()
+            GameTooltip:SetOwner(self, anchor)
+            GameTooltip:SetText(tip)
+        end)
+    end)
+    btn:SetScript("OnLeave", function(self)
+        self:SetAlpha(ICON_ALPHA)
+        pcall(function()
+            GameTooltip:Hide()
+        end)
+    end)
 end
 
-local function enterWindow()
-    showHandle(true)
-end
-
-local function leaveWindow()
-    showHandle(false)
-end
-
+-- The move cross, top left: always visible; dragging it moves the window.
 local function buildMoveHandle(parent)
     local handle = CreateFrame("Button", nil, parent)
-    handle:SetSize(MOVE_ICON, MOVE_ICON)
-    handle:SetPoint("TOPRIGHT", parent, "TOPRIGHT", -8, -8)
+    handle:SetSize(ICON_SIZE, ICON_SIZE)
+    handle:SetPoint("TOPLEFT", parent, "TOPLEFT", ICON_INSET, -ICON_INSET)
     handle:SetFrameLevel(parent:GetFrameLevel() + 10) -- over the model and the plate
     for _, r in ipairs(MOVE_RECTS) do
         local tex = handle:CreateTexture(nil, "OVERLAY")
         tex:SetPoint("TOPLEFT", handle, "TOPLEFT", r[1], -r[2])
         tex:SetSize(r[3], r[4])
-        tex:SetColorTexture(0.85, 0.85, 0.9, 0.9)
+        tex:SetColorTexture(ICON_GOLD[1], ICON_GOLD[2], ICON_GOLD[3], 1)
     end
     handle:SetScript("OnMouseDown", function(_, button)
         if button == nil or button == "LeftButton" then
@@ -523,23 +532,37 @@ local function buildMoveHandle(parent)
         end
     end)
     handle:SetScript("OnMouseUp", stopMove)
-    handle:SetScript("OnEnter", function(self)
-        self:SetAlpha(1)
-        pcall(function()
-            GameTooltip:SetOwner(self, "ANCHOR_LEFT")
-            GameTooltip:SetText("Drag to move")
-        end)
-    end)
-    handle:SetScript("OnLeave", function(self)
-        self:SetAlpha(HANDLE_ALPHA)
-        pcall(function()
-            GameTooltip:Hide()
-        end)
-        leaveWindow()
-    end)
-    handle:Hide() -- shown on mouseover of the window
-    moveHandle = handle
+    styleIcon(handle, "Drag to reposition", "ANCHOR_RIGHT")
     Preview.moveHandle = handle
+end
+
+-- The reset icon, top right: the options' reset art (the atlas, else the old refresh texture tinted to the same gold);
+-- a click puts the window back in its dock.
+local function buildResetButton(parent)
+    local btn = CreateFrame("Button", nil, parent)
+    btn:SetSize(ICON_SIZE, ICON_SIZE)
+    btn:SetPoint("TOPRIGHT", parent, "TOPRIGHT", -ICON_INSET, -ICON_INSET)
+    btn:SetFrameLevel(parent:GetFrameLevel() + 10)
+    local tex = btn:CreateTexture(nil, "ARTWORK")
+    tex:SetAllPoints(btn)
+    local okAtlas = false
+    if C_Texture and C_Texture.GetAtlasInfo then
+        local okInfo, info = pcall(C_Texture.GetAtlasInfo, ICON_ATLAS)
+        if okInfo and info then
+            okAtlas = pcall(tex.SetAtlas, tex, ICON_ATLAS)
+        end
+    end
+    if not okAtlas then
+        tex:SetTexture(ICON_FALLBACK)
+        tex:SetVertexColor(ICON_GOLD[1], ICON_GOLD[2], ICON_GOLD[3])
+    end
+    pcall(btn.SetHighlightTexture, btn, ICON_HILITE, "ADD")
+    styleIcon(btn, "Reset position", "ANCHOR_LEFT")
+    btn:SetScript("OnClick", function()
+        stopMove()
+        dockWindow()
+    end)
+    Preview.resetButton = btn
 end
 
 local function buildWindow()
@@ -559,8 +582,6 @@ local function buildWindow()
     frame:RegisterForDrag("LeftButton")
     frame:SetScript("OnDragStart", startMove)
     frame:SetScript("OnDragStop", stopMove)
-    frame:SetScript("OnEnter", enterWindow)
-    frame:SetScript("OnLeave", leaveWindow)
     frame:SetScript("OnHide", stopMove)
     addBackground(frame)
     plate = buildPlate(frame)
@@ -570,8 +591,6 @@ local function buildWindow()
         model:SetScript("OnMouseDown", startDrag)
         model:SetScript("OnMouseUp", stopDrag)
         model:SetScript("OnHide", stopDrag)
-        model:SetScript("OnEnter", enterWindow)
-        model:SetScript("OnLeave", leaveWindow)
         model:SetPoint("TOPLEFT", frame, "TOPLEFT", PAD, -MODEL_TOP_Y)
         model:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -PAD, BOTTOM_H)
     end
@@ -582,12 +601,8 @@ local function buildWindow()
     Preview.window, Preview.model, Preview.plate, Preview.popAnchor = window, model, plate, popAnchor
     loadModel()
     buildButton(frame)
-    -- the button covers part of the window, so the mouse can leave the window from it without the window's OnLeave
-    -- seeing it; hook (the template keeps its own OnLeave) rather than replace
-    if Preview.testButton and not pcall(Preview.testButton.HookScript, Preview.testButton, "OnLeave", leaveWindow) then
-        Preview.testButton:SetScript("OnLeave", leaveWindow)
-    end
     buildMoveHandle(frame)
+    buildResetButton(frame)
 end
 
 -- buildWindow threw part-way. Frames cannot be destroyed, so hide the half-built window (its model and plate go with
@@ -598,10 +613,10 @@ local function abandonBuild()
     if window then
         pcall(window.Hide, window)
     end
-    window, model, plate, healthFill, popAnchor, moveHandle = nil, nil, nil, nil, nil, nil
+    window, model, plate, healthFill, popAnchor = nil, nil, nil, nil, nil
     modelLoaded = false
     Preview.window, Preview.model, Preview.plate, Preview.popAnchor = nil, nil, nil, nil
-    Preview.testButton, Preview.moveHandle = nil, nil
+    Preview.testButton, Preview.moveHandle, Preview.resetButton = nil, nil, nil
 end
 
 -- Options.panel OnShow (show = true) / OnHide (false). Idempotent. Returns true when the window is up (the options
@@ -628,9 +643,6 @@ function Preview:Sync(show)
         stopSequence()
         stopDrag()
         window:Hide()
-        if moveHandle then
-            moveHandle:Hide()
-        end
         setIdle()
         setHealth(1)
     end

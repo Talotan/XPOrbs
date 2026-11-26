@@ -271,7 +271,7 @@ def test_the_size_slider_follows_the_shape(m):
     text = lambda: str(m.opt.valueTexts["size"].text)
     assert (s.minV, s.maxV, s.step) == (8, 32, 1) and text() == "14"
     pick(m, "retro")
-    assert (s.minV, s.maxV, s.step) == (1, 7, 1) and text() == "2 px" and s.value == 2
+    assert (s.minV, s.maxV, s.step) == (1, 5, 1) and text() == "2 px" and s.value == 2
     for shape in ("bubble", "crackle", "starlight"):
         pick(m, shape)
         assert (s.minV, s.maxV, s.step) == (8, 32, 1) and text() == "14"
@@ -295,9 +295,9 @@ def test_a_typed_size_uses_the_current_range(m):
     pick(m, "retro")
     m.stub.rightClick(m.opt.valueButtons["size"])
     m.stub.enterText(m.opt.editBoxes["size"], "40")
-    assert m.db.size == 7  # nearest permitted value on Retro, not on the 8..32 range
+    assert m.db.size == 5  # nearest permitted value on Retro, not on the 8..32 range
     m.stub.hover(m.opt.valueButtons["size"])
-    assert "(1" in str(m.stub.tooltip.text) and "7 px)" in str(m.stub.tooltip.text)
+    assert "(1" in str(m.stub.tooltip.text) and "5 px)" in str(m.stub.tooltip.text)
     pick(m, "bubble")
     m.stub.hover(m.opt.valueButtons["size"])
     assert "(8" in str(m.stub.tooltip.text) and "32)" in str(m.stub.tooltip.text)
@@ -314,7 +314,7 @@ def test_the_two_option_resets_are_separate_and_per_shape(m):
     m.stub.click(c.sparkle)
     assert extra_btn.shown
     m.stub.hover(blend_btn)
-    assert str(m.stub.tooltip.text) == "Reset to default: Outline Type glow"
+    assert str(m.stub.tooltip.text) == "Reset to default: Overlap Type glow"
     m.stub.hover(extra_btn)
     assert str(m.stub.tooltip.text) == "Reset to default: Sparkle on"
     pick(m, "bubble")

@@ -169,7 +169,7 @@ def test_slider_writes_db(m5, key, value, expect):
 
 def test_slider_ranges_and_steps(m5):
     spec = [
-        ("density", 25, 400, 25),
+        ("density", 25, 300, 25),
         ("cap", 5, 80, 1),
         ("size", 8, 32, 1),
         ("flightTime", 0.4, 1.5, 0.05),

@@ -208,7 +208,7 @@ def test_the_slash_command_switches_and_the_sliders_follow(env):
     m.stub.slide(ctl(m, "size"), 20)
     m.slash("shape retro")
     assert active(m.db) == (2, 100, 100)
-    # (the size slider still has the 8-32 range until the Options follow Retro's 1-7)
+    # (the size slider still has the 8-32 range until the Options follow Retro's 1-5)
     assert (ctl(m, "density").value, ctl(m, "opacity").value) == (100, 100)
     m.slash("shape starlight")
     assert ctl(m, "size").value == 20 and ctl(m, "density").value == 100
@@ -647,7 +647,7 @@ def test_crackle_bolts_are_tighter_and_the_core_fuller(env):
 # ---------------------------------------------------------------- Retro: one cell size per burst
 
 
-@pytest.mark.parametrize("step", range(1, 8))
+@pytest.mark.parametrize("step", range(1, 6))
 def test_retro_normal_and_rested_orbs_share_one_cell(env, step):
     g = make(env)
     g.db.size = step
@@ -674,7 +674,7 @@ def test_retro_cell_rounds_with_a_small_burst_scale_but_never_below_one(env):
 def test_orb_size_is_the_generic_size_units(env):
     g = make(env)
     ns = g.ns
-    for step in range(1, 8):
+    for step in range(1, 6):
         assert ns.OrbSize({"orbShape": "retro", "size": step}) == pytest.approx(
             step * 8 * 14 / 24
         )
@@ -1123,7 +1123,7 @@ def test_the_rested_scale_counts_in_the_window_height(env):
 def test_retro_stays_on_whole_cells_and_never_under_nine(env):
     m = build(env)
     sp = m.ns.ShapePreview
-    for size in (1, 2, 3, 7):
+    for size in (1, 2, 3, 5):
         db = db_of(m, "retro", size)
         for n in (5, 7, 12):
             assert float(sp.RadiusFor(sp.Pattern(n), db)) % size == 0
@@ -1131,9 +1131,9 @@ def test_retro_stays_on_whole_cells_and_never_under_nine(env):
     db = db_of(m, "retro", 2)  # fits: 10 cells wanted
     assert sp.RadiusFor(sp.Pattern(6), db) == 20
     db = db_of(
-        m, "retro", 7
+        m, "retro", 5
     )  # 10 cells wanted at least; it is never squeezed (the layout has fewer per row instead)
-    assert sp.RadiusFor(sp.Pattern(5), db) >= 70
+    assert sp.RadiusFor(sp.Pattern(5), db) >= 50
 
 
 def test_unused_textures_are_hidden(env):
@@ -1394,10 +1394,10 @@ def reload_db(env):
 def test_shape_range_gives_retro_its_own_size_range(env):
     g = make(env)
     retro = g.ns.ShapeRange("retro", "size")
-    assert tuple(retro.values()) == (1, 7, 1)
-    assert tuple(g.ns.RETRO_SIZE_RANGE.values()) == (1, 7, 1)
+    assert tuple(retro.values()) == (1, 5, 1)
+    assert tuple(g.ns.RETRO_SIZE_RANGE.values()) == (1, 5, 1)
     assert tuple(g.ns.ShapeRange("bubble", "size").values()) == (8, 32, 1)
-    assert tuple(g.ns.ShapeRange("retro", "density").values()) == (25, 400, 25)
+    assert tuple(g.ns.ShapeRange("retro", "density").values()) == (25, 300, 25)
     assert tuple(g.ns.ShapeRange("starlight", "opacity").values()) == (20, 100, 5)
     assert g.ns.ShapeRange("retro", "blend") is None
     assert g.ns.ShapeRange("bubble", "pulse") is None
@@ -1425,7 +1425,7 @@ def test_sanitize_snaps_sizes_per_shape(env):
             },
         },
     )
-    assert db.shapeLook.retro.size == 7
+    assert db.shapeLook.retro.size == 5
     assert db.shapeLook.bubble.size == 8
     assert db.shapeLook.starlight.size == 8
     assert db.shapeLook.crackle.size == 8
@@ -1440,6 +1440,34 @@ def test_the_active_size_of_retro_is_not_snapped_to_the_global_range(env):
         env, {"lookRev": 2, "orbShape": "retro", "shapeLook": {"retro": {"size": 3}}}
     )
     assert db.size == 3 and db.shapeLook.retro.size == 3
+
+
+def test_a_saved_retro_size_above_five_clamps_to_five(env):
+    db = load_db(env, {"lookRev": 2, "shapeLook": {"retro": {"size": 7}}})
+    assert db.shapeLook.retro.size == 5
+    db = load_db(
+        env,
+        {"lookRev": 2, "orbShape": "retro", "size": 6, "shapeLook": {"retro": {"size": 6}}},
+    )
+    assert db.size == 5 and db.shapeLook.retro.size == 5
+
+
+def test_a_saved_density_above_300_clamps_to_300(env):
+    db = load_db(
+        env,
+        {
+            "lookRev": 2,
+            "density": 400,
+            "shapeLook": {"retro": {"density": 400}, "bubble": {"density": 350}},
+        },
+    )
+    assert db.density == 100  # the active shape's own look wins over the top-level value
+    assert db.shapeLook.retro.density == 300 and db.shapeLook.bubble.density == 300
+    db = load_db(
+        env,
+        {"lookRev": 2, "orbShape": "bubble", "shapeLook": {"bubble": {"density": 400}}},
+    )
+    assert db.density == 300 and db.shapeLook.bubble.density == 300
 
 
 def test_bad_blend_pulse_and_sparkle_fall_back_to_the_shape_default(env):

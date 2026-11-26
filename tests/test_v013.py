@@ -955,7 +955,7 @@ def test_enter_applies_the_snapped_value(m):
 def test_edit_clamps_and_snaps_each_slider(m):
     show(m)
     for key, typed, expect in (
-        ("density", "9999", 400),
+        ("density", "9999", 300),
         ("density", "1", 25),
         ("cap", "200", 80),
         ("size", "20.4", 20),
@@ -1017,7 +1017,7 @@ def test_value_hover_hint(m):
     assert [val.textColor[i] for i in (1, 2, 3)] == [1, 1, 1]
     assert (
         m.stub.tooltip.shown
-        and m.stub.tooltip.text == f"Right-click to type a value (25{DASH}400%)"
+        and m.stub.tooltip.text == f"Right-click to type a value (25{DASH}300%)"
     )
     m.stub.unhover(hit)
     assert not m.stub.tooltip.shown and val.textColor[3] == 0

@@ -255,7 +255,7 @@ def test_a_solid_crossfade_copy_a_follows_its_body(env):
 
 
 def look(m, shape, blend, density):
-    """The preview window set to `shape` with the given Outline Type (each shape keeps its own look)."""
+    """The preview window set to `shape` with the given Overlap Type (each shape keeps its own look)."""
     m.slash(f"shape {shape}")
     m.ns.SetLook("blend", blend)
     m.db.density = density

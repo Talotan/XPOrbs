@@ -71,8 +71,13 @@ end
 """
 
 
-def make(env, mode=None):
-    m = build(env, pre=lambda e: e.lua.eval(MODEL_STUB)(mode))
+def make(env, mode=None, atlas=True):
+    def pre(e):
+        e.lua.eval(MODEL_STUB)(mode)
+        if not atlas:
+            e.ns.stub.atlases["transmog-icon-revert"] = None
+
+    m = build(env, pre=pre)
     env.lua.eval(CAPTURE)(m.ns)
     m.lua = env.lua
     m.same = env.lua.eval("rawequal")
@@ -492,53 +497,39 @@ def test_the_window_is_movable_clamped_and_dragged_by_its_frame(env):
     )  # the model still turns on left-drag
 
 
-def test_the_move_cross_is_hidden_until_the_mouse_is_over_the_window(env):
+def icon_textures(m, frame):
+    """The textures a button owns."""
+    return [
+        t
+        for t in m.stub.frames.values()
+        if t.kind == "Texture"
+        and t.parentFrame is not None
+        and m.same(t.parentFrame, frame)
+    ]
+
+
+def test_the_move_cross_is_top_left_always_shown_and_gold(env):
     m = make(env)
     show(m)
     pv = m.ns.Preview
-    win, handle = pv.window, pv.moveHandle
-    assert not handle.shown
-    win.scripts.OnEnter(win)
-    assert handle.shown and handle.alpha == pytest.approx(
-        0.6
-    )  # dimmed while the window is hovered
-    win.left, win.bottom, win.width, win.height = 100, 100, 200, 286
-    m.stub.cursor.x, m.stub.cursor.y = 150, 150
+    handle = pv.moveHandle
+    pt = lua_list(handle.points)[0]
+    assert (pt[1], pt[3], pt[4], pt[5]) == ("TOPLEFT", "TOPLEFT", 8, -8) and m.same(
+        pt[2], pv.window
+    )
+    assert (handle.width, handle.height) == (16, 16)
+    assert handle.shown and handle.alpha == pytest.approx(0.75)  # no hover needed
+    assert (
+        not pv.window.scripts.OnEnter and not pv.model.scripts.OnEnter
+    )  # nothing shows or hides it any more
+    rects = icon_textures(m, handle)
+    assert rects and all(
+        lua_list(t.calls["SetColorTexture"])[:3] == [1.0, 0.78, 0.18] for t in rects
+    )
     handle.scripts.OnEnter(handle)
-    assert handle.alpha == 1  # and full while the cross itself is
+    assert handle.alpha == 1  # full while the cross itself is hovered
     handle.scripts.OnLeave(handle)
-    assert handle.alpha == pytest.approx(0.6) and handle.shown
-    # the mouse moves on to a child (the model): the window's OnLeave fires, but it is still inside the window
-    win.left, win.bottom, win.width, win.height = 100, 100, 200, 286
-    m.stub.cursor.x, m.stub.cursor.y = 150, 150
-    win.scripts.OnLeave(win)
-    assert handle.shown
-    pv.model.scripts.OnLeave(pv.model)
-    assert handle.shown
-    m.stub.cursor.x, m.stub.cursor.y = 900, 900  # out of the window
-    win.scripts.OnLeave(win)
-    assert not handle.shown
-    pv.model.scripts.OnEnter(pv.model)  # straight onto the model from outside
-    assert handle.shown
-
-
-def test_the_move_cross_hides_when_the_mouse_leaves_from_the_test_kill_button(env):
-    m = make(env)
-    show(m)
-    pv = m.ns.Preview
-    win, handle, button = pv.window, pv.moveHandle, pv.testButton
-    win.scripts.OnEnter(win)
-    assert handle.shown
-    win.left, win.bottom, win.width, win.height = 100, 100, 200, 286
-    m.stub.cursor.x, m.stub.cursor.y = (
-        150,
-        110,
-    )  # the button is a child: still inside the window
-    button.scripts.OnLeave(button)
-    assert handle.shown
-    m.stub.cursor.x, m.stub.cursor.y = 900, 900  # off the button and out of the window
-    button.scripts.OnLeave(button)
-    assert not handle.shown
+    assert handle.alpha == pytest.approx(0.75) and handle.shown
 
 
 def test_the_move_cross_drags_the_window_and_has_a_tooltip(env):
@@ -546,18 +537,68 @@ def test_the_move_cross_drags_the_window_and_has_a_tooltip(env):
     show(m)
     pv = m.ns.Preview
     handle = pv.moveHandle
-    pt = lua_list(handle.points)[0]
-    assert (pt[1], pt[3], pt[4], pt[5]) == ("TOPRIGHT", "TOPRIGHT", -8, -8) and m.same(
-        pt[2], pv.window
-    )
-    assert (handle.width, handle.height) == (16, 16)
     handle.scripts.OnMouseDown(handle, "LeftButton")
     assert pv.window.calls["StartMoving"] is not None
     pv.window.calls["StopMovingOrSizing"] = None
     handle.scripts.OnMouseUp(handle, "LeftButton")
     assert pv.window.calls["StopMovingOrSizing"] is not None
     handle.scripts.OnEnter(handle)
-    assert str(m.stub.tooltip.text) == "Drag to move"
+    assert str(m.stub.tooltip.text) == "Drag to reposition"
+
+
+def test_the_reset_icon_is_top_right_with_the_options_art_and_a_tooltip(env):
+    m = make(env)
+    show(m)
+    pv = m.ns.Preview
+    btn = pv.resetButton
+    pt = lua_list(btn.points)[0]
+    assert (pt[1], pt[3], pt[4], pt[5]) == ("TOPRIGHT", "TOPRIGHT", -8, -8) and m.same(
+        pt[2], pv.window
+    )
+    assert (btn.width, btn.height) == (16, 16)
+    (icon,) = icon_textures(m, btn)
+    assert icon.atlas == "transmog-icon-revert" and "SetVertexColor" not in dict(
+        icon.calls or {}
+    )
+    assert (
+        btn.calls["SetHighlightTexture"][1]
+        == "Interface\\Buttons\\ButtonHilight-Square"
+    )
+    assert btn.shown and btn.alpha == pytest.approx(0.75)
+    btn.scripts.OnEnter(btn)
+    assert btn.alpha == 1 and str(m.stub.tooltip.text) == "Reset position"
+    btn.scripts.OnLeave(btn)
+    assert btn.alpha == pytest.approx(0.75)
+
+
+def test_the_reset_icon_falls_back_to_a_gold_tinted_texture(env):
+    m = make(env, atlas=False)
+    show(m)
+    (icon,) = icon_textures(m, m.ns.Preview.resetButton)
+    assert (
+        icon.atlas is None
+        and icon.calls["SetTexture"][1] == "Interface\\Buttons\\UI-RefreshButton"
+    )
+    assert lua_list(icon.calls["SetVertexColor"]) == [1.0, 0.78, 0.18]
+
+
+def test_clicking_the_reset_icon_docks_the_window_again(env):
+    m = make(env)
+    m.G.SettingsPanel = m.lua.eval("{}")
+    show(m)
+    pv = m.ns.Preview
+    pv.window.ClearAllPoints(pv.window)
+    pv.window.SetPoint(pv.window, "CENTER", m.G.UIParent, "CENTER", 300, 200)
+    assert lua_list(pv.window.points)[0][1] == "CENTER"
+    m.stub.click(pv.resetButton)
+    back = lua_list(pv.window.points)
+    assert len(back) == 1 and (back[0][1], back[0][3], back[0][4], back[0][5]) == (
+        "TOP",
+        "BOTTOM",
+        0,
+        -2,
+    )
+    assert m.same(back[0][2], m.ns.ShapePreview.window)
 
 
 def test_the_window_docks_again_when_the_panel_hides_and_shows(env):
@@ -572,7 +613,7 @@ def test_the_window_docks_again_when_the_panel_hides_and_shows(env):
     pv.window.SetPoint(pv.window, "CENTER", m.G.UIParent, "CENTER", 300, 200)
     assert lua_list(pv.window.points)[0][1] == "CENTER"
     hide(m)
-    assert not pv.moveHandle.shown and not pv.window.shown
+    assert not pv.window.shown
     show(m)
     back = lua_list(pv.window.points)
     assert len(back) == 1 and (back[0][1], back[0][3], back[0][4], back[0][5]) == (
@@ -713,7 +754,9 @@ def test_play_button_sits_on_the_voice_row(env):
     m = make(env)
     show(m)
     pt = ctl(m, "chimeSample").points[1]
-    assert pt[4] == 260 + 204 and m.same(pt[2], m.opt.rows["soundVoice"])  # right of the dropdown's right arrow
+    assert pt[4] == 260 + 204 and m.same(
+        pt[2], m.opt.rows["soundVoice"]
+    )  # right of the dropdown's right arrow
 
 
 def drawn_offsets(m):

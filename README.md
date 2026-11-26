@@ -88,7 +88,7 @@ The panel has these sections, most-used first:
 
 - **General:** enable, orbs at max level, quest bursts, exploration bursts, the minimap button and the debug log.
 - **Look:** the orb shape dropdown and, in a box under it, that shape's own size, quantity, opacity and extras
-  (Outline Type, Sparkle, Pulsing, Crackle speed); then the trail and its opacity, orb colour (or your class colour),
+  (Overlap Type, Sparkle, Pulsing, Crackle speed); then the trail and its opacity, orb colour (or your class colour),
   rested orb colour (a tickbox and a swatch in one row) and the maximum orbs per burst.
 - **Flight:** the Flight pathing dropdown, the Speed type dropdown (Constant speed, where orbs always move at the same
   speed, or Relative speed, where they always arrive after a set time) with its Flight speed or Flight time slider,
@@ -207,7 +207,7 @@ quantity and opacity are remembered per shape: tune Retro and Starlight keeps it
 - **Crackle**: a steady bright core with a bolt of lightning crackling round its edge that jumps to a new shape and
   angle about every 80 ms. **Crackle speed** (50 to 200 %) makes the lightning change slower or faster.
 
-**Outline Type** (Retro, Bubble and Crackle): Glow is a soft glowing edge, so orbs brighten where they overlap;
+**Overlap Type** (Retro, Bubble and Crackle): Glow is a soft glowing edge, so orbs brighten where they overlap;
 Solid is an opaque orb with a dark outline that stacks in front of its neighbours and keeps its colour on bright ground.
 Starlight has no outline.
 

@@ -90,7 +90,7 @@ local ZOOM_POINTS_MAX = 8
 -- Slider ranges { min, max, step }: the options panel builds its sliders from these and InitDB clamps saved values
 -- to them, so a hand-edited or corrupt SavedVariables file can't feed the renderer nonsense.
 ns.ranges = {
-    density = { 25, 400, 25 },
+    density = { 25, 300, 25 },
     cap = { 5, 80, 1 },
     size = { 8, 32, 1 },
     opacity = { 20, 100, 5 },
@@ -148,7 +148,7 @@ ns.SHAPE_LABEL = { starlight = "Starlight", retro = "Retro", bubble = "Bubble", 
 ns.SHAPE_ALIAS = { power = "crackle", wisp = "bubble" } -- the first names of these shapes, still accepted
 -- what each shape remembers
 ns.SHAPE_LOOK_KEYS = { "size", "density", "opacity", "blend", "pulse", "sparkle", "crackleSpeed" }
-local RETRO_SIZE_RANGE = { 1, 7, 1 } -- Retro's size is px per art pixel, not an orb size
+local RETRO_SIZE_RANGE = { 1, 5, 1 } -- Retro's size is px per art pixel, not an orb size
 ns.RETRO_SIZE_RANGE = RETRO_SIZE_RANGE
 ns.RETRO_K = 24 / 14 -- Retro px per size unit: size 14 (Starlight's units) is a 24 px orb
 

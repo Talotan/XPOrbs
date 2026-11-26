@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: GPL-3.0-or-later
-local ADDON, ns = ...
+local _, ns = ...
 
 -- Settings panel (v0.13): a canvas category under Esc > Options > AddOns. Fixed title and footer, a scrolling body with
 -- a label column and a control column (layout spec: docs/review-v012/review.md). Every control writes ns.db directly
@@ -1248,7 +1248,7 @@ local BOX_TOP_PAD, BOX_BOTTOM_PAD = 28, 8
 local BOX_H = BOX_TOP_PAD + 32 * 3 + 28 * 2 + BOX_BOTTOM_PAD -- (bottom pad 8: the option slot sits 2 px lower)
 local BOX_GAP = 10 -- under the box
 local GROUP_GAP = 8 -- between the global groups (flight / colours / cap)
-local BLEND_TIP = { -- the Outline Type option (db.blend)
+local BLEND_TIP = { -- the Overlap Type option (db.blend)
     natural = "Soft glowing edge: orbs blend into each other, brightening where they overlap.",
     solid = "A dark outline round opaque orbs that stack in front of each other; colours stay true on bright ground.",
 }
@@ -1263,7 +1263,7 @@ local OPTION_SHAPES = {
     pulse = { bubble = true },
     crackleSpeed = { crackle = true },
 }
-local OPTION_NAME = { blend = "Outline Type", sparkle = "Sparkle", pulse = "Pulsing", crackleSpeed = "Crackle speed" }
+local OPTION_NAME = { blend = "Overlap Type", sparkle = "Sparkle", pulse = "Pulsing", crackleSpeed = "Crackle speed" }
 local CRACKLE_SPEED_TIP = "How fast the lightning round each orb changes. 200% is twice as fast."
 
 local function currentShape()
@@ -1318,7 +1318,7 @@ local function optionDescribe(keys)
     end
 end
 
--- Option row A: "Outline Type" with the Glow / Solid radios (Starlight: a grey note instead, centred across both rows).
+-- Option row A: "Overlap Type" with the Glow / Solid radios (Starlight: a grey note instead, centred across both rows).
 local function blendRow(y)
     local row = newRow(y, 28)
     Options.rows.blend = row

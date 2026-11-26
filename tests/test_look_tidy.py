@@ -1,4 +1,4 @@
-"""The Look tab tidy: the Outline option (was Blend), the one-row Rested orb colour, Crackle speed and Trail opacity."""
+"""The Look tab tidy: the Overlap Type option (was Blend), the one-row Rested orb colour, Crackle speed and Trail opacity."""
 
 import pytest
 from test_look_panel import PICK, pick, row_y, same
@@ -25,13 +25,13 @@ def reset_shown(m, key):
     return bool(m.opt.resets[key].shown)
 
 
-# ---------------------------------------------------------------- Outline (was Blend)
+# ---------------------------------------------------------------- Overlap Type (was Blend)
 
 
-def test_the_blend_option_is_called_outline(m):
+def test_the_blend_option_is_called_overlap_type(m):
     pick(m, "retro")
     texts = all_texts(m)
-    assert "Outline Type" in texts and "Blend" not in texts
+    assert "Overlap Type" in texts and "Blend" not in texts
     assert not any("blend or extras" in t for t in texts)
     assert any(t.startswith("No outline or extras") for t in texts)
     # the radios: Glow (internal "natural") and Solid
@@ -48,7 +48,7 @@ def test_outline_tooltips_and_reset_text(m):
     assert "outline" in " ".join(str(x) for x in m.stub.tooltip.lines.values())
     m.stub.click(c.blend_solid)
     m.stub.hover(m.opt.resets["blend"])
-    assert str(m.stub.tooltip.text) == "Reset to default: Outline Type glow"
+    assert str(m.stub.tooltip.text) == "Reset to default: Overlap Type glow"
 
 
 # ---------------------------------------------------------------- Rested orb colour

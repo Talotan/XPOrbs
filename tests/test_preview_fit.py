@@ -7,8 +7,12 @@ import pytest
 from test_m5 import build
 from test_shape_look import tick, up
 
-SIZES = {"starlight": (8, 14, 20, 26, 32), "bubble": (8, 14, 20, 26, 32), "crackle": (8, 14, 20, 26, 32),
-         "retro": (1, 2, 3, 4, 5, 6, 7)}
+SIZES = {
+    "starlight": (8, 14, 20, 26, 32),
+    "bubble": (8, 14, 20, 26, 32),
+    "crackle": (8, 14, 20, 26, 32),
+    "retro": (1, 2, 3, 4, 5),
+}
 DENSITIES = (50, 100, 150, 200)
 TITLE_H, PAD, MIN_H = 28, 8, 120
 
@@ -76,7 +80,9 @@ def test_the_window_grows_with_size(env, shape):
                 sp = look(m, shape, size, density, cluster, False)
                 heights.append(float(sp.window.height))
             assert heights == sorted(heights) and min(heights) >= MIN_H
-            if density >= 100:  # (two or three orbs sit in a row and never need the height)
+            if (
+                density >= 100
+            ):  # (two or three orbs sit in a row and never need the height)
                 assert heights[-1] > heights[0]
 
 
@@ -87,28 +93,50 @@ def test_retro_neighbours_stay_a_cell_apart_after_the_snap_in_the_tidy_layout(en
         for density in DENSITIES:
             sp = look(m, "retro", size, density, False, False)
             assert float(sp.RadiusFor(sp.box.pattern, m.db, False)) >= 9 * size
-            discs = [(x, y) for x, y, w in drawn(sp, "retro") if abs(w - 8 * size) < 1e-6]
+            discs = [
+                (x, y) for x, y, w in drawn(sp, "retro") if abs(w - 8 * size) < 1e-6
+            ]
             assert len(discs) == int(sp.box.n)
             for i, p in enumerate(discs):
-                for q in discs[i + 1:]:
+                for q in discs[i + 1 :]:
                     # after the whole-cell snap: the 8 cell disc plus a cell of gap, honeycomb diagonals included
-                    assert math.hypot(p[0] - q[0], p[1] - q[1]) >= 9 * size - 1e-6, (size, density)
+                    assert math.hypot(p[0] - q[0], p[1] - q[1]) >= 9 * size - 1e-6, (
+                        size,
+                        density,
+                    )
 
 
 def test_the_title_is_top_left_and_cluster_top_right(env):
     m = build(env)
     up(m)
     sp = m.ns.ShapePreview
-    title = next(f for f in m.stub.frames.values() if f.kind == "FontString" and f.text == "Preview")
+    title = next(
+        f
+        for f in m.stub.frames.values()
+        if f.kind == "FontString" and f.text == "Preview"
+    )
     pt = title.points[1]
     assert (pt[1], pt[3]) == ("TOPLEFT", "TOPLEFT") and pt[4] > 0 and pt[5] < 0
     pt = sp.check.points[1]
     assert (pt[1], pt[3]) == ("TOPRIGHT", "TOPRIGHT") and pt[4] <= 0 and pt[5] <= 0
-    label = next(f for f in m.stub.frames.values() if f.kind == "FontString" and f.text == "Cluster")
+    label = next(
+        f
+        for f in m.stub.frames.values()
+        if f.kind == "FontString" and f.text == "Cluster"
+    )
     assert label.points[1][1] == "RIGHT"  # still left of the tickbox
+    # the label's centre lines up with the title's: the title is ~12 px tall from y -10 (centre -16); the 20 px
+    # tickbox from y -7 has its centre at -17 and the label sits 1 px above that
+    assert sp.check.points[1][5] == -7
+    title_mid = title.points[1][5] - 6
+    label_mid = sp.check.points[1][5] - 10 + label.points[1][5]
+    assert abs(label_mid - title_mid) <= 1
     box = sp.box.points
-    assert (box[1][1], box[1][4], box[1][5]) == ("TOPLEFT", 8, -28) and (box[2][1], box[2][4], box[2][5]) == (
-        "BOTTOMRIGHT", -8, 8)
+    assert (box[1][1], box[1][4], box[1][5]) == ("TOPLEFT", 8, -28) and (
+        box[2][1],
+        box[2][4],
+        box[2][5],
+    ) == ("BOTTOMRIGHT", -8, 8)
 
 
 def test_the_window_resizes_live_and_the_test_target_follows_its_bottom(env):
@@ -121,6 +149,8 @@ def test_the_window_resizes_live_and_the_test_target_follows_its_bottom(env):
     tall = float(sp.window.height)
     assert tall > small
     pt = m.ns.Preview.window.points[1]
-    assert (pt[1], pt[3]) == ("TOP", "BOTTOM") and m.lua.eval("rawequal")(pt[2], sp.window)
+    assert (pt[1], pt[3]) == ("TOP", "BOTTOM") and m.lua.eval("rawequal")(
+        pt[2], sp.window
+    )
     look(m, "starlight", 14, 100, False, False)
     assert float(sp.window.height) == small
