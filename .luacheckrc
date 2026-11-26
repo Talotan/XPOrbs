@@ -91,9 +91,17 @@ read_globals = {
     "C_Timer",
     "IsMouseButtonDown",
     "EnumerateFrames",
+    -- dev/Bench.lua only (the in-game benchmark, never packaged)
+    "C_AddOnProfiler",
+    "Enum",
+    "GetCVar",
+    "GetBuildInfo",
+    "GetAddOnMetadata",
+    "UnitAffectingCombat",
+    "date",
 }
 
-exclude_files = { "tests/", "Libs/" }
+exclude_files = { "tests/", "Libs/", ".venv/" }
 
 -- Pure logic must not touch any WoW global.
 files["logic/"] = { read_globals = {} }

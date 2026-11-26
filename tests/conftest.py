@@ -20,11 +20,16 @@ TESTS = Path(__file__).resolve().parent
 
 
 def toc_files():
-    """Addon file list from the .toc: every non-blank, non-comment line."""
+    """Addon file list from the .toc: every non-blank, non-comment line outside a do-not-package block."""
     out = []
+    skipping = False
     for line in (ROOT / "XPOrbs.toc").read_text(encoding="utf-8").splitlines():
         line = line.strip()
-        if line and not line.startswith("#"):
+        if line == "#@do-not-package@":
+            skipping = True
+        elif line == "#@end-do-not-package@":
+            skipping = False
+        elif line and not line.startswith("#") and not skipping:
             out.append(line.replace("\\", "/"))
     return out
 

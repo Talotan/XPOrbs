@@ -712,7 +712,7 @@ end
 function commands.reset()
     local db = ns.db
     for key in pairs(db) do
-        if key ~= "version" and key ~= "log" and key ~= "debug" and key ~= "minimap" then
+        if key ~= "version" and key ~= "log" and key ~= "debug" and key ~= "minimap" and key ~= "bench" then
             db[key] = nil
         end
     end

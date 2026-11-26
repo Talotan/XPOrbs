@@ -1804,6 +1804,11 @@ function Orbs:Info()
     return active, texInUse, texCreated, ceiling()
 end
 
+-- liveOrbs, popsAlive, driverFrames, driverTotalMs, driverMaxMs: what the dev-only benchmark (dev/Bench.lua) samples
+function Orbs:BenchProbe()
+    return nLive, nPops, perfFrames, perfTotal, perfMax
+end
+
 -- popsInUse, popFramesCreated, popFrameCap
 function Orbs:PopInfo()
     return nPops, popsCreated, POP_FRAMES

@@ -38,3 +38,7 @@ ShapePreview.lua
 Preview.lua
 Setup.lua
 Minimap.lua
+
+#@do-not-package@
+dev\Bench.lua
+#@end-do-not-package@

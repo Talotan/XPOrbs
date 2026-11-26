@@ -60,3 +60,19 @@ def test_version_matches_repo_toc(zip_names_and_toc):
     _, toc = zip_names_and_toc
     pat = re.compile(r"^## Version:\s*(\S+)", re.MULTILINE)
     assert pat.search(toc).group(1) == pat.search((ROOT / "XPOrbs.toc").read_text(encoding="utf-8")).group(1)
+
+
+def test_dev_folder_and_bench_never_ship(zip_names_and_toc):
+    names, toc = zip_names_and_toc
+    assert not any(n.startswith("XPOrbs/dev/") or "Bench" in n for n in names)
+    assert "Bench" not in toc and "do-not-package" not in toc
+    assert "Minimap.lua" in toc  # the rest of the toc is intact
+
+
+def test_toc_dev_block_is_skipped_by_the_package_and_test_helpers():
+    toc = (ROOT / "XPOrbs.toc").read_text(encoding="utf-8")
+    assert "#@do-not-package@" in toc and "dev\\Bench.lua" in toc  # the repo toc still loads it in game
+    assert "dev/Bench.lua" not in package.toc_files(ROOT / "XPOrbs.toc")
+    assert "dev/Bench.lua" not in toc_files()
+    stripped = package.strip_dev_blocks("A.lua\n#@do-not-package@\ndev\\B.lua\n#@end-do-not-package@\nC.lua\n")
+    assert stripped == "A.lua\nC.lua\n"

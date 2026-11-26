@@ -16,3 +16,4 @@ ignore:
   - .styluaignore
   - .gitleaks.toml
   - ROADMAP.md
+  - dev
