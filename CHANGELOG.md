@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.4.1 (unreleased)
+
+### Fixed
+
+- Development only: a test that could fail at random on the build server is fixed. Nothing changes in game.
+
 ## 1.4.0 (2026-11-26)
 
 ### Added
