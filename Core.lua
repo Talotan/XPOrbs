@@ -46,9 +46,9 @@ ns.defaults = {
     flightPath = "smooth", -- how orbs fly: "smooth" (the plain curve), "chaos" (erratic) or "helix" (spiralling)
     orbShape = "starlight", -- how orbs are drawn: "starlight", "retro" (pixel art), "bubble" or "crackle" (SHAPE_LABEL)
     -- blend, pulse, sparkle and crackleSpeed are active values too (like size): the current shape's own, kept in
-    -- shapeLook. The UI only shows the ones that apply to a shape: Outline (db.blend) for retro/bubble/crackle, Sparkle
-    -- for retro, Pulsing for bubble, Crackle speed for crackle
-    -- the Outline option: "natural" (shown as "Glow" in the UI: additive, no outline) or "solid" (opaque, dark rim)
+    -- shapeLook. The UI only shows the ones that apply to a shape: Overlap Type (db.blend) for retro/bubble/crackle,
+    -- Sparkle for retro, Pulsing for bubble, Crackle speed for crackle
+    -- the Overlap Type option: "natural" (shown as "Glow": additive, no outline) or "solid" (opaque, dark rim)
     blend = "natural",
     pulse = false, -- Bubble orbs gently swell and shrink
     sparkle = true,
