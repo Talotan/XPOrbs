@@ -2077,7 +2077,8 @@ local function build()
             pcall(ns.Preview.Sync, ns.Preview, false)
         end
         if ns.ShapePreview then
-            pcall(ns.ShapePreview.Sync, ns.ShapePreview, false) -- hides it; its OnUpdate runs only while the panel shows
+            -- hides it; its OnUpdate runs only while the panel shows
+            pcall(ns.ShapePreview.Sync, ns.ShapePreview, false)
         end
     end)
     return panel

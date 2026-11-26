@@ -191,7 +191,8 @@ function CreateFrame(kind, name, parent, template)
     elseif template == "XPOrbsDropdownWithSteppersTemplate" then
         stub.buildStepperDropdown(f)
     elseif template == "TooltipBackdropTemplate" then
-        f.NineSlice = baseCreate("Frame") -- the border art; SetBackdropColor / SetBackdropBorderColor are recorders below
+        -- the border art; SetBackdropColor / SetBackdropBorderColor are recorders below
+        f.NineSlice = baseCreate("Frame")
     end
     if kind == "DropdownButton" then
         -- Blizzard's modern dropdown: SetupMenu keeps the generator, GenerateMenu runs it against a root that records

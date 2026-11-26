@@ -37,9 +37,9 @@ local VISIBLE = { starlight = 1.15, bubble = 1.08, crackle = 1.35 } -- (Crackle:
 local CLUSTER_VISIBLE = { crackle = 1.15 } -- the unit of the pile where it differs from VISIBLE
 local GAP_K, GAP_MIN = 0.12, 3 -- the gap between neighbouring discs: this share of the diameter, at least this many px
 local RETRO_GAP = 2 -- cells between neighbouring Retro discs (the grid snap eats up to one)
--- How far an orb's drawn art reaches from its centre, per px of OrbSize (the faint underlay is not counted): Starlight's
--- body quad, Bubble's body at the top of its breath, Crackle's bolt layer. Retro's is 5 cells (the underlay) plus the
--- half cell its grid snap can move it.
+-- How far an orb's drawn art reaches from its centre, per px of OrbSize (the faint underlay is not counted):
+-- Starlight's body quad, Bubble's body at the top of its breath, Crackle's bolt layer. Retro's is 5 cells (the
+-- underlay) plus the half cell its grid snap can move it.
 local HALF = { starlight = 1.0, bubble = 0.8, crackle = 1.3 }
 local RETRO_HALF_CELLS, RETRO_MIN_CELLS = 5.5, 9 -- drawn Retro centres stay at least the disc (8) plus one cell apart
 local ROW_H = math.sqrt(3) / 2 -- honeycomb row height, in neighbour distances

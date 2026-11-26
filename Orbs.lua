@@ -2061,8 +2061,8 @@ end
 
 local SOUND_ALIAS = { glassa = "glass", glassb = "coin", brush = "swish", ding = "pixel" } -- older voice names
 -- /xporbs sound on|off|glass|coin|swish|pixel|volume N: the arrival chime. Turning it on also clears a SOUND_ERR
--- shutdown, so it can be retried. A voice name picks the sound (and turns the chime on); the older names glassa, glassb,
--- brush and ding still work (as glass, coin, swish and pixel). volume N sets the volume in percent
+-- shutdown, so it can be retried. A voice name picks the sound (and turns the chime on); the older names glassa,
+-- glassb, brush and ding still work (as glass, coin, swish and pixel). volume N sets the volume in percent
 -- (snapped to the options slider's steps) and plays a sample note if the chime is on.
 function ns.commands.sound(arg)
     local word, rest = string.match(arg or "", "^%s*(%S*)%s*(.-)%s*$")
