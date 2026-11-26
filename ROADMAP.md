@@ -8,19 +8,15 @@ This is a rough plan subject to change. The order and contents will change as fe
 
 ## Next
 
-- **Works with more UIs.** The orbs and the glow find the XP bars of EllesmereUI, FlareUI, DaylightUI and Smooth
-  Experience Bar on their own. If no XP bar can be found at all, a small window asks you to pick yours and lets you
-  set the glow's direction and position.
-- **Chime volume.** A volume slider for the arrival chime, from quiet up to 250%.
-- **Easier-to-read code.** Clearer names and more comments throughout, for anyone who wants to read or change it.
-- **Better starting points.** Quest XP starts at the quest window, exploration XP starts at the chat message, and so
-  on, instead of every non-kill gain starting at the middle of the screen.
-- **Orb Flight paths.** Choose how the orbs fly: Smooth (today's path), Chaos (more erratic) or Helix (spiralling).
+- **Per-character profiles.** Let a character use its own settings, or share a named profile with others, instead of
+  every character on the account sharing one set.
+- **A second orb colour.** An optional secondary colour, with a slider for how the orbs split between the two (rested
+  orbs keep their own colour).
+- **Tidier code.** The two biggest files split into smaller ones, so the addon stays easy to read and change.
 
 ## Later
 
-- New orb shapes and bloom effects.
-- More chime sounds, such as a soft brushed "shew".
+- More orb shapes and bloom effects.
 - An option for the orbs to fly to your character instead of the XP bar.
 
 ## Requests and bugs
