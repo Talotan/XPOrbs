@@ -50,11 +50,9 @@ SCENARIO_LABEL = {
     "aoe": "AoE farming",
     "max": "Maximum settings stress test",
 }
-SCENARIO_SHORT = {
-    "typical": "Typical play",
-    "aoe": "AoE farming",
-    "max": "Max stress test",
-}
+OVERVIEW_WRAP = {
+    "max": "Maximum settings\nstress test"
+}  # same name as the table, on two lines
 SCENARIO_COLOUR = {"typical": "#2a9d8f", "aoe": "#c99a06", "max": "#e76f51"}
 SCENARIO_TEXT = {"typical": "#21867a", "aoe": "#8a6a00", "max": "#c4502f"}  # text
 FS_TICK = 14
@@ -84,14 +82,47 @@ TIMELINE_KEYS = ("addonMs", "addonMaxMs", "frameMs", "live")
 SAFE_TEXT = re.compile(r"^[\w .\-()]{1,40}$")
 LIMIT_KEYS = ("vsync", "maxFPS", "useMaxFPS", "targetFPS", "useTargetFPS")
 SAFE_CVAR = re.compile(r"^[\w.\-]{1,16}$")
-HEADLINE_HEADER = (
-    "| Scenario | Average cost per frame | Worst 1% of frames | fps cost at 60 fps "
-    "| fps cost at 144 fps | Verdict | Game profiler (cross-check) |"
-)
-NOTES_HEADER = (
-    "| Scenario | Average cost | Worst 1% | fps cost at 60 fps | Verdict "
-    "| Game profiler (cross-check) | Change vs previous |"
-)
+VERDICT_HEADER = "Verdict (at 60 fps)"
+PROFILER_HEADER = "Game profiler (cross-check)"
+
+
+def _table_header(columns: list[str]) -> str:
+    return "| " + " | ".join(columns) + " |"
+
+
+def _table_rule(columns: list[str]) -> str:
+    return "|" + "---|" * len(columns)
+
+
+def headline_columns(with_profiler: bool = True) -> list[str]:
+    cols = [
+        "Scenario",
+        "Average cost per frame",
+        "Worst 1% of frames",
+        "fps cost at 60 fps",
+        "fps cost at 144 fps",
+        VERDICT_HEADER,
+    ]
+    return cols + [PROFILER_HEADER] if with_profiler else cols
+
+
+def notes_columns(with_profiler: bool = True) -> list[str]:
+    cols = [
+        "Scenario",
+        "Average cost",
+        "Worst 1%",
+        "fps cost at 60 fps",
+        VERDICT_HEADER,
+    ]
+    return (
+        cols + [PROFILER_HEADER, "Change vs previous"]
+        if with_profiler
+        else cols + ["Change vs previous"]
+    )
+
+
+HEADLINE_HEADER = _table_header(headline_columns())
+NOTES_HEADER = _table_header(notes_columns())
 
 
 class BenchError(Exception):
@@ -686,27 +717,36 @@ def _categorical_x(ax, versions: list[str], room: float):
             lbl.set_ha("right")
 
 
-def _ref_line(ax, top: float) -> float:
+def _ref_line(ax, top: float, extra: tuple = ()) -> float:
     """Dashed '1 fps at 60 fps' line when it fits within ~3x the data; returns new top.
 
-    Labelled through a small key just above the plot (under the title)."""
+    Labelled through a small key just above the plot (under the title). `extra` is
+    more (handle, label) entries for the same key row."""
     ref = one_fps_ms()
-    if ref > 3 * top:
-        return top
-    ax.axhline(ref, color="#777777", linestyle="--", linewidth=1.2, zorder=1)
-    handle = Line2D([], [], color="#777777", linestyle="--", linewidth=1.2)
-    ax.legend(
-        [handle],
-        [f"costs 1 fps at 60 fps ({ref:.2f} ms)"],
-        loc="lower left",
-        bbox_to_anchor=(0.0, 1.0),
-        frameon=False,
-        fontsize=FS_NOTE,
-        labelcolor="#555555",
-        borderaxespad=0.2,
-        handlelength=2.2,
-    )
-    return max(top, ref)
+    handles, labels = [], []
+    if ref <= 3 * top:
+        ax.axhline(ref, color="#777777", linestyle="--", linewidth=1.2, zorder=1)
+        handles.append(Line2D([], [], color="#777777", linestyle="--", linewidth=1.2))
+        labels.append(f"costs 1 fps at 60 fps ({ref:.2f} ms)")
+        top = max(top, ref)
+    for handle, label in extra:
+        handles.append(handle)
+        labels.append(label)
+    if handles:
+        ax.legend(
+            handles,
+            labels,
+            loc="lower left",
+            bbox_to_anchor=(0.0, 1.0),
+            frameon=False,
+            fontsize=FS_NOTE,
+            labelcolor="#555555",
+            borderaxespad=0.2,
+            handlelength=2.2,
+            ncol=len(handles),
+            columnspacing=1.6,
+        )
+    return top
 
 
 def _change_points(points: list[dict]) -> list[tuple[float, str]]:
@@ -835,16 +875,23 @@ def chart_overview(path: Path, versions: list[str], series: dict[str, list[dict]
         top = _ref_line(ax, top)
         ylim = top * 1.2
         ax.set_ylim(0, ylim)
-        _categorical_x(ax, versions, label_room(n, 1.8 if notes else 1.4))
+        _categorical_x(ax, versions, label_room(n, 2.4 if notes else 2.1))
         names = list(series)
         ys = [series[s][-1]["net"] for s in names]
-        heights = [2.1 if s in notes else 1.0 for s in names]
+        labels = {}
+        for scen in names:
+            label = (
+                f"{OVERVIEW_WRAP.get(scen, SCENARIO_LABEL[scen])} "
+                f"{fmt_ms(series[scen][-1]['net'])}"
+            )
+            if scen in notes:
+                label += f"\n(new test from {notes[scen]})"
+            labels[scen] = label
+        heights = [labels[s].count("\n") + 1.1 for s in names]
         ly = spread(ys, ylim * 0.065, heights)
         for scen, y1 in zip(names, ly):
             last = series[scen][-1]
-            label = SCENARIO_SHORT[scen]
-            if scen in notes:
-                label += f"\n(new test from {notes[scen]})"
+            label = labels[scen]
             ax.text(
                 last["idx"] + 0.15,
                 y1,
@@ -895,7 +942,17 @@ def chart_timeline(path: Path, scen: str, version: str, tl: dict):
         ax.set_xlabel("seconds into the run", fontsize=FS_LABEL)
         ax.plot(xs, ms, color=colour, linewidth=2.4)
         top = max(max(ms, default=0.0), 0.05)
-        top = _ref_line(ax, top)
+        orbs_key = Line2D(
+            [],
+            [],
+            linestyle="",
+            marker="s",
+            markersize=11,
+            markerfacecolor="#d9d9d9",
+            markeredgecolor="#d9d9d9",
+        )
+        extra = ((orbs_key, "orbs on screen (right axis)"),) if live else ()
+        top = _ref_line(ax, top, extra)
         ax.set_ylim(0, top * 1.35)
         if ms:  # direct label on the cost line, at its peak
             ipk = max(range(n), key=lambda i: ms[i])
@@ -914,17 +971,6 @@ def chart_timeline(path: Path, scen: str, version: str, tl: dict):
             ax2.fill_between(xs[:m], live[:m], color="#d9d9d9", alpha=0.8, linewidth=0)
             ylim2 = max(max(live), 1) * 1.3
             ax2.set_ylim(0, ylim2)
-            ipk = max(range(m), key=lambda i: live[i])
-            ax2.text(
-                xs[ipk],
-                ylim2 * 0.03,
-                "orbs on screen",
-                color="#555555",
-                fontsize=FS_DIRECT,
-                fontweight="bold",
-                ha=_peak_ha(xs[ipk], xmax),
-                va="bottom",
-            )
         title = _title(
             "What happens during one run", SCENARIO_LABEL[scen], f" (version {version})"
         )
@@ -945,6 +991,15 @@ def _screen(ds: dict) -> str | None:
     return (
         screen if isinstance(screen, str) and re.match(r"^\d+x\d+$", screen) else None
     )
+
+
+def rig_names_height(ds: dict) -> bool:
+    """True when the rig label already carries the screen height, e.g. '1440p'."""
+    screen = _screen(ds)
+    if screen is None:
+        return False
+    height = screen.split("x")[-1]
+    return re.search(rf"(?<!\d){height}p", str(ds.get("rig", ""))) is not None
 
 
 def _num_or_none(v):
@@ -972,7 +1027,15 @@ def active_limiters(limits) -> list[str]:
     return out
 
 
-def headline_rows(ds: dict) -> list[str]:
+def has_profiler(ds: dict) -> bool:
+    """True when at least one scenario of the data set has a profiler cross-check figure."""
+    return any(
+        sc["summary"].get("profilerMeanMs") is not None
+        for sc in ds["scenarios"].values()
+    )
+
+
+def headline_rows(ds: dict, with_profiler: bool = True) -> list[str]:
     rows = []
     for scen in SCENARIOS:
         s = ds["scenarios"].get(scen)
@@ -981,12 +1044,15 @@ def headline_rows(ds: dict) -> list[str]:
         sm = s["summary"]
         net = sm["netMeanMs"]
         p99 = sm.get("p99Ms")
-        rows.append(
+        row = (
             f"| {SCENARIO_LABEL[scen]} | {fmt_ms(net)} "
             f"| {fmt_ms(p99) if p99 is not None else 'n/a'} "
             f"| {fmt_fps(fps_cost(60, net))} | {fmt_fps(fps_cost(144, net))} "
-            f"| {verdict(net)} | {profiler_cell(sm)} |"
+            f"| {verdict(net)} |"
         )
+        if with_profiler:
+            row += f" {profiler_cell(sm)} |"
+        rows.append(row)
     return rows
 
 
@@ -1004,8 +1070,8 @@ def summary_paragraph(ds: dict) -> str:
     rig_has_screen = screen is None or (
         screen in ds["rig"] or screen.split("x")[-1] in ds["rig"]
     )
-    head = f"**Version {ds['version']}**, measured on {ds['rig']} (game build {ds['build']}"
-    head += ")." if rig_has_screen else f", {screen} screen)."
+    head = f"**Version {ds['version']}**, measured on {ds['rig']}, game build {ds['build']}"
+    head += "." if rig_has_screen else f", {screen} screen."
     # lower-case: they are used mid-sentence; a sentence that starts with one capitalises it
     sentence_names = {
         "typical": "typical play",
@@ -1066,11 +1132,39 @@ def history_table(sets: list[dict], series: dict[str, list[dict]]) -> list[str]:
     return lines
 
 
+NUMBER_WORDS = (
+    "no",
+    "one",
+    "two",
+    "three",
+    "four",
+    "five",
+    "six",
+    "seven",
+    "eight",
+    "nine",
+)
+
+
+def _step_words(step: float) -> str:
+    """'half a second' for 0.5, else 'N seconds' (the timeline's bucket length)."""
+    if abs(step - 0.5) < 1e-9:
+        return "half a second"
+    return "1 second" if abs(step - 1) < 1e-9 else f"{step:g} seconds"
+
+
+def _run_charts_words(n: int) -> str:
+    if n == 1:
+        return "the run chart"
+    return f"the {NUMBER_WORDS[n] if n < len(NUMBER_WORDS) else n} run charts"
+
+
 def build_readme(sets: list[dict], img_scens: dict) -> str:
     """Markdown for the report. img_scens: {'trend': [scen...], 'timeline': [scen...]}."""
     newest = sets[-1]
     series = {s: scenario_points(sets, s) for s in SCENARIOS}
     series = {s: p for s, p in series.items() if p}
+    with_profiler = has_profiler(newest)
     L = [
         "# XP Orbs performance",
         "",
@@ -1086,16 +1180,20 @@ def build_readme(sets: list[dict], img_scens: dict) -> str:
         "",
         f"### Version {newest['version']} at a glance",
         "",
-        HEADLINE_HEADER,
-        "|---|---|---|---|---|---|---|",
-        *headline_rows(newest),
+        _table_header(headline_columns(with_profiler)),
+        _table_rule(headline_columns(with_profiler)),
+        *headline_rows(newest, with_profiler),
         "",
         (
             "*Average cost* is what XP Orbs adds to a typical frame. *Worst 1%* is the cost "
             "of the slowest one frame in a hundred, which is what you'd feel as a hitch. "
-            "*fps cost* converts the average into frames per second lost at 60 and 144 fps. "
-            "*Game profiler (cross-check)* is the same average as the game's own addon "
-            "profiler reports it."
+            "*fps cost* converts the average into frames per second lost at 60 and 144 fps."
+            + (
+                " *Game profiler (cross-check)* is the same average as the game's own "
+                "addon profiler reports it."
+                if with_profiler
+                else ""
+            )
         ),
         "",
         "![Average cost per frame across releases](img/trends-overview.png)",
@@ -1103,26 +1201,37 @@ def build_readme(sets: list[dict], img_scens: dict) -> str:
         "## How it changes between releases",
         "",
     ]
-    for scen in img_scens["trend"]:
+    if len(sets) < 2:
         L += [
-            (
-                f"![Cost per frame across releases: {SCENARIO_LABEL[scen]}]"
-                f"(img/trend-{scen}.png)"
-            ),
-            "",
+            "Trends between releases appear here from the second measured release onward."
         ]
-    L += history_table(sets, series)
+    else:
+        for scen in img_scens["trend"]:
+            L += [
+                (
+                    f"![Cost per frame across releases: {SCENARIO_LABEL[scen]}]"
+                    f"(img/trend-{scen}.png)"
+                ),
+                "",
+            ]
+        L += history_table(sets, series)
     L += ["", f"## Inside one run (version {newest['version']})", ""]
+    steps = [
+        _num_or_none((newest["scenarios"][s].get("timeline") or {}).get("step"))
+        for s in img_scens["timeline"]
+    ]
     L += [
         (
             "XP Orbs' cost per frame (coloured line) over the length of a test run, "
             "against how many orbs are on screen (grey area). The cost shown is after "
-            "subtracting the idle baseline, the same way as in the table above."
+            "subtracting the idle baseline, the same way as in the table above. "
+            f"Each point averages {_step_words(next((s for s in steps if s), 0.5))}, "
+            "so single-frame spikes (the Worst 1% column) are smoothed out."
         ),
         "",
         (
-            f"<details><summary>Inside one run (version {newest['version']}): "
-            "click to show</summary>"
+            f"<details><summary>Show {_run_charts_words(len(img_scens['timeline']))}"
+            "</summary>"
         ),
         "",
     ]
@@ -1156,10 +1265,6 @@ def build_readme(sets: list[dict], img_scens: dict) -> str:
         ),
         "",
     ]
-    has_profiler = any(
-        sc["summary"].get("profilerMeanMs") is not None
-        for sc in newest["scenarios"].values()
-    )
     L += [
         (
             "The cost is measured by XP Orbs' own timers around its per-frame update and "
@@ -1168,7 +1273,7 @@ def build_readme(sets: list[dict], img_scens: dict) -> str:
         ),
         "",
     ]
-    if has_profiler:
+    if with_profiler:
         L += [
             (
                 "The game's own addon profiler (its recent average, the figure addon "
@@ -1198,13 +1303,17 @@ def build_readme(sets: list[dict], img_scens: dict) -> str:
         "",
         f"- Rig: {newest['rig']}",
         f"- Game build: {newest['build']}",
-        *([f"- Screen: {_screen(newest)}"] if _screen(newest) else []),
+        *(
+            [f"- Screen: {_screen(newest)}"]
+            if _screen(newest) and not rig_names_height(newest)
+            else []
+        ),
         f"- Measured: {newest['date']}",
         "",
         "**Things to keep in mind**",
         "",
         (
-            "- CPU time is exact. GPU cost is not part of the cost columns; it only shows "
+            "- CPU time is measured precisely. GPU cost is not part of the cost columns; it only shows "
             "up indirectly as lower frame rates, and those readings are noisy."
         ),
         (
@@ -1234,11 +1343,16 @@ def render(data_dir: Path, out_dir: Path, rig: str | None) -> list[Path]:
     img.mkdir(parents=True, exist_ok=True)
     written = []
     trend_scens = []
-    for scen, pts in series.items():
-        p = img / f"trend-{scen}.png"
-        chart_trend(p, scen, versions, pts)
-        written.append(p)
-        trend_scens.append(scen)
+    if len(sets) >= 2:  # a trend needs at least two releases
+        for scen, pts in series.items():
+            p = img / f"trend-{scen}.png"
+            chart_trend(p, scen, versions, pts)
+            written.append(p)
+            trend_scens.append(scen)
+    for scen in SCENARIOS:  # drop trend charts left by an earlier render
+        stale = img / f"trend-{scen}.png"
+        if stale not in written and stale.exists():
+            stale.unlink()
     p = img / "trends-overview.png"
     chart_overview(p, versions, series)
     written.append(p)
@@ -1280,6 +1394,7 @@ def notes_text(sets_all: list[dict], rig: str | None, version: str | None) -> st
         if idx is None:
             raise BenchError(f"no data for version {version} on rig '{rig}'")
     ds = sets[idx]
+    with_profiler = has_profiler(ds)
     rows = []
     for scen in SCENARIOS:
         s = ds["scenarios"].get(scen)
@@ -1293,11 +1408,12 @@ def notes_text(sets_all: list[dict], rig: str | None, version: str | None) -> st
             if ps and ps.get("scenarioVersion", 1) == s.get("scenarioVersion", 1):
                 prev = ps["summary"]["netMeanMs"]
         p99 = sm.get("p99Ms")
+        profiler = f"| {profiler_cell(sm)} " if with_profiler else ""
         rows.append(
             f"| {SCENARIO_LABEL[scen]} | {fmt_ms(net)} "
             f"| {fmt_ms(p99) if p99 is not None else 'n/a'} "
             f"| {fmt_fps(fps_cost(60, net))} | {verdict(net)} "
-            f"| {profiler_cell(sm)} | {format_change(prev, net)} |"
+            f"{profiler}| {format_change(prev, net)} |"
         )
     return "\n".join(
         [
@@ -1306,8 +1422,8 @@ def notes_text(sets_all: list[dict], rig: str | None, version: str | None) -> st
                 f"better), measured in game on {ds['rig']}."
             ),
             "",
-            NOTES_HEADER,
-            "|---|---|---|---|---|---|---|",
+            _table_header(notes_columns(with_profiler)),
+            _table_rule(notes_columns(with_profiler)),
             *rows,
             "",
             f"Full report: {README_REL}",
