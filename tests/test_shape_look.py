@@ -816,7 +816,7 @@ def test_a_full_burst_of_every_shape_fits_with_room_for_a_second(env, shape):
 
 def preview_orbs(m):
     """The textures of the orbs the preview currently shows (slots past the orb count keep stale calls)."""
-    box = m.ns.ShapePreview.box
+    box = m.ns.ShapePreview.orbArea
     return [
         t
         for t in (box.tex[i] for i in range(1, 3 * int(box.n) + 1))
@@ -881,7 +881,7 @@ def test_the_test_target_docks_as_before_when_the_preview_build_fails(env):
     m.ns.Preview.AddBackground = m.lua.eval("function() error('no backdrop') end")
     up(m)
     sp = m.ns.ShapePreview
-    assert sp.window is None and sp.box is None and sp.Frame(sp) is None
+    assert sp.window is None and sp.orbArea is None and sp.Frame(sp) is None
     pt = m.ns.Preview.window.points[1]
     assert (pt[1], pt[3], pt[4]) == ("TOPLEFT", "TOPRIGHT", 4)
     assert m.lua.eval("rawequal")(pt[2], m.G.SettingsPanel)
@@ -1139,7 +1139,7 @@ def test_a_tidy_layout_keeps_its_spacing_and_uses_fewer_per_row_when_wide(env):
         m, "starlight", 32
     )  # 41 px spacing, 64 px of art: three across fit, four do not
     assert counts(db) == [3, 3, 3, 3]
-    assert sp.RadiusFor(sp.Layout(12, False, db), db) == pytest.approx(
+    assert sp.UnitFor(sp.Layout(12, False, db), db) == pytest.approx(
         float(sp.SpacingFor(db))
     )  # never squeezed
     db = db_of(m, "crackle", 32)
@@ -1175,8 +1175,8 @@ def test_24_orbs_are_never_clipped_and_the_window_grows_to_fit(env, shape, size)
     sp = m.ns.ShapePreview
     assert len(bodies(m)) == 24
     db = m.db
-    pts = sp.box.pattern
-    radius = float(sp.RadiusFor(pts, db))
+    pts = sp.orbArea.pattern
+    radius = float(sp.UnitFor(pts, db))
     reach_y = max(abs(float(pts[i][2])) for i in range(1, 25))
     reach_x = max(abs(float(pts[i][1])) for i in range(1, 25))
     half = float(sp.VisibleFor(db)) and (
@@ -1193,7 +1193,7 @@ def test_the_cluster_unit_is_the_visible_diameter(env):
     m = build(env)
     sp = m.ns.ShapePreview
     db = db_of(m, "bubble", 14)
-    assert sp.RadiusFor(sp.Pattern(6, True), db, True) == pytest.approx(
+    assert sp.UnitFor(sp.Pattern(6, True), db, True) == pytest.approx(
         float(sp.VisibleFor(db))
     )
 
@@ -1204,8 +1204,8 @@ def test_the_cluster_shrinks_to_fit_the_width(env):
     db = db_of(m, "starlight", 32)
     points = sp.Pattern(12, True)
     reach = max(abs(float(points[i][1])) for i in range(1, 13))
-    assert sp.RadiusFor(points, db, True) == pytest.approx((92 - 32) / reach)
-    assert sp.RadiusFor(points, db, True) < float(sp.VisibleFor(db, True)) * 1.3
+    assert sp.UnitFor(points, db, True) == pytest.approx((92 - 32) / reach)
+    assert sp.UnitFor(points, db, True) < float(sp.VisibleFor(db, True)) * 1.3
 
 
 def test_the_rested_scale_counts_in_the_window_height(env):
@@ -1223,14 +1223,14 @@ def test_retro_stays_on_whole_cells_and_never_under_nine(env):
     for size in (1, 2, 3, 5):
         db = db_of(m, "retro", size)
         for n in (5, 7, 12):
-            assert float(sp.RadiusFor(sp.Pattern(n), db)) % size == 0
-            assert float(sp.RadiusFor(sp.Pattern(n), db)) >= 9 * size
+            assert float(sp.UnitFor(sp.Pattern(n), db)) % size == 0
+            assert float(sp.UnitFor(sp.Pattern(n), db)) >= 9 * size
     db = db_of(m, "retro", 2)  # fits: 10 cells wanted
-    assert sp.RadiusFor(sp.Pattern(6), db) == 20
+    assert sp.UnitFor(sp.Pattern(6), db) == 20
     db = db_of(
         m, "retro", 5
     )  # 10 cells wanted at least; it is never squeezed (the layout has fewer per row instead)
-    assert sp.RadiusFor(sp.Pattern(5), db) >= 50
+    assert sp.UnitFor(sp.Pattern(5), db) >= 50
 
 
 def test_retro_neighbours_stay_nine_cells_apart_after_the_snap_up_to_24_orbs(env):
@@ -1240,7 +1240,7 @@ def test_retro_neighbours_stay_nine_cells_apart_after_the_snap_up_to_24_orbs(env
         db = db_of(m, "retro", size)
         for n in range(2, 25):
             pts = sp.Layout(n, False, db)
-            cells = float(sp.RadiusFor(pts, db)) / size
+            cells = float(sp.UnitFor(pts, db)) / size
             assert cells == int(cells)
             snapped = [
                 (
@@ -1266,7 +1266,7 @@ def test_unused_textures_are_hidden(env):
     tick(m)
     assert len(bodies(m)) == 6
     assert len([t for t in preview_orbs(m) if t.shown]) == 6 * 3
-    box = m.ns.ShapePreview.box
+    box = m.ns.ShapePreview.orbArea
     assert not any(
         box.tex[i].shown for i in range(19, 73)
     )  # the unused slots stay hidden
@@ -1286,7 +1286,7 @@ def test_the_preview_is_set_up_again_when_the_look_changes(env, change):
     m = build(env)
     m.slash("shape bubble")
     up(m)
-    box = m.ns.ShapePreview.box
+    box = m.ns.ShapePreview.orbArea
     first = box.pattern
     m.ns.ShapePreview.Sync(m.ns.ShapePreview)
     assert m.lua.eval("rawequal")(box.pattern, first)  # nothing changed: nothing redone
@@ -1345,12 +1345,12 @@ def test_the_preview_follows_the_crackle_speed(env):
     m.slash("shape crackle")
     tick(m)
     assert (
-        0.07 <= float(m.ns.ShapePreview.box.st[1].boltEvery) <= 0.09
+        0.07 <= float(m.ns.ShapePreview.orbArea.st[1].boltEvery) <= 0.09
     )  # 70-90 ms at 100 %
     m.ns.SetLook("crackleSpeed", 200)
     m.ns.ShapePreview.Sync(m.ns.ShapePreview)
     assert (
-        0.035 <= float(m.ns.ShapePreview.box.st[1].boltEvery) <= 0.045
+        0.035 <= float(m.ns.ShapePreview.orbArea.st[1].boltEvery) <= 0.045
     )  # set up again: twice as fast
 
 
@@ -1446,7 +1446,7 @@ def test_the_previews_animations_run(env):
 def test_the_previews_ticks_run_only_while_the_panel_is_shown(env):
     m = build(env)
     up(m)
-    box = m.ns.ShapePreview.box
+    box = m.ns.ShapePreview.orbArea
     assert box.scripts.OnUpdate is not None
     m.opt.panel.scripts.OnHide(m.opt.panel)
     assert box.scripts.OnUpdate is None and not m.ns.ShapePreview.window.shown
@@ -1472,7 +1472,7 @@ def test_the_preview_never_errors_before_orbs_or_shapes_are_ready(env):
     m = build(env)
     m.ns.OrbShapes = None
     up(m)
-    assert m.ns.ShapePreview.box is None
+    assert m.ns.ShapePreview.orbArea is None
     assert (
         m.ns.Preview.window.points[1][1] == "TOPLEFT"
     )  # the test target docks as before
@@ -1481,7 +1481,7 @@ def test_the_preview_never_errors_before_orbs_or_shapes_are_ready(env):
     m.opt.Refresh(m.opt)
     m.opt.panel.scripts.OnShow(m.opt.panel)
     m.opt.panel.scripts.OnHide(m.opt.panel)
-    assert m.ns.ShapePreview.box is None
+    assert m.ns.ShapePreview.orbArea is None
 
 
 def test_a_draw_error_is_logged_once_and_never_thrown(env):
@@ -1892,12 +1892,12 @@ def test_the_cluster_tickbox_is_saved_and_changes_the_preview(env):
     assert (check.width, check.height) == (20, 20)
     pt = check.points[1]
     assert (pt[1], pt[3]) == ("TOPRIGHT", "TOPRIGHT") and pt[4] <= 0 and pt[5] <= 0
-    first = sp.box.pattern
+    first = sp.orbArea.pattern
     m.stub.click(check)
     assert m.db.previewCluster is True
-    assert not m.lua.eval("rawequal")(sp.box.pattern, first) and sp.box.cluster is True
+    assert not m.lua.eval("rawequal")(sp.orbArea.pattern, first) and sp.orbArea.cluster is True
     m.stub.click(check)
-    assert m.db.previewCluster is False and sp.box.cluster is False
+    assert m.db.previewCluster is False and sp.orbArea.cluster is False
     # a slash reset or an outside change shows in the box too
     m.db.previewCluster = True
     m.opt.Refresh(m.opt)
@@ -1930,14 +1930,14 @@ def test_the_cluster_unit_ignores_the_rested_scale_and_starlight_is_stretched(en
         on = db_of(m, shape, None, rested=True)
         off = db_of(m, shape, None, rested=False)
         points = sp.Pattern(6, True)
-        assert sp.RadiusFor(points, on, True) == pytest.approx(
-            sp.RadiusFor(points, off, True)
+        assert sp.UnitFor(points, on, True) == pytest.approx(
+            sp.UnitFor(points, off, True)
         )
         assert float(sp.CLUSTER_SCALE[shape] or 1) == factor
     db = db_of(m, "starlight", 14)
-    assert sp.RadiusFor(sp.Pattern(6, True), db, True) == pytest.approx(14 * 1.15 * 1.3)
+    assert sp.UnitFor(sp.Pattern(6, True), db, True) == pytest.approx(14 * 1.15 * 1.3)
     db = db_of(m, "crackle", 14)  # the pile keeps Crackle's own, tighter unit
-    assert sp.RadiusFor(sp.Pattern(6, True), db, True) == pytest.approx(14 * 1.15)
+    assert sp.UnitFor(sp.Pattern(6, True), db, True) == pytest.approx(14 * 1.15)
     db = db_of(m, "crackle", 14)
     assert sp.SpacingFor(db) == pytest.approx(14 * 1.35 + max(3, 0.12 * 14 * 1.35))
 

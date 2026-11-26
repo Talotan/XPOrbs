@@ -269,9 +269,9 @@ def test_the_preview_draws_the_overlay_for_twelve_solid_retro_orbs(env):
     m = build(env)
     up(m)
     sp = look(m, "retro", "solid", 150)  # 12 orbs
-    assert int(sp.box.n) == 12
+    assert int(sp.orbArea.n) == 12
     for i in range(12):
-        body = sp.box.tex[i * 3 + 2]
+        body = sp.orbArea.tex[i * 3 + 2]
         shine = shine_of(body)
         assert shine is not None and path_of(shine) == SHINE
         assert (mode_of(shine), layer_of(shine)) == ("ADD", 1)
@@ -283,7 +283,7 @@ def test_the_preview_hides_the_overlay_in_glow_and_on_other_shapes(env):
     m = build(env)
     up(m)
     sp = look(m, "retro", "solid", 100)
-    shines = [shine_of(sp.box.tex[i * 3 + 2]) for i in range(int(sp.box.n))]
+    shines = [shine_of(sp.orbArea.tex[i * 3 + 2]) for i in range(int(sp.orbArea.n))]
     assert shines and all(s is not None and s.shown for s in shines)
     sp = look(m, "retro", "natural", 100)
     assert not any(s.shown for s in shines)
@@ -297,7 +297,7 @@ def test_the_preview_hides_the_overlay_when_switching_to_starlight(env):
     m = build(env)
     up(m)
     sp = look(m, "retro", "solid", 100)
-    shines = [shine_of(sp.box.tex[i * 3 + 2]) for i in range(int(sp.box.n))]
+    shines = [shine_of(sp.orbArea.tex[i * 3 + 2]) for i in range(int(sp.orbArea.n))]
     assert shines and all(s is not None and s.shown for s in shines)
     look(m, "starlight", "solid", 100)
     assert not any(s.shown for s in shines)

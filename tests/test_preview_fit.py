@@ -30,7 +30,7 @@ def look(m, shape, size, density, cluster, rested):
 
 def drawn(sp, shape):
     """(x, y, width) of every orb texture that counts as visible art (the faint underlay is not, except Retro's)."""
-    box = sp.box
+    box = sp.orbArea
     out = []
     for i in range(1, 3 * int(box.n) + 1):
         t = box.tex[i]
@@ -114,11 +114,11 @@ def test_retro_neighbours_stay_a_cell_apart_after_the_snap_in_the_tidy_layout(en
     for size in SIZES["retro"]:
         for density in DENSITIES:
             sp = look(m, "retro", size, density, False, False)
-            assert float(sp.RadiusFor(sp.box.pattern, m.db, False)) >= 9 * size
+            assert float(sp.UnitFor(sp.orbArea.pattern, m.db, False)) >= 9 * size
             discs = [
                 (x, y) for x, y, w in drawn(sp, "retro") if abs(w - 8 * size) < 1e-6
             ]
-            assert len(discs) == int(sp.box.n)
+            assert len(discs) == int(sp.orbArea.n)
             for i, p in enumerate(discs):
                 for q in discs[i + 1 :]:
                     # after the whole-cell snap: the 8 cell disc plus a cell of gap, honeycomb diagonals included
@@ -153,7 +153,7 @@ def test_the_title_is_top_left_and_cluster_top_right(env):
     title_mid = title.points[1][5] - 6
     label_mid = sp.check.points[1][5] - 10 + label.points[1][5]
     assert abs(label_mid - title_mid) <= 1
-    box = sp.box.points
+    box = sp.orbArea.points
     assert (box[1][1], box[1][4], box[1][5]) == ("TOPLEFT", 8, -28) and (
         box[2][1],
         box[2][4],

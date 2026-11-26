@@ -233,19 +233,7 @@ local function makePanel()
     f:SetScript("OnMouseWheel", function(_, delta)
         bump(delta > 0 and -1 or 1) -- wheel up moves the marker up (the marker sits at -(offset + nudge))
     end)
-    if f.xpTooltipStyle then
-        pcall(f.SetBackdropColor, f, 0.07, 0.07, 0.10, 0.95) -- the client's border art stays untinted
-    else
-        local bg = f:CreateTexture(nil, "BACKGROUND")
-        bg:SetAllPoints(f)
-        bg:SetColorTexture(0, 0, 0, 0.8)
-    end
-    if not f.xpTooltipStyle and f.SetBackdrop then
-        pcall(f.SetBackdrop, f, { edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border", edgeSize = 12 })
-        if f.SetBackdropBorderColor then
-            pcall(f.SetBackdropBorderColor, f, 0.8, 0.8, 0.8, 0.8)
-        end
-    end
+    ns.Preview.AddBackground(f)
     local title = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     title:SetPoint("TOPLEFT", f, "TOPLEFT", 12, -10)
     title:SetText("XP Orbs Calibration")

@@ -661,8 +661,8 @@ local function slider(y, key, labelStr, fmt, unit, onChange, opts)
     val:SetPoint("LEFT", row, "LEFT", VALUE_X, 0)
     val:SetJustifyH("LEFT")
     sliderFrame:SetScript("OnValueChanged", function(_, v)
-        local l, h, st = range()
-        v = OrbMath.Snap(v, l, h, st)
+        local low, high, stepSize = range()
+        v = OrbMath.Snap(v, low, high, stepSize)
         if not v then
             return
         end
@@ -680,18 +680,18 @@ local function slider(y, key, labelStr, fmt, unit, onChange, opts)
         if type(v) ~= "number" then
             return
         end
-        local l, h, st = range()
+        local low, high, stepSize = range()
         if opts.label then
             labelText:SetText(opts.label())
         end
         if opts.range then
             -- new limits first: the client may clamp (and report) the old value while they change; `refreshing` keeps
             -- that from being written back
-            sliderFrame:SetMinMaxValues(l, h)
-            sliderFrame:SetValueStep(st)
+            sliderFrame:SetMinMaxValues(low, high)
+            sliderFrame:SetValueStep(stepSize)
         end
         sliderFrame:SetValue(v)
-        val:SetText(string.format(fmtNow(), OrbMath.Snap(v, l, h, st) or v))
+        val:SetText(string.format(fmtNow(), OrbMath.Snap(v, low, high, stepSize) or v))
     end
     attachValueEdit(row, key, val, range, unit, opts.hint)
     addReset(row, key, { key }, function()
@@ -720,22 +720,22 @@ local pickerSyncing = false -- SetColorHSV may fire OnColorSelect -> swatchFunc 
 
 local function colorSelect()
     local content = ColorPickerFrame and ColorPickerFrame.Content
-    local sel = content and content.ColorPicker
-    if type(sel) == "table" and sel.GetColorHSV and sel.SetColorHSV then
-        return sel
+    local colourPicker = content and content.ColorPicker
+    if type(colourPicker) == "table" and colourPicker.GetColorHSV and colourPicker.SetColorHSV then
+        return colourPicker
     end
 end
 
-local function readHSV(sel)
-    local ok, h, s, v = pcall(sel.GetColorHSV, sel)
+local function readHSV(colourPicker)
+    local ok, h, s, v = pcall(colourPicker.GetColorHSV, colourPicker)
     if ok and type(h) == "number" and type(s) == "number" and type(v) == "number" then
         return h, s, v
     end
 end
 
-local function pushHSV(sel, h, s, v)
+local function pushHSV(colourPicker, h, s, v)
     pickerSyncing = true
-    pcall(sel.SetColorHSV, sel, h, s, v)
+    pcall(colourPicker.SetColorHSV, colourPicker, h, s, v)
     pickerSyncing = false
 end
 
@@ -756,11 +756,11 @@ end
 
 -- Called from the picker's swatchFunc with what the widget holds now.
 local function keepHue(key)
-    local sel = colorSelect()
-    if not sel or pickerSyncing then
+    local colourPicker = colorSelect()
+    if not colourPicker or pickerSyncing then
         return
     end
-    local h, s, v = readHSV(sel)
+    local h, s, v = readHSV(colourPicker)
     if not h then
         return
     end
@@ -770,25 +770,25 @@ local function keepHue(key)
     end
     local saved = savedHS(key)
     if saved and (math.abs(h - saved[1]) > HS_EPS or math.abs(s - saved[2]) > HS_EPS) then
-        pushHSV(sel, saved[1], saved[2], v)
+        pushHSV(colourPicker, saved[1], saved[2], v)
     end
 end
 
 -- Right after the picker opens on a colour: remember its hue, or (opened on black) show the remembered one.
-local function openHue(key, r, g, blue)
-    local sel = colorSelect()
-    if not sel then
+local function openHue(key, red, green, blue)
+    local colourPicker = colorSelect()
+    if not colourPicker then
         return
     end
-    local value = math.max(r or 0, g or 0, blue or 0)
+    local value = math.max(red or 0, green or 0, blue or 0)
     if value <= HS_MIN_V then
         local saved = savedHS(key)
         if saved then
-            pushHSV(sel, saved[1], saved[2], value)
+            pushHSV(colourPicker, saved[1], saved[2], value)
         end
         return
     end
-    local h, s, v = readHSV(sel)
+    local h, s, v = readHSV(colourPicker)
     if h and v > HS_MIN_V then
         rememberHS(key, h, s)
     end
@@ -894,7 +894,7 @@ end
 
 -- Dropdown geometry (px). The stepper template puts an arrow either side of the 150 px menu button, so the host starts
 -- PAD left of the control column and the voice row's play button moves right of the right arrow.
-local DD = { W = 150, PAD = 8, ARROW = 28, PLAY_X = 204 }
+local DROPDOWN_SIZE = { W = 150, PAD = 8, ARROW = 28, PLAY_X = 204 }
 
 -- A dropdown in `row` whose menu is built by setup(owner, root) (radio items). Returns the DropdownButton that carries
 -- the menu, or nothing when this client has no usable template (the caller then draws radios). First choice: our
@@ -911,16 +911,16 @@ local function newDropdown(row, setup)
                 pcall(host.Hide, host)
                 error("no inner dropdown")
             end
-            host:SetPoint("LEFT", row, "LEFT", CTRL_X - DD.PAD, 0)
-            host:SetSize(DD.W + 2 * DD.ARROW, 26)
-            dropdown:SetWidth(DD.W)
+            host:SetPoint("LEFT", row, "LEFT", CTRL_X - DROPDOWN_SIZE.PAD, 0)
+            host:SetSize(DROPDOWN_SIZE.W + 2 * DROPDOWN_SIZE.ARROW, 26)
+            dropdown:SetWidth(DROPDOWN_SIZE.W)
             dropdown.xpHost = host
             return dropdown, host
         end,
         function()
             local dropdown = CreateFrame("DropdownButton", nil, row, "WowStyle1DropdownTemplate")
             dropdown:SetPoint("LEFT", row, "LEFT", CTRL_X, 0)
-            dropdown:SetSize(DD.W, 26)
+            dropdown:SetSize(DROPDOWN_SIZE.W, 26)
             return dropdown, dropdown
         end,
     }
@@ -958,7 +958,7 @@ local function soundVoiceRow(y)
             end)
         end
     end)
-    local playX = dropdown and dropdown.xpHost and DD.PLAY_X or PLAY_X
+    local playX = dropdown and dropdown.xpHost and DROPDOWN_SIZE.PLAY_X or PLAY_X
     if dropdown then
         Options.soundDropdown = dropdown
         Options.controls.soundVoice = dropdown
@@ -1581,8 +1581,9 @@ local function buildFlight(y)
     Options.killStyleLabelY = y
     y = y + 22
     -- their settings sit in a box like the Look tab's (no caption: the header above is its title); rows hang off it
+    local KILL_ROWS_H = 278 -- the radios, sub-radios, descriptions and the spread row
     local boxY = y
-    local box = boxFrame(boxY, KILL_PAD + 278 + BOX_BOTTOM_PAD)
+    local box = boxFrame(boxY, KILL_PAD + KILL_ROWS_H + BOX_BOTTOM_PAD)
     Options.killBox = box
     rowParent = box
     y = y + KILL_PAD
@@ -1596,18 +1597,18 @@ local function buildFlight(y)
         end)
         w:SetScript("OnLeave", hideTip)
     end
-    local function styleRadio(st, ry)
-        local row = newRow(ry, 24)
-        local radio = newRadio(row, BOX_LABEL_X, STYLE_NAME[st])
+    local function styleRadio(styleKey, rowY)
+        local row = newRow(rowY, 24)
+        local radio = newRadio(row, BOX_LABEL_X, STYLE_NAME[styleKey])
         radio:SetScript("OnClick", function()
-            radioClick("style", st)
+            radioClick("style", styleKey)
         end)
-        radios[st] = radio
-        Options.controls["style_" .. st] = radio
-        Options.rows["style_" .. st] = row
-        local desc = boxText(STYLE_DESC[st], BOX_LABEL_X + 24, ry + 24, 474)
+        radios[styleKey] = radio
+        Options.controls["style_" .. styleKey] = radio
+        Options.rows["style_" .. styleKey] = row
+        local desc = boxText(STYLE_DESC[styleKey], BOX_LABEL_X + 24, rowY + 24, 474)
         desc:SetTextColor(GREY, GREY, GREY)
-        Options.descs[st] = desc
+        Options.descs[styleKey] = desc
         return row
     end
     local prow = styleRadio("popstream", y)
@@ -1658,7 +1659,7 @@ local function buildFlight(y)
         end
     end
     rowParent = nil
-    return boxY + KILL_PAD + 278 + BOX_BOTTOM_PAD
+    return boxY + KILL_PAD + KILL_ROWS_H + BOX_BOTTOM_PAD
 end
 
 -- Arrival: where the orbs land. The XP bar row (what was found, plus the picker) comes first, then the target frame's

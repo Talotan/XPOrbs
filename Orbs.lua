@@ -860,6 +860,7 @@ local function starlightSetup(underTex, orbTex, sparkleTex, red, green, blue)
         blue + (1 - blue) * SPARKLE_WHITE)
     sparkleTex.xoDirty = true -- it spins (SetRotation)
 end
+SHAPES.host.starlightSetup = starlightSetup -- the preview sets its Starlight orbs up the same way
 
 -- Fills group for orbCount orbs (rested: the first restedCount). Anchors group.frame to the plate with a single point.
 -- (ux, uy) is the exit vector the pop orbs launch along; spreadFactor scales the ring radius and drift (the

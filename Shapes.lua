@@ -10,8 +10,8 @@ local _, ns = ...
 --
 -- Per orb, a shape draws with the 3 textures of a slot (underlay, body, third) and, for a flying orb, up to 4 more
 -- (ghost1..ghost4, the trail). The third is the sparkle of Starlight: Retro's twinkle, Crackle's bolt layer,
--- Bubble's glint. The state that varies per orb (blink phase, bolt timer, breathing phase, cell size) lives in `st`:
--- the orb record, or a per-slot table of a pop group.
+-- Bubble's glint. The state that varies per orb (blink phase, bolt timer, breathing phase, cell size) lives in `st`
+-- (the "shape state": the orb record, or a per-slot table of a pop group).
 
 local SHAPES = ns.OrbShapes
 local host, k = SHAPES.host, SHAPES.k
@@ -139,7 +139,7 @@ local function styleBody(body, st, naturalPath, solidPath, red, green, blue, fil
     if body.xoShine then
         ready(body.xoShine) -- a body reused from a Retro Solid orb: its overlay stays hidden until drawn again
     end
-    local sl = solid and SUB_SOLID or SUB_NATURAL
+    local subLayers = solid and SUB_SOLID or SUB_NATURAL
     local path = solid and solidPath or naturalPath
     if filter then
         filter(body, path)
@@ -148,11 +148,11 @@ local function styleBody(body, st, naturalPath, solidPath, red, green, blue, fil
     end
     if solid then
         lift = lift or SOLID_LIFT
-        style(body, sl.body, "BLEND", lerp(red, 1, lift), lerp(green, 1, lift), lerp(blue, 1, lift))
+        style(body, subLayers.body, "BLEND", lerp(red, 1, lift), lerp(green, 1, lift), lerp(blue, 1, lift))
     else
-        style(body, sl.body, "ADD", red, green, blue)
+        style(body, subLayers.body, "ADD", red, green, blue)
     end
-    return sl
+    return subLayers
 end
 
 -- The position of the trail point `gap` px behind the orb along its flight, plus that point's size and alpha
@@ -218,8 +218,8 @@ end
 -- (RETRO_SHINE_ALPHA x the body's) is set every frame, so dst + colour x 0.225 x alpha.
 local function configureShine(shine, st)
     setNearest(shine, RETRO_SHINE_TEX)
-    style(shine, SUB_SOLID.top, "ADD", st.sr, st.sg, st.sb)
-    shine.xoSt, shine.xoCfg = st, st.cfg
+    style(shine, SUB_SOLID.top, "ADD", st.shineRed, st.shineGreen, st.shineBlue)
+    shine.xoOwner, shine.xoSetupCount = st, st.setupCount
 end
 
 -- The overlay of an orb in a pop group or the preview: made on the first draw, parented to the body's frame and kept
@@ -234,19 +234,20 @@ end
 -- `shine`: the pooled overlay of a flying Solid orb, else nil (a group or the preview finds it on the body).
 function RETRO.setup(under, body, spark, st, red, green, blue, shine)
     st.flightCell = retroCell(st.base or ns.OrbSize(ns.db))
-    local sl = styleBody(body, st, RETRO_TEX, RETRO_SOLID_TEX, red, green, blue, setNearest, RETRO.solidLift)
-    st.sr, st.sg, st.sb, st.cfg = red, green, blue, (st.cfg or 0) + 1
+    local subLayers = styleBody(body, st, RETRO_TEX, RETRO_SOLID_TEX, red, green, blue, setNearest, RETRO.solidLift)
+    st.shineRed, st.shineGreen, st.shineBlue = red, green, blue
+    st.setupCount = (st.setupCount or 0) + 1 -- bumped at every setup so the shine overlay is re-styled
     if shine and st.solid then
         configureShine(shine, st)
     end
     setNearest(under, RETRO_UNDER_TEX)
     under:SetTexCoord(0, RETRO_UNDER_UV, 0, RETRO_UNDER_UV)
     under.xoDirty = true
-    style(under, sl.under, "BLEND", red * UNDER_K, green * UNDER_K, blue * UNDER_K)
+    style(under, subLayers.under, "BLEND", red * UNDER_K, green * UNDER_K, blue * UNDER_K)
     setNearest(spark, RETRO_TWINKLE_TEX)
     spark:SetTexCoord(0, RETRO_TWINKLE_UV, 0, RETRO_TWINKLE_UV)
     spark.xoDirty = true
-    style(spark, sl.top, "ADD", lerp(red, 1, RETRO_TWINKLE_WHITE), lerp(green, 1, RETRO_TWINKLE_WHITE),
+    style(spark, subLayers.top, "ADD", lerp(red, 1, RETRO_TWINKLE_WHITE), lerp(green, 1, RETRO_TWINKLE_WHITE),
         lerp(blue, 1, RETRO_TWINKLE_WHITE))
     st.phase = random() * 2 * RETRO_BLINK -- where in the on / off blink this orb starts
     st.sparkle = ns.db.sparkle ~= false -- fixed at set-up: a shape switch mid-flight must not change a flying orb
@@ -291,7 +292,7 @@ function RETRO.draw(st, t, rel, under, body, spark, x, y, size, alpha, grow, shi
             shine = makeShine(body, rel)
         end
         if shine then
-            if shine.xoSt ~= st or shine.xoCfg ~= st.cfg then
+            if shine.xoOwner ~= st or shine.xoSetupCount ~= st.setupCount then
                 configureShine(shine, st)
             end
             putAt(shine, rel, gridX, gridY, 8 * cell, alpha * RETRO_SHINE_ALPHA)
@@ -333,11 +334,11 @@ end
 local BUBBLE = { needTrail = 7, needPlain = 3 }
 
 function BUBBLE.setup(under, body, spark, st, red, green, blue)
-    local sl = styleBody(body, st, BUBBLE_TEX, BUBBLE_SOLID_TEX, red, green, blue)
+    local subLayers = styleBody(body, st, BUBBLE_TEX, BUBBLE_SOLID_TEX, red, green, blue)
     under:SetTexture(BUBBLE_UNDER_TEX)
-    style(under, sl.under, "BLEND", red * UNDER_K, green * UNDER_K, blue * UNDER_K)
+    style(under, subLayers.under, "BLEND", red * UNDER_K, green * UNDER_K, blue * UNDER_K)
     spark:SetTexture(BUBBLE_GLINT_TEX)
-    style(spark, sl.top, "ADD", lerp(red, 1, BUBBLE_GLINT_WHITE), lerp(green, 1, BUBBLE_GLINT_WHITE),
+    style(spark, subLayers.top, "ADD", lerp(red, 1, BUBBLE_GLINT_WHITE), lerp(green, 1, BUBBLE_GLINT_WHITE),
         lerp(blue, 1, BUBBLE_GLINT_WHITE))
     st.phase = random() * TWO_PI
     st.pulse = ns.db.pulse ~= false -- fixed at set-up (see RETRO.setup)
@@ -405,9 +406,9 @@ local function nextBolt(st, spark, t)
 end
 
 function CRACKLE.setup(under, body, spark, st, red, green, blue)
-    local sl = styleBody(body, st, CRACKLE_CORE_TEX, CRACKLE_CORE_SOLID_TEX, red, green, blue)
+    local subLayers = styleBody(body, st, CRACKLE_CORE_TEX, CRACKLE_CORE_SOLID_TEX, red, green, blue)
     under:SetTexture(ORB_TEX)
-    style(under, sl.under, "BLEND", red * UNDER_K, green * UNDER_K, blue * UNDER_K)
+    style(under, subLayers.under, "BLEND", red * UNDER_K, green * UNDER_K, blue * UNDER_K)
     st.boltEvery = (CRACKLE_TICK_MIN + random() * CRACKLE_TICK_SPAN) * 100 / (ns.db.crackleSpeed or 100)
     st.boltAt = random() * st.boltEvery -- a random phase, so a burst's bolts don't change in step
     st.boltFrame = floor(random() * 4) + 1
@@ -416,7 +417,7 @@ function CRACKLE.setup(under, body, spark, st, red, green, blue)
     spark:SetTexture(BOLT_TEX[st.boltFrame])
     spark:SetRotation(st.boltTurn)
     spark.xoDirty = true
-    style(spark, sl.top, "ADD", lerp(red, 1, CRACKLE_BOLT_WHITE), lerp(green, 1, CRACKLE_BOLT_WHITE),
+    style(spark, subLayers.top, "ADD", lerp(red, 1, CRACKLE_BOLT_WHITE), lerp(green, 1, CRACKLE_BOLT_WHITE),
         lerp(blue, 1, CRACKLE_BOLT_WHITE))
 end
 

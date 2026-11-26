@@ -21,14 +21,6 @@ local SLIDER_X, SLIDER_W, VALUE_X = 84, 150, 246
 local RADIO_SIZE = 20
 local RADIO_SPACING = 100
 local GREY = 0.70
-local BACKDROP = {
-    bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
-    edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-    tile = true,
-    tileSize = 16,
-    edgeSize = 16,
-    insets = { left = 4, right = 4, top = 4, bottom = 4 },
-}
 
 local SHAPES = { "bar", "vertical", "round" }
 local SHAPE_NAME = { bar = "Horizontal", vertical = "Vertical", round = "Circular" }
@@ -280,22 +272,6 @@ local function startPick()
     pickWatcher:SetScript("OnUpdate", onPickWatch)
 end
 
-local function addBackground(frame)
-    if frame.xpTooltipStyle then
-        pcall(frame.SetBackdropColor, frame, 0.07, 0.07, 0.10, 0.95)
-        return
-    end
-    local styled = frame.SetBackdrop and pcall(frame.SetBackdrop, frame, BACKDROP)
-    if styled then
-        pcall(frame.SetBackdropColor, frame, 0.07, 0.07, 0.10, 0.95)
-        pcall(frame.SetBackdropBorderColor, frame, 0.6, 0.6, 0.7, 1)
-    else
-        local fill = frame:CreateTexture(nil, "BACKGROUND")
-        fill:SetAllPoints(frame)
-        fill:SetColorTexture(0.07, 0.07, 0.10, 0.95)
-    end
-end
-
 local function addShapeRadios(frame)
     for i, shape in ipairs(SHAPES) do
         local x = PAD + (i - 1) * RADIO_SPACING
@@ -332,7 +308,7 @@ local function buildWindow()
     frame:SetScript("OnDragStop", function(self)
         pcall(self.StopMovingOrSizing, self)
     end)
-    addBackground(frame)
+    ns.Preview.AddBackground(frame)
 
     addText(frame, "GameFontNormalLarge", "XP Orbs", PAD, -14)
     addText(frame, "GameFontHighlight", "Couldn't find your XP bar. Pick it so the orbs know where to fly.", PAD, -40,
