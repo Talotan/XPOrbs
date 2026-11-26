@@ -479,6 +479,10 @@ local function configure(db, red, green, blue)
             tex:SetAlpha(0)
             tex:Hide()
             tex.xoShown = false
+            if tex.xoShine then -- Retro Solid's shine overlay (Shapes.lua) lives on the body; its draw re-shows it
+                tex.xoShine:Hide()
+                tex.xoShine.xoShown = false
+            end
         end
         if i <= n then
             local colour = rested[i] and restedColour or { red, green, blue }

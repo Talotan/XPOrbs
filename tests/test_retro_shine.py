@@ -293,6 +293,16 @@ def test_the_preview_hides_the_overlay_in_glow_and_on_other_shapes(env):
     assert not any(s.shown for s in shines)
 
 
+def test_the_preview_hides_the_overlay_when_switching_to_starlight(env):
+    m = build(env)
+    up(m)
+    sp = look(m, "retro", "solid", 100)
+    shines = [shine_of(sp.box.tex[i * 3 + 2]) for i in range(int(sp.box.n))]
+    assert shines and all(s is not None and s.shown for s in shines)
+    look(m, "starlight", "solid", 100)
+    assert not any(s.shown for s in shines)
+
+
 # ---------------------------------------------------------------- the baked art
 
 
@@ -331,4 +341,3 @@ def test_the_texture_tool_ships_variant_i_and_keeps_g():
 def test_the_package_ships_every_media_file_without_listing_them():
     src = (ROOT / "tools" / "package.py").read_text(encoding="utf-8")
     assert 'media.rglob("*")' in src
-
