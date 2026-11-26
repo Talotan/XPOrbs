@@ -78,7 +78,7 @@ def test_test_token_fires_a_streampop_burst_with_no_plate_frame(env):
 
 def test_initdb_maps_streampop_to_popstream_direct(env):
     db = load(env, {"version": 5, "style": "streampop"})
-    assert (db.style, db.popMode, db.version) == ("popstream", "direct", 6)
+    assert (db.style, db.popMode, db.version) == ("popstream", "direct", 7)
 
 
 def test_a_passed_plate_is_ignored_entirely(env):

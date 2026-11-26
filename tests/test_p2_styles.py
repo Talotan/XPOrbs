@@ -62,7 +62,7 @@ def test_v5_styles_map_to_the_three_style_scheme(env, saved, style, mode):
     if saved is not None:
         old["style"] = saved
     db = load(env, old)
-    assert (db.version, db.style, db.popMode) == (6, style, mode)
+    assert (db.version, db.style, db.popMode) == (7, style, mode)
     assert db.unknownOrigin == "off"  # the migration never touches the unknown-position setting
     assert db.zoomSpread is True  # new key, on by default (and the old wide burst maps to it on)
 
@@ -103,7 +103,7 @@ def test_defaults(env):
         "nameplate",
         "wide",
         True,
-        6,
+        7,
     )
 
 

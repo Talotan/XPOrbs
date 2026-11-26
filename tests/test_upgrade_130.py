@@ -47,7 +47,7 @@ SAVE_130 = {
 
 def test_a_full_130_save_upgrades_to_the_140_shape(env):
     db = load_db(env, SAVE_130)
-    assert db.version == 6 and db.lookRev is None
+    assert db.version == 7 and db.lookRev is None
     assert db.orbShape == "starlight"
     star = db.shapeLook.starlight
     assert (star.size, star.density, star.opacity, star.blend) == (20, 300, 100, "natural")
@@ -56,8 +56,9 @@ def test_a_full_130_save_upgrades_to_the_140_shape(env):
     assert look_of(db, "retro") == (2, 100, 100)
     for shape in ("bubble", "crackle"):
         assert look_of(db, shape) == (14, 100, 100)
-    # flight: the saved time becomes the equivalent speed (100 / 0.6, snapped to 10), the time itself is kept
-    assert db.flightMode == "speed" and db.flightSpeed == 170
+    # flight: Relative speed (time mode) is the default; the saved time becomes the equivalent speed (100 / 0.6, snapped
+    # to 10) for when the player switches to Constant speed, and the time itself is kept
+    assert db.flightMode == "time" and db.flightSpeed == 170
     assert db.flightTime == 0.6
     assert db.sound is False and db.soundVoice == "coin" and db.soundVolume == 100
     assert db.flightPath == "helix"
@@ -72,7 +73,7 @@ def test_reset_after_the_upgrade_keeps_the_minimap_position(env):
     assert db.minimap.minimapPos == 123
     assert db.size == 14 and db.density == 100 and db.orbShape == "starlight"
     assert look_of(db, "starlight") == (14, 100, 100)
-    assert db.version == 6 and db.lookRev is None
+    assert db.version == 7 and db.lookRev is None
 
 
 def test_the_upgrade_runs_once(env):

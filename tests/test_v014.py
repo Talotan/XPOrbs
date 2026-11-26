@@ -43,7 +43,7 @@ def test_new_defaults_are_deep_filled_without_a_bump(env):
     m = build(env)
     d = m.db
     assert (d.glowIntensity, d.glowOffsetX, d.glowOffsetY) == (100, 0, 0)
-    assert d.glow is False and d.version == 6
+    assert d.glow is False and d.version == 7
 
 
 def test_stored_new_values_survive_a_reload(env):

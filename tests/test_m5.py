@@ -317,7 +317,7 @@ def test_reset_restores_defaults_and_refreshes_controls(m5):
     )
     assert [m5.db.color[i] for i in (1, 2, 3)] == pytest.approx([0.72, 0.28, 1.0])
     assert m5.db.targetFrame is None
-    assert m5.db.debug is True and m5.db.log[1] == "x" and m5.db.version == 6
+    assert m5.db.debug is True and m5.db.log[1] == "x" and m5.db.version == 7
     assert ctl(m5, "cap").value == 40 and ctl(m5, "density").value == 100
     assert ctl(m5, "trail").checked is True and ctl(m5, "style_popstream").checked
     assert "settings reset" in m5.say()[-1]

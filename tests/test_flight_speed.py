@@ -1,4 +1,4 @@
-"""Flight speed mode (db.flightMode "speed", the default): the duration follows the length of the flight, the trail
+"""Flight speed mode (db.flightMode "speed", Constant speed; "time" is the default): the duration follows the length of the flight, the trail
 follows the speed, the saved-flight-time migration, the /xporbs flightmode switch, the Flight tab's Speed type dropdown and slider."""
 
 import math
@@ -228,7 +228,7 @@ def test_saved_flight_time_becomes_a_speed(env, flight_time, speed):
     db = load(env, {"version": 6, "flightTime": flight_time})
     assert (
         db.flightSpeed == speed
-        and db.flightMode == "speed"
+        and db.flightMode == "time"
         and db.flightTime == flight_time
     )
 
@@ -240,14 +240,41 @@ def test_an_existing_speed_is_kept(env):
     )
 
 
-def test_fresh_save_gets_speed_100_in_speed_mode(env):
+def test_fresh_save_defaults_to_relative_speed(env):
     db = load(env)
-    assert db.flightSpeed == 100 and db.flightMode == "speed" and db.flightTime == 1.0
+    assert db.flightSpeed == 100 and db.flightMode == "time" and db.flightTime == 1.0
 
 
 @pytest.mark.parametrize("bad", ["fast", 3, True])
-def test_bad_flight_mode_becomes_speed(env, bad):
-    assert load(env, {"version": 6, "flightMode": bad}).flightMode == "speed"
+def test_bad_flight_mode_becomes_relative_speed(env, bad):
+    assert load(env, {"version": 7, "flightMode": bad}).flightMode == "time"
+
+
+def test_a_140_save_switches_to_relative_speed_once(env):
+    # 1.4.0 stored flightMode "speed" for everyone (the default then), so schema 6 can't tell a choice from the default
+    db = load(
+        env,
+        {
+            "version": 6,
+            "flightMode": "speed",
+            "flightSpeed": 140,
+            "orbShape": "retro",
+            "shapeLook": {"retro": {"size": 9, "density": 75, "opacity": 90}},
+        },
+    )
+    assert db.flightMode == "time" and db.flightSpeed == 140 and db.version == 7
+    assert db.orbShape == "retro" and db.shapeLook.retro.density == 75
+
+
+def test_a_schema_7_save_keeps_constant_speed(env):
+    db = load(env, {"version": 7, "flightMode": "speed", "flightSpeed": 140})
+    assert db.flightMode == "speed" and db.flightSpeed == 140 and db.version == 7
+
+
+def test_reset_command_gives_relative_speed(env):
+    load(env, {"version": 7, "flightMode": "speed"})
+    env.G.SlashCmdList.XPORBS("reset")
+    assert env.G.XPOrbsDB.flightMode == "time"
 
 
 def test_time_mode_is_kept_and_speed_is_clamped(env):
@@ -353,23 +380,22 @@ def test_speed_type_dropdown_sets_the_mode_and_swaps_the_slider(env):
     assert dd.template == "WowStyle2DropdownTemplate" and dd.xpHost.template == "XPOrbsDropdownWithSteppersTemplate"
     assert dd.xpHost.points[1][4] == 260 - 8  # the host starts one arrow gap left of the control column
     assert m.db.flightMode == "speed" and m.opt.rows.flightSpeed.shown and not m.opt.rows.flightTime.shown
-    assert m.stub.pickMenu(dd, "Relative speed") is True
+    assert m.stub.pickMenu(dd, "Relative speed (default)") is True
     assert m.db.flightMode == "time"
     assert m.opt.rows.flightTime.shown and not m.opt.rows.flightSpeed.shown
-    assert m.stub.pickMenu(dd, "Constant speed (default)") is True
+    assert m.stub.pickMenu(dd, "Constant speed") is True
     assert m.db.flightMode == "speed"
     assert m.opt.rows.flightSpeed.shown and not m.opt.rows.flightTime.shown
 
 
-def test_speed_type_reset_restores_constant_speed(env):
+def test_speed_type_reset_restores_relative_speed(env):
     m = build(env)
     m.slash("flightmode speed")
-    m.stub.pickMenu(m.opt.speedTypeDropdown, "Relative speed")
     btn = m.opt.resets["flightMode"]
     assert btn.shown
     m.stub.click(btn)
-    assert m.db.flightMode == "speed" and not btn.shown
-    assert m.opt.rows.flightSpeed.shown and not m.opt.rows.flightTime.shown
+    assert m.db.flightMode == "time" and not btn.shown
+    assert m.opt.rows.flightTime.shown and not m.opt.rows.flightSpeed.shown
 
 
 def test_speed_type_radio_fallback(env):

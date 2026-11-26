@@ -160,7 +160,7 @@ def test_a_junk_shapelook_gives_the_defaults(env, junk):
 
 
 def test_no_schema_bump_for_the_look(env):
-    assert load_db(env, {"version": 6}).version == 6
+    assert load_db(env, {"version": 6}).version == 7
 
 
 @pytest.mark.parametrize("bad, expected", [(5, 20), (500, 100), (47, 45), ("x", 100)])

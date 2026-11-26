@@ -144,7 +144,7 @@ def test_defaults_exist_and_a_v4_db_is_deep_filled_without_a_bump(env):
     env.ns.fire("ADDON_LOADED", "XPOrbs")
     db = env.G.XPOrbsDB
     assert (
-        db.version == 6
+        db.version == 7
     )  # InitDB's deep-fill adds the new keys; the version is the current schema
     assert db.classColor is False and db.glow is True and db.glowShape == "bar"
     assert db.cap == 7 and db.style == "crossfade"
@@ -823,7 +823,7 @@ def test_reset_all_asks_first_then_resets_on_accept(m):
         True,
         False,
     )
-    assert m.db.debug is True and m.db.log[1] == "x" and m.db.version == 6
+    assert m.db.debug is True and m.db.log[1] == "x" and m.db.version == 7
     assert (
         ctl(m, "cap").value == 40
         and not reset_shown(m, "cap")

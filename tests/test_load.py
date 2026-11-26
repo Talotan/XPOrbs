@@ -37,7 +37,7 @@ def test_defaults_filled_and_version_set(env):
     env.load_addon()
     env.ns.fire("ADDON_LOADED", "XPOrbs")
     db = env.G.XPOrbsDB
-    assert db.version == 6
+    assert db.version == 7
     assert db.density == 100 and db.cap == 40
     assert db.color[1] == 0.72
     assert db.debug is False

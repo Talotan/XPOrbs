@@ -91,7 +91,7 @@ def test_unknown_values_become_starlight(env, bad):
 
 def test_no_schema_bump(env):
     db = load_db(env, {"version": 6})
-    assert db.version == 6 and db.orbShape == "starlight"
+    assert db.version == 7 and db.orbShape == "starlight"
 
 
 # ---------------------------------------------------------------- slash command

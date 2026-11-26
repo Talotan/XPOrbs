@@ -14,8 +14,9 @@ ns.defaults = {
     size = 14,
     opacity = 100, -- orb opacity in % (every orb texture except the arrival flash)
     flightTime = 1.0, -- seconds; used when flightMode is "time"
-    -- "speed" (orbs fly at a constant speed, so a longer way takes longer) or "time" (a fixed time)
-    flightMode = "speed",
+    -- "time" (Relative speed: a fixed flight time, the default) or "speed" (Constant speed: orbs fly at a constant
+    -- speed, so a longer way takes longer)
+    flightMode = "time",
     flightSpeed = 100, -- % of Orbs.lua's reference speed; used when flightMode is "speed"
     -- the Forever XP bar is purple (blue when rested); orbs are additive, so these are full-brightness versions
     color = { 0.72, 0.28, 1.00 },
@@ -123,7 +124,7 @@ local function deepFill(target, source)
     end
 end
 
-local SCHEMA = 6
+local SCHEMA = 7
 
 -- Kill styles (schema 6): three archetypes, Popstream with a Nameplate / Direct sub-choice. Every name a save, a slash
 -- command or a test may hold -> { style, popMode (nil: keep the current one), true: switch Zoom-scaled spread on }.
@@ -318,6 +319,8 @@ end
 -- v6: three kill styles. popstream -> Popstream (Nameplate), streampop -> Popstream (Direct), wide / mob -> Popstream
 -- (Nameplate) with Zoom-scaled spread on (zoomSpread, new, default on), crossfade and stream unchanged, anything
 -- else -> the default (STYLE_ALIAS).
+-- v7: 1.4.1 makes Relative speed (flightMode "time") the default again; every save from before schema 7 is switched
+-- to it once.
 -- v0.13 added classColor / glow / glowShape, v0.14 added glowIntensity / glowOffsetX / glowOffsetY and the orb shape
 -- added orbShape: no schema bump, deepFill adds the missing keys (a stored false or an existing value is never
 -- overwritten, a missing key gets the default).
@@ -355,6 +358,12 @@ local function migrate(db)
         if not ns.SetStyle(db, db.style) then
             db.style = nil -- deepFill gives the default
         end
+    end
+    if version < 7 then
+        -- 1.4.1: Relative speed is the default again. 1.4.0 stored flightMode "speed" for everyone (deepFill), so a
+        -- deliberate choice can't be told from the default: every save from before schema 7 switches back once. A
+        -- player who then picks Constant speed keeps it (the version is stamped 7). flightSpeed is left alone.
+        db.flightMode = "time"
     end
 end
 
