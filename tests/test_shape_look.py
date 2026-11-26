@@ -1002,21 +1002,22 @@ def test_the_spacing_is_per_shape(env):
     assert sp.SpacingFor(db_of(m, "retro", 4, rested=True)) == 40  # still 8 + 2 cells of 4
 
 
-def test_the_fit_is_separate_in_x_and_y_and_has_a_floor(env):
+def test_a_tidy_layout_keeps_its_spacing_and_uses_fewer_per_row_when_wide(env):
     m = build(env)
     sp = m.ns.ShapePreview
+
+    def counts(db, n=12):
+        pts = sp.Layout(n, False, db)
+        ys = sorted({round(float(pts[i][2]), 3) for i in range(1, n + 1)}, reverse=True)
+        return [sum(1 for i in range(1, n + 1) if abs(float(pts[i][2]) - y) < 0.01) for y in ys]
+
     db = db_of(m, "starlight", 14)
-    twelve = sp.Pattern(12)
-    assert sp.RadiusFor(twelve, db) == pytest.approx(float(sp.SpacingFor(db)))  # fits: the wanted spacing
-    # a big orb: the area is 184 x 84 (half 92 and 42); three rows are limited by the height
-    db = db_of(m, "starlight", 20)
-    want = float(sp.SpacingFor(db))
-    fit_x, fit_y = (92 - 20) / 1.75, (42 - 20) / (3**0.5 / 2)
-    assert 0.75 * want < fit_y < want < fit_x  # the height decides
-    assert sp.RadiusFor(twelve, db) == pytest.approx(fit_y)
-    # beyond the floor the area clips: the radius stops at 0.75 x the wanted spacing
-    db = db_of(m, "starlight", 56)
-    assert sp.RadiusFor(twelve, db) == pytest.approx(0.75 * float(sp.SpacingFor(db)))
+    assert counts(db) == [4, 4, 4]  # fits: the ROWS layout is kept
+    db = db_of(m, "starlight", 32)  # 41 px spacing, 64 px of art: three across fit, four do not
+    assert counts(db) == [3, 3, 3, 3]
+    assert sp.RadiusFor(sp.Layout(12, False, db), db) == pytest.approx(float(sp.SpacingFor(db)))  # never squeezed
+    db = db_of(m, "crackle", 32)
+    assert max(counts(db)) <= 2
 
 
 def test_the_cluster_unit_is_the_visible_diameter(env):
@@ -1026,26 +1027,37 @@ def test_the_cluster_unit_is_the_visible_diameter(env):
     assert sp.RadiusFor(sp.Pattern(6, True), db, True) == pytest.approx(float(sp.VisibleFor(db)))
 
 
-def test_the_rested_scale_counts_in_the_fit(env):
+def test_the_cluster_shrinks_to_fit_the_width(env):
+    m = build(env)
+    sp = m.ns.ShapePreview
+    db = db_of(m, "starlight", 32)
+    points = sp.Pattern(12, True)
+    reach = max(abs(float(points[i][1])) for i in range(1, 13))
+    assert sp.RadiusFor(points, db, True) == pytest.approx((92 - 32) / reach)
+    assert sp.RadiusFor(points, db, True) < float(sp.VisibleFor(db, True)) * 1.3
+
+
+def test_the_rested_scale_counts_in_the_window_height(env):
     m = build(env)
     sp = m.ns.ShapePreview
     twelve = sp.Pattern(12)
-    plain = sp.RadiusFor(twelve, db_of(m, "starlight", 20, rested=False))
-    rested = sp.RadiusFor(twelve, db_of(m, "starlight", 20, rested=True))
-    assert rested < plain
+    plain = sp.AreaHeightFor(twelve, db_of(m, "starlight", 20, rested=False))
+    rested = sp.AreaHeightFor(twelve, db_of(m, "starlight", 20, rested=True))
+    assert rested > plain
 
 
-def test_retro_stays_on_whole_cells_and_squeezes_to_the_floor(env):
+def test_retro_stays_on_whole_cells_and_never_under_nine(env):
     m = build(env)
     sp = m.ns.ShapePreview
     for size in (1, 2, 3, 7):
         db = db_of(m, "retro", size)
         for n in (5, 7, 12):
             assert float(sp.RadiusFor(sp.Pattern(n), db)) % size == 0
+            assert float(sp.RadiusFor(sp.Pattern(n), db)) >= 9 * size
     db = db_of(m, "retro", 2)  # fits: 10 cells wanted
     assert sp.RadiusFor(sp.Pattern(6), db) == 20
-    db = db_of(m, "retro", 7)  # 70 px wanted: cannot fit, so it squeezes to the floor and is clipped
-    assert sp.RadiusFor(sp.Pattern(5), db) == round(0.75 * 70 / 7) * 7
+    db = db_of(m, "retro", 7)  # 10 cells wanted at least; it is never squeezed (the layout has fewer per row instead)
+    assert sp.RadiusFor(sp.Pattern(5), db) >= 70
 
 
 def test_unused_textures_are_hidden(env):
@@ -1606,7 +1618,7 @@ def test_the_cluster_tickbox_is_saved_and_changes_the_preview(env):
     assert m.db.previewCluster is False and not check.checked
     assert (check.width, check.height) == (20, 20)
     pt = check.points[1]
-    assert (pt[1], pt[3]) == ("BOTTOMRIGHT", "BOTTOMRIGHT") and pt[4] <= 0 and pt[5] >= 0
+    assert (pt[1], pt[3]) == ("TOPRIGHT", "TOPRIGHT") and pt[4] <= 0 and pt[5] <= 0
     first = sp.box.pattern
     m.stub.click(check)
     assert m.db.previewCluster is True

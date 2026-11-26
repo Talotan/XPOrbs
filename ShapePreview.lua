@@ -2,7 +2,8 @@
 local ADDON, ns = ...
 
 -- Orb preview window: a framed window like the "Test target" one (Preview.lua), docked to the right of the settings
--- panel with the test target window hung under it. It shows a cluster of stationary orbs of the current shape: the
+-- panel with the test target window hung under it (anchored to its bottom edge, so it follows when the window grows).
+-- A header row holds the "Preview" title (top left) and the Cluster tickbox (top right). It shows a cluster of stationary orbs of the current shape: the
 -- count follows Quantity (n = round(6 * density / 100), 2..12; 6 at the default 100%) in a fixed pattern (pair,
 -- triangle, 2 x 2, pentagon, honeycomb rows), the last 2/5 of them rested when Rested tint is on. The orbs are spaced
 -- so their visible discs just do not touch; the "Cluster" tickbox (db.previewCluster) packs them into an overlapping
@@ -10,7 +11,8 @@ local ADDON, ns = ...
 -- (Starlight's spinning sparkle, Retro's blinking twinkle on its grid,
 -- Bubble's breathing and glint, Crackle's bolt swaps), no trail. It is drawn by the same shape code as real orbs (the
 -- shape's setup and draw with the orb area as the frame), from 36 textures of its own, and follows the shape, size,
--- quantity, blend, opacity, pulsing and colour settings as they change. The spacing scales with the orb's size.
+-- quantity, blend, opacity, pulsing and colour settings as they change. The spacing scales with the orb's size, and
+-- the window grows taller (never wider) so the orbs get the spacing they want and nothing is clipped (AreaHeightFor).
 --
 -- The window is built on first need and shown and hidden with the options panel (Options.lua calls Sync(true) from the
 -- panel's OnShow, Sync() after every change and Sync(false) from OnHide); its OnUpdate runs only while it is up. Every
@@ -21,11 +23,11 @@ local ADDON, ns = ...
 local ShapePreview = {}
 ns.ShapePreview = ShapePreview
 
-local WINDOW_W, WINDOW_H = 200, 120 -- px; the width matches the test target window
+local WINDOW_W, WINDOW_H = 200, 120 -- px; the width matches the test target window, the height is the least
 local CLUSTER_TIP = "Pile the orbs up, overlapping, as they look right after a kill."
 local CHECK = 20 -- px: the Cluster tickbox
-local PAD, TITLE_H = 8, 28 -- px: the window's side/bottom padding and the room for the title above the orb area
-local AREA_W, AREA_H = WINDOW_W - 2 * PAD, WINDOW_H - TITLE_H - PAD
+local PAD, TITLE_H = 8, 28 -- px: the window's side/bottom padding and the header row (title, Cluster) above the area
+local AREA_W, AREA_H = WINDOW_W - 2 * PAD, WINDOW_H - TITLE_H - PAD -- the area's width, and its least height
 local MIN_ORBS, MAX_ORBS, SLOTS = 2, 12, 36 -- 12 orbs x 3 textures
 -- The visible disc's diameter per px of orb size, per shape: the drawn quad times the share of it that is seen (about
 -- 0.6 of Starlight's 2 x quad once the glow is discounted, the Bubble body's plateau is 0.72 of its 1.5 x quad,
@@ -34,7 +36,11 @@ local VISIBLE = { starlight = 1.15, bubble = 1.08, crackle = 1.35 } -- (Crackle:
 local CLUSTER_VISIBLE = { crackle = 1.15 } -- the unit of the pile where it differs from VISIBLE
 local GAP_K, GAP_MIN = 0.12, 3 -- the gap between neighbouring discs: this share of the diameter, at least this many px
 local RETRO_GAP = 2 -- cells between neighbouring Retro discs (the grid snap eats up to one)
-local FLOOR = 0.75 -- the spacing is squeezed to this fraction at most to fit the area, then the area clips
+-- How far an orb's drawn art reaches from its centre, per px of OrbSize (the faint underlay is not counted): Starlight's
+-- body quad, Bubble's body at the top of its breath, Crackle's bolt layer. Retro's is 5 cells (the underlay) plus the
+-- half cell its grid snap can move it.
+local HALF = { starlight = 1.0, bubble = 0.8, crackle = 1.3 }
+local RETRO_HALF_CELLS, RETRO_MIN_CELLS = 5.5, 9 -- drawn Retro centres stay at least the disc (8) plus one cell apart
 local ROW_H = math.sqrt(3) / 2 -- honeycomb row height, in neighbour distances
 local ROWS = { [6] = { 3, 3 }, [7] = { 2, 3, 2 }, [8] = { 3, 2, 3 }, [9] = { 3, 3, 3 }, [10] = { 3, 4, 3 },
     [11] = { 4, 3, 4 }, [12] = { 4, 4, 4 } }
@@ -53,7 +59,8 @@ local TWO_PI = math.pi * 2
 local random = math.random
 
 ShapePreview.WINDOW_W, ShapePreview.WINDOW_H = WINDOW_W, WINDOW_H
-ShapePreview.VISIBLE, ShapePreview.FLOOR = VISIBLE, FLOOR
+ShapePreview.VISIBLE, ShapePreview.HALF = VISIBLE, HALF
+ShapePreview.TITLE_H, ShapePreview.PAD, ShapePreview.AREA_W = TITLE_H, PAD, AREA_W
 ShapePreview.CLUSTER_SCALE = CLUSTER_SCALE
 
 local window, box -- the window, and the orb area inside it (box.tex holds the 36 textures, box.st the per-orb state)
@@ -207,28 +214,143 @@ local function spacingFor(db)
 end
 ShapePreview.SpacingFor = spacingFor
 
--- The unit in px for a layout: the wanted one (spacingFor, or for the cluster the visible diameter), fitted to the
--- area in x and y separately (an orb's half-extent is its OrbSize, times the rested scale when Rested tint is on),
--- squeezed to FLOOR at most (what is left is cropped by the area's clipping), and for Retro kept on whole cells.
-local function radiusFor(points, db, cluster)
-    local want = cluster and visibleFor(db, true) * (CLUSTER_SCALE[db.orbShape] or 1) or spacingFor(db)
-    local size = ns.OrbSize(db)
-    if db.restedTint then
-        size = size * ns.OrbShapes.k.restedSize
+-- An orb's half-extent in px (the biggest one: rested orbs are bigger when Rested tint is on; Retro's are not).
+local function halfFor(db)
+    if db.orbShape == "retro" then
+        return RETRO_HALF_CELLS * db.size
     end
+    local half = (HALF[db.orbShape] or HALF.starlight) * ns.OrbSize(db)
+    return db.restedTint and half * ns.OrbShapes.k.restedSize or half
+end
+
+local function reachOf(points)
     local reachX, reachY = 1e-9, 1e-9
     for _, p in ipairs(points) do
         reachX, reachY = math.max(reachX, math.abs(p[1])), math.max(reachY, math.abs(p[2]))
     end
-    local fit = math.min((AREA_W / 2 - size) / reachX, (AREA_H / 2 - size) / reachY)
-    local radius = math.max(FLOOR * want, math.min(want, fit))
-    if db.orbShape == "retro" then
-        local cells = radius / db.size
-        radius = (radius >= want and math.ceil(cells - 1e-6) or round(cells)) * db.size
+    return reachX, reachY
+end
+
+-- Retro's tidy unit in whole cells: the wanted one or the next that keeps every pair of drawn centres, after the
+-- draw's whole-cell snap, at least RETRO_MIN_CELLS apart.
+local function retroCells(points, db)
+    local first = math.ceil(spacingFor(db) / db.size - 1e-6)
+    for cells = first, first + 40 do
+        local xs, ys, ok = {}, {}, true
+        for i, p in ipairs(points) do
+            xs[i], ys[i] = math.floor(p[1] * cells + 0.5), math.floor(p[2] * cells + 0.5)
+        end
+        for i = 1, #points - 1 do
+            for j = i + 1, #points do
+                local dx, dy = xs[i] - xs[j], ys[i] - ys[j]
+                if dx * dx + dy * dy < RETRO_MIN_CELLS ^ 2 then
+                    ok = false
+                end
+            end
+        end
+        if ok then
+            return cells
+        end
     end
-    return math.max(radius, 0)
+    return first + 40
+end
+
+-- The wanted unit in px for a layout: spacingFor (Retro: whole cells, see retroCells), or for the cluster the visible
+-- diameter.
+local function wantFor(points, db, cluster)
+    if cluster then
+        return visibleFor(db, true) * (CLUSTER_SCALE[db.orbShape] or 1)
+    elseif db.orbShape == "retro" then
+        return retroCells(points, db) * db.size
+    end
+    return spacingFor(db)
+end
+
+-- The unit in px for a layout. Tidy: the wanted one (Pattern / Layout choose rows that fit the width). Cluster: the
+-- wanted one, shrunk to fit the width if the pile is too wide (Retro on whole cells).
+local function radiusFor(points, db, cluster)
+    local want = wantFor(points, db, cluster)
+    if not cluster then
+        return want
+    end
+    local fit = (AREA_W / 2 - halfFor(db)) / (reachOf(points))
+    local radius = math.max(0, math.min(want, fit))
+    if db.orbShape == "retro" and radius < want then
+        radius = math.floor(radius / db.size + 1e-6) * db.size
+    end
+    return radius
 end
 ShapePreview.RadiusFor = radiusFor -- (exposed for tests)
+
+-- The orb area's height in px: tall enough for the layout at its unit plus the orbs' half-extent at the top and
+-- bottom, at least AREA_H.
+local function areaHeightFor(points, db, cluster)
+    local _, reachY = reachOf(points)
+    return math.max(AREA_H, math.ceil(2 * (reachY * radiusFor(points, db, cluster) + halfFor(db))))
+end
+ShapePreview.AreaHeightFor = areaHeightFor
+
+-- The window's height in px for a layout: the header row, the orb area and the bottom padding.
+local function heightFor(points, db, cluster)
+    return TITLE_H + areaHeightFor(points, db, cluster) + PAD
+end
+ShapePreview.HeightFor = heightFor
+
+-- n orbs in rows of at most k, honeycomb-interlocked like the ROWS layouts, top row first, centred, in unit offsets.
+-- Alternating k and k-1 when that tiles n exactly, else balanced rows (the extra orbs on the top rows). Adjacent rows
+-- are offset by half a unit sideways (one is shifted when both rows' counts have the same parity).
+local function rowsLayout(n, k)
+    local rows = math.ceil(n / k)
+    local counts = {}
+    if k >= 2 and rows >= 2 and n == math.ceil(rows / 2) * k + math.floor(rows / 2) * (k - 1) then
+        for r = 1, rows do
+            counts[r] = r % 2 == 1 and k or k - 1
+        end
+    else
+        for r = 1, rows do
+            counts[r] = math.floor(n / rows) + (r <= n % rows and 1 or 0)
+        end
+    end
+    local points, shift, low, high = {}, 0, math.huge, -math.huge
+    for r, count in ipairs(counts) do
+        if r > 1 and counts[r - 1] % 2 == count % 2 then
+            shift = shift <= 0 and shift + 0.5 or shift - 0.5
+        end
+        for c = 1, count do
+            local x = c - (count + 1) / 2 + shift
+            points[#points + 1] = { x, ((rows + 1) / 2 - r) * ROW_H }
+            low, high = math.min(low, x), math.max(high, x)
+        end
+    end
+    for _, p in ipairs(points) do
+        p[1] = p[1] - (low + high) / 2
+    end
+    return points
+end
+
+-- The layout for n orbs of the current look as offsets (see Pattern). The tidy one is Pattern's, kept whenever its
+-- width fits the area at the wanted unit; otherwise rows of fewer orbs (rowsLayout), as many as fit, so the window
+-- grows taller instead. The cluster squeezes its unit instead (radiusFor).
+function ShapePreview.Layout(n, cluster, db)
+    local points = ShapePreview.Pattern(n, cluster)
+    if cluster then
+        return points
+    end
+    local half = halfFor(db)
+    local function fits(pts)
+        return 2 * reachOf(pts) * wantFor(pts, db) + 2 * half <= AREA_W + 1e-6
+    end
+    if fits(points) then
+        return points
+    end
+    for k = math.max(1, math.min(n, math.floor((AREA_W - 2 * half) / spacingFor(db)) + 1)), 1, -1 do
+        points = rowsLayout(n, k)
+        if fits(points) then
+            break
+        end
+    end
+    return points
+end
 
 -- ---------------------------------------------------------------- Starlight's drawing
 
@@ -281,7 +403,7 @@ local function build()
     frame:EnableMouse(true)
     ns.Preview.AddBackground(frame)
     local title = frame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-    title:SetPoint("TOP", frame, "TOP", 0, -10)
+    title:SetPoint("TOPLEFT", frame, "TOPLEFT", PAD, -10)
     title:SetText("Preview")
     frame.title = title
     box = CreateFrame("Frame", nil, frame)
@@ -296,10 +418,10 @@ local function build()
         tex.xoShown = false
         box.tex[i] = tex
     end
-    -- the Cluster tickbox in the bottom right corner (small, its label to its left)
+    -- the Cluster tickbox in the top right corner, on the title's row (small, its label to its left)
     local check = CreateFrame("CheckButton", nil, frame, "UICheckButtonTemplate")
     check:SetSize(CHECK, CHECK)
-    check:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -4, 3)
+    check:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -4, -4)
     local text = frame:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
     text:SetPoint("RIGHT", check, "LEFT", 0, 1)
     text:SetText("Cluster")
@@ -366,7 +488,8 @@ local function configure(db, red, green, blue)
             box.st[i] = nil
         end
     end
-    box.pattern, box.rested, box.cluster = ShapePreview.Pattern(n, cluster), rested, cluster
+    box.pattern, box.rested, box.cluster = ShapePreview.Layout(n, cluster, db), rested, cluster
+    window:SetSize(WINDOW_W, heightFor(box.pattern, db, cluster)) -- grows to fit (the test target hangs under it)
 end
 
 local function draw(db)
