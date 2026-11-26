@@ -447,12 +447,12 @@ def test_burst_upvalue_count_has_not_grown(env):
 def test_default_is_smooth(env):
     assert load_db(env, {}).flightPath == "smooth"
     for good in KINDS:
-        assert load_db(env, {"version": 7, "flightPath": good}).flightPath == good
+        assert load_db(env, {"version": 6, "flightPath": good}).flightPath == good
 
 
 @pytest.mark.parametrize("bad", ["bogus", "Chaos", 5, True, ""])
 def test_junk_flight_path_resets_to_the_default(env, bad):
-    assert load_db(env, {"version": 7, "flightPath": bad}).flightPath == "smooth"
+    assert load_db(env, {"version": 6, "flightPath": bad}).flightPath == "smooth"
 
 
 def test_path_command(env):

@@ -159,7 +159,7 @@ def test_crackle_speed_loads_snapped_and_defaults_when_missing(env):
     db = load_db(
         env,
         {
-            "version": 7,
+            "version": 6,
             "orbShape": "crackle",
             "shapeLook": {"crackle": {"crackleSpeed": 133}},
         },
@@ -169,7 +169,7 @@ def test_crackle_speed_loads_snapped_and_defaults_when_missing(env):
     db = load_db(
         env,
         {
-            "version": 7,
+            "version": 6,
             "orbShape": "crackle",
             "shapeLook": {"crackle": {"crackleSpeed": 9000}},
         },
@@ -177,10 +177,10 @@ def test_crackle_speed_loads_snapped_and_defaults_when_missing(env):
     assert db.crackleSpeed == 200
     db = load_db(
         env,
-        {"version": 7, "orbShape": "crackle", "shapeLook": {"crackle": {"size": 20}}},
+        {"version": 6, "orbShape": "crackle", "shapeLook": {"crackle": {"size": 20}}},
     )
     assert db.crackleSpeed == 100 and db.shapeLook.crackle.size == 20
-    db = load_db(env, {"version": 7})  # an old save without the key at all
+    db = load_db(env, {"version": 6})  # an old save without the key at all
     assert db.crackleSpeed == 100 and all(
         db.shapeLook[s].crackleSpeed == 100 for s in PICK
     )
@@ -224,11 +224,11 @@ def test_trail_opacity_sits_under_trail_with_defaults(m):
 
 
 def test_trail_opacity_snaps_on_load(env):
-    assert load_db(env, {"version": 7, "trailOpacity": 77}).trailOpacity == 75
-    assert load_db(env, {"version": 7, "trailOpacity": 500}).trailOpacity == 100
-    assert load_db(env, {"version": 7, "trailOpacity": -9}).trailOpacity == 0
-    assert load_db(env, {"version": 7, "trailOpacity": "x"}).trailOpacity == 100
-    assert load_db(env, {"version": 7}).trailOpacity == 100  # a save without the key
+    assert load_db(env, {"version": 6, "trailOpacity": 77}).trailOpacity == 75
+    assert load_db(env, {"version": 6, "trailOpacity": 500}).trailOpacity == 100
+    assert load_db(env, {"version": 6, "trailOpacity": -9}).trailOpacity == 0
+    assert load_db(env, {"version": 6, "trailOpacity": "x"}).trailOpacity == 100
+    assert load_db(env, {"version": 6}).trailOpacity == 100  # a save without the key
 
 
 def test_trail_opacity_dims_with_the_trail_tickbox(m):

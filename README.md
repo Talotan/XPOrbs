@@ -65,7 +65,7 @@ back with `/xporbs minimap on` or the "Show minimap button" option).
 | `/xporbs perf [reset]` | Print the addon's memory use, the average and worst time of an orb frame, and how much of the orb pool is in use. `reset` zeroes the frame timings. |
 | `/xporbs style popstream [nameplate\|direct]` | Set the kill style to Popstream, optionally with its pop on the nameplate or direct. With no argument, print the current style. |
 | `/xporbs style crossfade\|stream` | Set the kill style to Crossfade or Direct Stream (`stream`). The older names still work: `streampop` is Popstream (Direct), and `wide` is Popstream (Nameplate) with zoom-scaled spread on. |
-| `/xporbs shape starlight\|bubble\|retro\|crackle` | Set the orb shape: `starlight` (the default), `bubble`, `retro` or `crackle` (the first names `wisp` and `power` still work). Size, quantity multiplier and opacity are remembered per shape. With no argument, print the current shape. |
+| `/xporbs shape starlight\|bubble\|retro\|crackle` | Set the orb shape: `starlight` (the default), `bubble`, `retro` or `crackle`. Size, quantity multiplier and opacity are remembered per shape. With no argument, print the current shape. |
 | `/xporbs pulse on\|off` | Turn Bubble's gentle swelling and shrinking on or off (off by default). |
 | `/xporbs path smooth\|chaos\|helix` | Set the flight pathing (how orbs fly): `smooth` (the default), `chaos` or `helix`. With no argument, print the current pathing. |
 | `/xporbs wide on\|off` | Turn the zoom-scaled spread on or off (on by default). |
@@ -78,7 +78,7 @@ back with `/xporbs minimap on` or the "Show minimap button" option).
 | `/xporbs zoomanchor on\|off` | Turn the zoom-aware anchor on or off (on by default): plate effects sit on the mob's body, using the camera zoom to work out how far below the nameplate that is. |
 | `/xporbs calib [off\|reset\|fit\|save]` | Open the anchor calibration panel: target a mob, nudge the marker onto its body, save a point, and repeat at a few zooms. `reset` restores the default curve. |
 | `/xporbs minimap on\|off` | Show or hide the minimap button. |
-| `/xporbs sound on\|off\|glass\|coin\|swish\|pixel` | Turn the arrival chime on or off (on by default), or pick its sound: `glass`, `coin`, `swish` or `pixel` (any also turns it on; the older names `glassa`, `glassb`, `brush` and `ding` still work). With no argument it shows the current state and volume. |
+| `/xporbs sound on\|off\|glass\|coin\|swish\|pixel` | Turn the arrival chime on or off (on by default), or pick its sound: `glass`, `coin`, `swish` or `pixel` (any also turns it on). With no argument it shows the current state and volume. |
 | `/xporbs sound volume N` | Set the chime volume in percent, 100 to 250 in steps of 25 (default 100); plays a sample if the chime is on. |
 | `/xporbs debug on\|off` | Turn the debug log on or off. |
 | `/xporbs debug maxlevel on\|off` | Pretend to be at max level until you reload, to try the max-level orbs below the cap. Never saved. |

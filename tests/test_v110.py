@@ -763,7 +763,7 @@ def test_a_fresh_install_has_the_chime_on(env):
 
 def test_a_saved_chime_off_stays_off(env):
     # 1.3.0 saved the chime choice explicitly: turning the default on must not switch it back on
-    env.G.XPOrbsDB = env.lua.table_from({"version": 7, "sound": False})
+    env.G.XPOrbsDB = env.lua.table_from({"version": 6, "sound": False})
     env.load_addon()
     env.ns.fire("ADDON_LOADED", "XPOrbs")
     assert env.G.XPOrbsDB.sound is False
@@ -1269,17 +1269,9 @@ def test_sanitize_accepts_every_voice(env, voice):
     assert junk_db(env, soundVoice=voice).soundVoice == voice
 
 
-@pytest.mark.parametrize("bad", ["Ding", "bell", "", 7, False, "coin2", "Glass"])
+@pytest.mark.parametrize("bad", ["Ding", "bell", "", 7, False, "coin2", "Glass", "glassa", "glassb", "brush", "ding"])
 def test_sanitize_maps_unknown_voices_to_glass(env, bad):
     assert junk_db(env, soundVoice=bad).soundVoice == "glass"
-
-
-@pytest.mark.parametrize(
-    "old,new",
-    [("glassa", "glass"), ("glassb", "coin"), ("brush", "swish"), ("ding", "pixel")],
-)
-def test_sanitize_maps_the_older_voice_names(env, old, new):
-    assert junk_db(env, soundVoice=old).soundVoice == new
 
 
 def test_a_saved_coin_stays_coin(env):
@@ -1302,14 +1294,10 @@ def test_no_leftover_old_voice_files_and_exactly_the_four_voices_ship():
 @pytest.mark.parametrize(
     "word,voice",
     [
-        ("glassa", "glass"),
         ("glass", "glass"),
-        ("glassb", "coin"),
         ("coin", "coin"),
         ("swish", "swish"),
         ("pixel", "pixel"),
-        ("brush", "swish"),
-        ("ding", "pixel"),
     ],
 )
 def test_slash_sound_picks_each_voice(env, word, voice):
@@ -1318,6 +1306,15 @@ def test_slash_sound_picks_each_voice(env, word, voice):
     g.slash(f"sound {word}")
     assert g.db.sound is True and g.db.soundVoice == voice
     assert f"chime: on, {voice}" in last_chat(g)
+
+
+@pytest.mark.parametrize("word", ["glassa", "glassb", "brush", "ding"])
+def test_slash_sound_rejects_the_dropped_names(env, word):
+    g = make(env, probe=False)
+    g.db.sound = False
+    g.slash(f"sound {word}")
+    assert g.db.soundVoice == "glass" and g.db.sound is False
+    assert "sound: use on, off, glass, coin, swish, pixel or volume N" in last_chat(g)
 
 
 def test_slash_sound_rejects_junk_and_keeps_the_voice(env):

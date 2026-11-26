@@ -573,6 +573,8 @@ local function configure(db, red, green, blue)
         end
     end
     box.pattern, box.rested, box.cluster = pattern, rested, cluster
+    -- the unit in px, worked out once here: everything it reads is in signature(), so a change re-runs configure
+    box.unit = radiusFor(pattern, db, cluster)
     window:SetSize(WINDOW_W, heightFor(box.pattern, db, cluster)) -- grows to fit (the test target hangs under it)
 end
 
@@ -582,7 +584,7 @@ local function draw(db)
     local alpha = db.opacity / 100
     local restedSize = ns.OrbShapes.k.restedSize
     local base = ns.OrbSize(db)
-    local radius = radiusFor(box.pattern, db, box.cluster)
+    local radius = box.unit
     for i = 1, box.n do
         local first = (i - 1) * 3
         local size = base * (box.rested[i] and restedSize or 1)

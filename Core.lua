@@ -145,9 +145,12 @@ ns.PATH_ORDER = { "smooth", "chaos", "helix" }
 ns.PATH_LABEL = { smooth = "Smooth", chaos = "Chaos", helix = "Helix" } -- the valid db.flightPath values
 ns.SHAPE_ORDER = { "starlight", "bubble", "retro", "crackle" }
 ns.SHAPE_LABEL = { starlight = "Starlight", retro = "Retro", bubble = "Bubble", crackle = "Crackle" } -- valid orbShape
-ns.SHAPE_ALIAS = { power = "crackle", wisp = "bubble" } -- the first names of these shapes, still accepted
 -- what each shape remembers
 ns.SHAPE_LOOK_KEYS = { "size", "density", "opacity", "blend", "pulse", "sparkle", "crackleSpeed" }
+local LOOK_KEY = {}
+for _, key in ipairs(ns.SHAPE_LOOK_KEYS) do
+    LOOK_KEY[key] = true
+end
 local RETRO_SIZE_RANGE = { 1, 5, 1 } -- Retro's size is px per art pixel, not an orb size
 ns.RETRO_SIZE_RANGE = RETRO_SIZE_RANGE
 ns.RETRO_K = 24 / 14 -- Retro px per size unit: size 14 (Starlight's units) is a 24 px orb
@@ -169,12 +172,11 @@ function ns.ShapeRange(shape, key)
     return ns.ranges[key]
 end
 
--- The shape a name stands for (a current name or an old alias), or nil.
+-- The shape a name stands for, or nil when it is none.
 function ns.CanonShape(name)
     if type(name) ~= "string" then
         return nil
     end
-    name = ns.SHAPE_ALIAS[name] or name
     return ns.SHAPE_LABEL[name] and name or nil
 end
 
@@ -388,11 +390,13 @@ end
 local function sanitize(db)
     local defaults, Snap = ns.defaults, ns.OrbMath.Snap
     for key, range in pairs(ns.ranges) do
-        local value = Snap(db[key], range[1], range[2], range[3])
-        if value == nil then
-            value = defaults[key]
+        if not LOOK_KEY[key] then -- the look keys are set per shape below
+            local value = Snap(db[key], range[1], range[2], range[3])
+            if value == nil then
+                value = defaults[key]
+            end
+            db[key] = value
         end
-        db[key] = value
     end
     for _, key in ipairs(COLOURS) do
         local colour = db[key]
@@ -435,11 +439,11 @@ local function sanitize(db)
     if not ns.PATH_LABEL[db.flightPath] then
         db.flightPath = defaults.flightPath
     end
-    db.orbShape = ns.CanonShape(db.orbShape) or defaults.orbShape -- (maps the old names power and wisp)
+    db.orbShape = ns.CanonShape(db.orbShape) or defaults.orbShape
     -- every shape's remembered look: missing, partial or broken entries fall back to that shape's defaults, values
     -- are snapped to the slider ranges (per shape: Retro's size has its own); then the current shape's entry becomes
-    -- the active look. This must stay AFTER the first loop above, which snaps db.size with the plain 8-32 range:
-    -- loadLook overwrites that with the shape's own value (and sets db.blend / pulse / sparkle).
+    -- the active look. The first loop above skips these keys, so the active size, density, opacity and crackleSpeed
+    -- are only ever set here, from the sanitized entry (loadLook also sets db.blend / pulse / sparkle).
     if type(db.shapeLook) ~= "table" then
         db.shapeLook = {}
     end
@@ -467,10 +471,6 @@ local function sanitize(db)
     if db.glowShape ~= "bar" and db.glowShape ~= "vertical" and db.glowShape ~= "round" then
         db.glowShape = defaults.glowShape
     end
-    -- older voice names still load: glassa/glassb/brush/ding became glass/coin/swish/pixel (a saved "coin" is the
-    -- original coin, which is what coin has always meant to released versions)
-    local VOICE_ALIAS = { glassa = "glass", glassb = "coin", brush = "swish", ding = "pixel" }
-    db.soundVoice = VOICE_ALIAS[db.soundVoice] or db.soundVoice
     if db.soundVoice ~= "glass" and db.soundVoice ~= "coin"
         and db.soundVoice ~= "swish" and db.soundVoice ~= "pixel" then
         db.soundVoice = defaults.soundVoice
@@ -518,22 +518,15 @@ local function sanitize(db)
     end
 end
 
--- The look revision: 2 = per-shape look (size / density / opacity / blend / pulse / sparkle). A save without a
--- shapeLook is the released 1.3.0 (Starlight only, no orbShape): its size, density and opacity become Starlight's look
--- and every other shape starts from its defaults (a save that does name a shape gives its look to that one).
--- db.lookRev records that this ran, so it happens once. Runs before deepFill so a missing key isn't filled first.
-local LOOK_REV = 2
-
+-- A save without a shapeLook is the released 1.3.0 (Starlight only, no orbShape, no opacity): its size and density
+-- become Starlight's look and every other shape starts from its defaults. Runs before deepFill so a missing key isn't
+-- filled first; once shapeLook exists it never runs again. (A fresh install has no size or density either, which is
+-- harmless: sanitize fills the defaults.)
 local function migrateLook(db)
-    if type(db.lookRev) == "number" and db.lookRev >= LOOK_REV then
-        return
-    end
     if db.shapeLook == nil then
-        local shape = ns.CanonShape(db.orbShape) or "starlight" -- 1.3.0 saved no orbShape: Starlight only
-        db.orbShape = shape
-        db.shapeLook = { [shape] = { size = db.size, density = db.density, opacity = db.opacity } }
+        db.orbShape = "starlight"
+        db.shapeLook = { starlight = { size = db.size, density = db.density } }
     end
-    db.lookRev = LOOK_REV
 end
 
 -- A save that has a flight time but no flight speed gets the speed that flies the same typical way in that time
@@ -706,12 +699,11 @@ end
 
 -- /xporbs test, style, pop, pick, setup and options are defined by Orbs.lua, Target.lua, Setup.lua and Options.lua.
 
--- Restore every setting to its default. The schema version, the look revision, the debug flag and the log are kept.
+-- Restore every setting to its default. The schema version, the debug flag and the log are kept.
 function commands.reset()
     local db = ns.db
     for key in pairs(db) do
-        if key ~= "version" and key ~= "log" and key ~= "debug" and key ~= "minimap"
-            and key ~= "lookRev" then
+        if key ~= "version" and key ~= "log" and key ~= "debug" and key ~= "minimap" then
             db[key] = nil
         end
     end

@@ -267,17 +267,17 @@ def test_explore_bursts_defaults_on_and_junk_is_replaced(env):
 
 
 def test_junk_explore_bursts_becomes_the_default(env):
-    assert load_db(env, {"version": 7, "exploreBursts": "junk"}).exploreBursts is True
+    assert load_db(env, {"version": 6, "exploreBursts": "junk"}).exploreBursts is True
 
 
 @pytest.mark.parametrize("saved", [True, False])
 def test_old_save_copies_quest_bursts_into_explore_bursts(env, saved):
-    db = load_db(env, {"version": 7, "questBursts": saved})
+    db = load_db(env, {"version": 6, "questBursts": saved})
     assert db.exploreBursts is saved and db.questBursts is saved
 
 
 def test_a_saved_explore_bursts_wins_over_the_copy(env):
-    db = load_db(env, {"version": 7, "questBursts": False, "exploreBursts": True})
+    db = load_db(env, {"version": 6, "questBursts": False, "exploreBursts": True})
     assert db.exploreBursts is True and db.questBursts is False
 
 

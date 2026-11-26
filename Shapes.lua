@@ -155,10 +155,6 @@ local function styleBody(body, st, naturalPath, solidPath, red, green, blue, fil
     return sl
 end
 
-local function identity(n, nPurple, scale)
-    return n, nPurple, scale
-end
-
 -- The position of the trail point `gap` px behind the orb along its flight, plus that point's size and alpha
 -- multipliers; nil while the orb has not flown that far. A crossfade orb fading in has no path behind it yet: its
 -- trail sits along -u (towards where it implicitly came from).
@@ -198,7 +194,7 @@ end
 -- ---------------------------------------------------------------- Retro
 
 -- needTrail / needPlain: pool textures per orb; extra() says whether the orb takes one more (the shine overlay, Solid).
-local RETRO = { needTrail = 5, needPlain = 3, timeMul = 1, adjust = identity, solidLift = 0 }
+local RETRO = { needTrail = 5, needPlain = 3, solidLift = 0 }
 
 function RETRO.extra()
     return ns.db ~= nil and ns.db.blend == "solid"
@@ -237,7 +233,7 @@ end
 
 -- `shine`: the pooled overlay of a flying Solid orb, else nil (a group or the preview finds it on the body).
 function RETRO.setup(under, body, spark, st, red, green, blue, shine)
-    st.flightCell = retroCell(st.base or ns.db.size)
+    st.flightCell = retroCell(st.base or ns.OrbSize(ns.db))
     local sl = styleBody(body, st, RETRO_TEX, RETRO_SOLID_TEX, red, green, blue, setNearest, RETRO.solidLift)
     st.sr, st.sg, st.sb, st.cfg = red, green, blue, (st.cfg or 0) + 1
     if shine and st.solid then
@@ -334,7 +330,7 @@ end
 
 -- ---------------------------------------------------------------- Bubble
 
-local BUBBLE = { needTrail = 7, needPlain = 3, timeMul = 1, adjust = identity }
+local BUBBLE = { needTrail = 7, needPlain = 3 }
 
 function BUBBLE.setup(under, body, spark, st, red, green, blue)
     local sl = styleBody(body, st, BUBBLE_TEX, BUBBLE_SOLID_TEX, red, green, blue)
@@ -392,7 +388,7 @@ end
 
 -- ---------------------------------------------------------------- Crackle
 
-local CRACKLE = { needTrail = 6, needPlain = 3, timeMul = 1, adjust = identity }
+local CRACKLE = { needTrail = 6, needPlain = 3 }
 
 -- Gives the bolt layer a frame different from the last, turned at least 60 degrees, at a new brightness.
 local function nextBolt(st, spark, t)

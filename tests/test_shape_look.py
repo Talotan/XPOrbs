@@ -1,5 +1,5 @@
 """Per-shape look (size, quantity and opacity are remembered per orb shape), the opacity and pulsing settings, the shape
-renames and their old-name aliases, Retro's one cell size per burst and its stepped pops, the Retro filter line in the
+names, Retro's one cell size per burst and its stepped pops, the Retro filter line in the
 status, and the options preview box."""
 
 import math
@@ -33,20 +33,21 @@ def retro_cell(step, scale=1.0):
     return max(1, math.floor(step * scale + 0.5))
 
 
-# ---------------------------------------------------------------- the renames and their old names
+# ---------------------------------------------------------------- shape names
 
 
-@pytest.mark.parametrize("old, new", [("power", "crackle"), ("wisp", "bubble")])
-def test_a_saved_old_shape_name_is_mapped(env, old, new):
-    assert load_db(env, {"version": 7, "orbShape": old}).orbShape == new
+@pytest.mark.parametrize("name", ["power", "wisp", "globe", "Retro", "", 5, True])
+def test_unknown_saved_shape_names_become_starlight(env, name):
+    db = load_db(env, {"version": 6, "orbShape": name, "shapeLook": {}})
+    assert db.orbShape == "starlight"
 
 
-def test_the_slash_command_still_takes_the_old_names(env):
+@pytest.mark.parametrize("name", ["power", "wisp"])
+def test_the_slash_command_rejects_unknown_names(env, name):
     m = build(env)
-    m.slash("shape power")
-    assert m.db.orbShape == "crackle" and m.say()[-1].endswith("orb shape: Crackle")
-    m.slash("shape wisp")
-    assert m.db.orbShape == "bubble" and m.say()[-1].endswith("orb shape: Bubble")
+    m.slash(f"shape {name}")
+    assert m.db.orbShape == "starlight"
+    assert m.say()[-1].endswith("shape: use starlight, bubble, retro or crackle")
 
 
 def test_the_labels_and_order(env):
@@ -64,6 +65,7 @@ def test_the_labels_and_order(env):
         "Crackle",
     ]
     assert m.ns.SHAPE_LABEL["power"] is None and m.ns.SHAPE_LABEL["wisp"] is None
+    assert m.ns.SHAPE_ALIAS is None
 
 
 def test_no_stale_texture_files_remain():
@@ -87,40 +89,37 @@ def test_every_shape_starts_with_its_own_defaults(env):
     )
 
 
-def test_a_save_without_shapelook_keeps_its_size_and_density_for_the_current_shape(env):
-    db = load_db(env, {"version": 7, "orbShape": "crackle", "size": 20, "density": 200})
-    assert look_of(db, "crackle") == (20, 200, 100)
-    assert [look_of(db, s) for s in ("starlight", "bubble", "retro")] == [
-        DEFAULT_LOOK[s] for s in ("starlight", "bubble", "retro")
+def test_a_save_without_shapelook_gives_its_size_and_density_to_starlight(env):
+    # whatever orbShape it names: a save without shapeLook is a 1.3.0 save, which only had Starlight
+    db = load_db(env, {"version": 6, "orbShape": "crackle", "size": 20, "density": 200})
+    assert db.orbShape == "starlight"
+    assert look_of(db, "starlight") == (20, 200, 100)
+    assert [look_of(db, s) for s in ("crackle", "bubble", "retro")] == [
+        DEFAULT_LOOK[s] for s in ("crackle", "bubble", "retro")
     ]
     assert active(db) == (20, 200, 100)
 
 
-def test_the_migration_defaults_to_starlight_and_maps_old_names(env):
-    db = load_db(env, {"version": 7, "size": 20, "density": 150})
+def test_the_migration_defaults_to_starlight(env):
+    db = load_db(env, {"version": 6, "size": 20, "density": 150})
     assert (
         look_of(db, "starlight") == (20, 150, 100)
         and look_of(db, "retro") == DEFAULT_LOOK["retro"]
     )
-    env2_db = load_db(env, {"version": 7, "orbShape": "wisp", "size": 9})
-    assert env2_db.orbShape == "bubble" and look_of(env2_db, "bubble") == (9, 100, 100)
 
 
 def test_the_migration_clamps_what_it_copies(env):
-    db = load_db(
-        env, {"version": 7, "orbShape": "crackle", "size": 500, "density": "junk"}
-    )
-    assert look_of(db, "crackle") == (32, 100, 100)
+    db = load_db(env, {"version": 6, "size": 500, "density": "junk"})
+    assert look_of(db, "starlight") == (32, 100, 100)
 
 
 def test_the_active_values_come_from_the_current_shapes_entry(env):
     db = load_db(
         env,
         {
-            "version": 7,
+            "version": 6,
             "orbShape": "retro",
             "size": 20,
-            "lookRev": 2,
             "shapeLook": {"retro": {"size": 5}},
         },
     )
@@ -135,7 +134,7 @@ def test_partial_and_junk_entries_are_repaired_and_clamped(env):
     db = load_db(
         env,
         {
-            "version": 7,
+            "version": 6,
             "orbShape": "bubble",
             "shapeLook": {
                 "bubble": {"size": 99, "density": "x"},
@@ -154,19 +153,19 @@ def test_partial_and_junk_entries_are_repaired_and_clamped(env):
 
 @pytest.mark.parametrize("junk", ["text", 5, True, [], {}])
 def test_a_junk_shapelook_gives_the_defaults(env, junk):
-    db = load_db(env, {"version": 7, "orbShape": "bubble", "shapeLook": junk})
+    db = load_db(env, {"version": 6, "orbShape": "bubble", "shapeLook": junk})
     for shape, look in DEFAULT_LOOK.items():
         assert look_of(db, shape) == look
     assert active(db) == DEFAULT_LOOK["bubble"]
 
 
 def test_no_schema_bump_for_the_look(env):
-    assert load_db(env, {"version": 7}).version == 7
+    assert load_db(env, {"version": 6}).version == 6
 
 
 @pytest.mark.parametrize("bad, expected", [(5, 20), (500, 100), (47, 45), ("x", 100)])
 def test_opacity_is_clamped_and_snapped(env, bad, expected):
-    db = load_db(env, {"version": 7, "shapeLook": {"starlight": {"opacity": bad}}})
+    db = load_db(env, {"version": 6, "shapeLook": {"starlight": {"opacity": bad}}})
     assert db.opacity == expected and look_of(db, "starlight")[2] == expected
 
 
@@ -187,15 +186,10 @@ def test_switching_stores_the_active_look_and_loads_the_new_shapes(env):
     assert active(db) == (5, 150, 60)
 
 
-def test_switching_rejects_unknown_names_and_takes_old_ones(env):
+def test_switching_rejects_unknown_names(env):
     g = make(env)
-    assert g.ns.SetOrbShape("bogus") is False and g.db.orbShape == "starlight"
-    assert g.ns.SetOrbShape("power") is True and g.db.orbShape == "crackle"
-    assert (
-        g.ns.SetOrbShape("wisp") is True
-        and g.db.orbShape == "bubble"
-        and g.db.size == 14
-    )
+    for name in ("bogus", "power", "wisp"):
+        assert g.ns.SetOrbShape(name) is False and g.db.orbShape == "starlight"
 
 
 def test_switching_to_the_same_shape_changes_nothing(env):
@@ -366,9 +360,9 @@ def test_status_shows_the_active_shapes_look(env):
     m.stub.chat = m.lua.table() if False else m.stub.chat
     m.slash("status")
     assert any(
-        "orb shape: Retro (size 2 px, quantity 100%, opacity 100%), pulsing off" in line
+        line.endswith("orb shape: Retro (size 2 px, quantity 100%, opacity 100%)")
         for line in m.say()
-    )
+    )  # pulsing is Bubble's own, so it is not mentioned for Retro
     m.slash("shape bubble")
     m.slash("pulse off")
     m.slash("status")
@@ -430,12 +424,12 @@ def test_pulse_defaults_off_and_is_a_boolean(env):
     # pulse is per shape now: a junk value in a shape's entry gets the default, a real boolean stays
     db = load_db(
         env,
-        {"lookRev": 2, "orbShape": "bubble", "shapeLook": {"bubble": {"pulse": "yes"}}},
+        {"orbShape": "bubble", "shapeLook": {"bubble": {"pulse": "yes"}}},
     )
     assert db.pulse is False and db.shapeLook.bubble.pulse is False
     db = load_db(
         env,
-        {"lookRev": 2, "orbShape": "bubble", "shapeLook": {"bubble": {"pulse": True}}},
+        {"orbShape": "bubble", "shapeLook": {"bubble": {"pulse": True}}},
     )
     assert db.pulse is True and db.shapeLook.bubble.pulse is True
 
@@ -624,11 +618,7 @@ def test_opacity_leaves_the_arrival_flash_alone(env):
 def test_crackle_has_no_count_size_or_time_multiplier(env):
     g = make(env)
     shape = g.ns.OrbShapes.by.crackle
-    assert shape.timeMul == 1 and tuple(shape.adjust(10, 4, 1.0)) == (
-        10,
-        4,
-        1.0,
-    )
+    assert shape.timeMul is None and shape.adjust is None
     assert shape.needTrail == 6 and shape.needPlain == 3
 
 
@@ -1546,7 +1536,6 @@ def test_sanitize_snaps_sizes_per_shape(env):
     db = load_db(
         env,
         {
-            "lookRev": 2,
             "shapeLook": {
                 "retro": {"size": 50},
                 "bubble": {"size": 3},
@@ -1559,26 +1548,25 @@ def test_sanitize_snaps_sizes_per_shape(env):
     assert db.shapeLook.bubble.size == 8
     assert db.shapeLook.starlight.size == 8
     assert db.shapeLook.crackle.size == 8
-    db = load_db(env, {"lookRev": 2, "shapeLook": {"retro": {"size": -4}}})
+    db = load_db(env, {"shapeLook": {"retro": {"size": -4}}})
     assert db.shapeLook.retro.size == 1
-    db = load_db(env, {"lookRev": 2, "shapeLook": {"retro": {"size": "x"}}})
+    db = load_db(env, {"shapeLook": {"retro": {"size": "x"}}})
     assert db.shapeLook.retro.size == 2
 
 
 def test_the_active_size_of_retro_is_not_snapped_to_the_global_range(env):
     db = load_db(
-        env, {"lookRev": 2, "orbShape": "retro", "shapeLook": {"retro": {"size": 3}}}
+        env, {"orbShape": "retro", "shapeLook": {"retro": {"size": 3}}}
     )
     assert db.size == 3 and db.shapeLook.retro.size == 3
 
 
 def test_a_saved_retro_size_above_five_clamps_to_five(env):
-    db = load_db(env, {"lookRev": 2, "shapeLook": {"retro": {"size": 7}}})
+    db = load_db(env, {"shapeLook": {"retro": {"size": 7}}})
     assert db.shapeLook.retro.size == 5
     db = load_db(
         env,
         {
-            "lookRev": 2,
             "orbShape": "retro",
             "size": 6,
             "shapeLook": {"retro": {"size": 6}},
@@ -1591,7 +1579,6 @@ def test_a_saved_density_above_300_clamps_to_300(env):
     db = load_db(
         env,
         {
-            "lookRev": 2,
             "density": 400,
             "shapeLook": {"retro": {"density": 400}, "bubble": {"density": 350}},
         },
@@ -1602,7 +1589,7 @@ def test_a_saved_density_above_300_clamps_to_300(env):
     assert db.shapeLook.retro.density == 300 and db.shapeLook.bubble.density == 300
     db = load_db(
         env,
-        {"lookRev": 2, "orbShape": "bubble", "shapeLook": {"bubble": {"density": 400}}},
+        {"orbShape": "bubble", "shapeLook": {"bubble": {"density": 400}}},
     )
     assert db.density == 300 and db.shapeLook.bubble.density == 300
 
@@ -1611,7 +1598,6 @@ def test_bad_blend_pulse_and_sparkle_fall_back_to_the_shape_default(env):
     db = load_db(
         env,
         {
-            "lookRev": 2,
             "orbShape": "retro",
             "shapeLook": {
                 "retro": {"blend": "glowy", "pulse": "no", "sparkle": 1},
@@ -1635,7 +1621,6 @@ def test_the_active_blend_pulse_and_sparkle_follow_the_current_shape(env):
     db = load_db(
         env,
         {
-            "lookRev": 2,
             "orbShape": "bubble",
             "pulse": True,
             "shapeLook": {
@@ -1691,16 +1676,15 @@ def test_look_values_survive_a_reload(env):
 def test_migration_keeps_values_that_are_already_valid(env):
     db = load_db(
         env,
-        {"version": 7, "shapeLook": {"retro": {"size": 5}, "bubble": {"size": 20}}},
+        {"version": 6, "shapeLook": {"retro": {"size": 5}, "bubble": {"size": 20}}},
     )
     assert db.shapeLook.retro.size == 5 and db.shapeLook.bubble.size == 20
-    assert db.lookRev == 2
 
 
 def test_a_130_save_becomes_starlights_look(env):
-    # what the released 1.3.0 saved: no shapeLook, no orbShape, no lookRev
-    db = load_db(env, {"version": 7, "size": 20, "density": 75, "sound": False})
-    assert db.orbShape == "starlight" and db.lookRev == 2
+    # what the released 1.3.0 saved: no shapeLook, no orbShape
+    db = load_db(env, {"version": 6, "size": 20, "density": 75, "sound": False})
+    assert db.orbShape == "starlight"
     assert look_of(db, "starlight") == (20, 75, 100)
     assert active(db) == (20, 75, 100)
     for shape in ("retro", "bubble", "crackle"):
@@ -1708,25 +1692,26 @@ def test_a_130_save_becomes_starlights_look(env):
     assert db.sound is False  # the stored chime choice survives the new default
 
 
-def test_a_fresh_save_gets_lookrev_and_the_defaults(env):
+def test_a_fresh_install_gets_the_defaults(env):
+    # no shapeLook, size or density: the migration copies nothing and sanitize fills the defaults
     db = load_db(env, {})
-    assert db.lookRev == 2
+    assert db.orbShape == "starlight" and "lookRev" not in db
+    assert active(db) == (14, 100, 100)
     for shape, look in DEFAULT_LOOK.items():
         assert look_of(db, shape) == look
 
 
 def test_the_migration_runs_once(env):
-    db = load_db(env, {"version": 7, "size": 20, "density": 75})
+    db = load_db(env, {"version": 6, "size": 20, "density": 75})
     assert look_of(db, "starlight") == (20, 75, 100)
     db.shapeLook.starlight.size = 9  # the player changes it
     db = reload_db(env)
-    assert db.shapeLook.starlight.size == 9 and db.lookRev == 2
+    assert db.shapeLook.starlight.size == 9 and active(db)[0] == 9
 
 
-def test_reset_keeps_lookrev_so_the_migration_does_not_return(env):
+def test_reset_keeps_later_changes_across_a_reload(env):
     m = build(env)
     m.slash("reset")
-    assert m.db.lookRev == 2
     m.db.shapeLook.bubble.size = 17
     db = reload_db(env)
     assert db.shapeLook.bubble.size == 17

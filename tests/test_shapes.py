@@ -81,17 +81,17 @@ def test_default_is_starlight(env):
 
 @pytest.mark.parametrize("shape", SHAPES)
 def test_saved_shapes_survive(env, shape):
-    assert load_db(env, {"version": 7, "orbShape": shape}).orbShape == shape
+    assert load_db(env, {"version": 6, "orbShape": shape, "shapeLook": {}}).orbShape == shape
 
 
 @pytest.mark.parametrize("bad", ["junk", "", "Retro", "build", "by", 5, True, 0.5])
 def test_unknown_values_become_starlight(env, bad):
-    assert load_db(env, {"version": 7, "orbShape": bad}).orbShape == "starlight"
+    assert load_db(env, {"version": 6, "orbShape": bad, "shapeLook": {}}).orbShape == "starlight"
 
 
 def test_no_schema_bump(env):
-    db = load_db(env, {"version": 7})
-    assert db.version == 7 and db.orbShape == "starlight"
+    db = load_db(env, {"version": 6})
+    assert db.version == 6 and db.orbShape == "starlight"
 
 
 # ---------------------------------------------------------------- slash command
@@ -374,9 +374,7 @@ def test_bubble_has_no_count_size_or_time_multiplier(env):
     g.db.flightTime = 1.0
     saved = {k: g.db[k] for k in ("size", "density", "flightTime", "cap")}
     shape = g.ns.OrbShapes.by.bubble
-    assert shape.timeMul == 1
-    n, n_purple, scale = shape.adjust(10, 4, 1.0)
-    assert (n, n_purple, scale) == (10, 4, 1.0)
+    assert shape.timeMul is None and shape.adjust is None
     fire(g, "stream", n=10, nPurple=4)
     recs = flying(g)
     assert len(recs) == 10 and sum(1 for o in recs if o.rested) == 4

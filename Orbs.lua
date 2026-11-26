@@ -195,12 +195,11 @@ XF_PROFILE.sp = SP_PROFILE -- reached through XF_PROFILE from Burst, which canno
 -- by it, so every texture of every shape follows (a pop group has group.opacity). orb.trailK (db.trailOpacity / 100,
 -- also per burst) scales the alpha of every trail ghost, whatever the shape. orb.base is db.size x the burst's
 -- scale, before the rested multiplier: Retro's one cell size per burst comes from it.
--- A shape table has: needTrail / needPlain (pool textures per flying orb with / without the trail), adjust(n, nPurple,
--- scale) -> n, nPurple, scale (count and size multipliers), timeMul (flight time), build(orb, trail, red, green, blue)
--- (the textures of a flying orb), setup(under, body, spark, st, red, green, blue) (the 3 textures of a pop or copy-A
--- slot; also the first three of a flying orb), draw(st, t, rel, under, body, spark, x, y, size, alpha) (the 3 textures
--- of one orb, no trail; size is db.size scaled, never GLOW; grow, when given (a pop or bloom), is 0.4..1 of the flight
--- size, see SHAPES.grow) and optionally trail(...), see Shapes.lua. `st` is the
+-- A shape table has: needTrail / needPlain (pool textures per flying orb with / without the trail), build(orb, trail,
+-- red, green, blue) (the textures of a flying orb), setup(under, body, spark, st, red, green, blue) (the 3 textures
+-- of a pop or copy-A slot; also the first three of a flying orb), draw(st, t, rel, under, body, spark, x, y, size,
+-- alpha) (the 3 textures of one orb, no trail; size is db.size scaled, never GLOW; grow, when given (a pop or
+-- bloom), is 0.4..1 of the flight size, see SHAPES.grow) and optionally trail(...), see Shapes.lua. `st` is the
 -- table holding the orb's shape state: the orb record, or a per-slot table of a pop group.
 local SHAPES = { by = {}, host = {}, k = { glow = GLOW, ghostStep = GHOST_STEP, refSpeed = REF_SPEED,
     ghostGapK = 0.3, ghost1Alpha = GHOST1_ALPHA,
@@ -844,6 +843,24 @@ function releasePop(group)
     freePop[#freePop + 1] = group
 end
 
+-- The 3 textures of a Starlight slot (the shape-less default): the dim underlay, the orb and the sparkle.
+local function starlightSetup(underTex, orbTex, sparkleTex, red, green, blue)
+    underTex:SetTexture(ORB_TEX)
+    underTex:SetBlendMode("BLEND")
+    underTex:SetDrawLayer("ARTWORK", -1)
+    underTex:SetVertexColor(red * UNDER_K, green * UNDER_K, blue * UNDER_K)
+    orbTex:SetTexture(ORB_TEX)
+    orbTex:SetBlendMode("ADD")
+    orbTex:SetDrawLayer("ARTWORK", 0)
+    orbTex:SetVertexColor(red, green, blue)
+    sparkleTex:SetTexture(SPARKLE_TEX)
+    sparkleTex:SetBlendMode("ADD")
+    sparkleTex:SetDrawLayer("ARTWORK", 1)
+    sparkleTex:SetVertexColor(red + (1 - red) * SPARKLE_WHITE, green + (1 - green) * SPARKLE_WHITE,
+        blue + (1 - blue) * SPARKLE_WHITE)
+    sparkleTex.xoDirty = true -- it spins (SetRotation)
+end
+
 -- Fills group for orbCount orbs (rested: the first restedCount). Anchors group.frame to the plate with a single point.
 -- (ux, uy) is the exit vector the pop orbs launch along; spreadFactor scales the ring radius and drift (the
 -- zoom-scaled spread, 1 = fixed). Errors propagate (pcall'd).
@@ -876,20 +893,7 @@ local function setupPop(group, plate, orbCount, scale, restedCount, restedColour
             group.st[i].base = ns.OrbSize(config) * scale -- (Retro's one cell size per burst)
             shape.setup(underTex, orbTex, sparkleTex, group.st[i], red, green, blue)
         else
-            underTex:SetTexture(ORB_TEX)
-            underTex:SetBlendMode("BLEND")
-            underTex:SetDrawLayer("ARTWORK", -1)
-            underTex:SetVertexColor(red * UNDER_K, green * UNDER_K, blue * UNDER_K)
-            orbTex:SetTexture(ORB_TEX)
-            orbTex:SetBlendMode("ADD")
-            orbTex:SetDrawLayer("ARTWORK", 0)
-            orbTex:SetVertexColor(red, green, blue)
-            sparkleTex:SetTexture(SPARKLE_TEX)
-            sparkleTex:SetBlendMode("ADD")
-            sparkleTex:SetDrawLayer("ARTWORK", 1)
-            sparkleTex:SetVertexColor(red + (1 - red) * SPARKLE_WHITE, green + (1 - green) * SPARKLE_WHITE,
-                blue + (1 - blue) * SPARKLE_WHITE)
-            sparkleTex.xoDirty = true -- it spins (SetRotation)
+            starlightSetup(underTex, orbTex, sparkleTex, red, green, blue)
         end
         for j = 1, 3 do
             local texture = tex[slotBase + j]
@@ -1022,20 +1026,7 @@ local function crossfadeTextures(group, slotBase, red, green, blue, shape, orb)
     if shape then
         shape.setup(underTex, orbTex, sparkleTex, orb, red, green, blue) -- the orb record holds copy A's shape state
     else
-        underTex:SetTexture(ORB_TEX)
-        underTex:SetBlendMode("BLEND")
-        underTex:SetDrawLayer("ARTWORK", -1)
-        underTex:SetVertexColor(red * UNDER_K, green * UNDER_K, blue * UNDER_K)
-        orbTex:SetTexture(ORB_TEX)
-        orbTex:SetBlendMode("ADD")
-        orbTex:SetDrawLayer("ARTWORK", 0)
-        orbTex:SetVertexColor(red, green, blue)
-        sparkleTex:SetTexture(SPARKLE_TEX)
-        sparkleTex:SetBlendMode("ADD")
-        sparkleTex:SetDrawLayer("ARTWORK", 1)
-        sparkleTex:SetVertexColor(red + (1 - red) * SPARKLE_WHITE, green + (1 - green) * SPARKLE_WHITE,
-            blue + (1 - blue) * SPARKLE_WHITE)
-        sparkleTex.xoDirty = true
+        starlightSetup(underTex, orbTex, sparkleTex, red, green, blue)
     end
     for j = 1, 3 do
         local texture = tex[slotBase + j]
@@ -1472,16 +1463,12 @@ function Orbs:Burst(params)
         nPurple = 0
     end
     -- the orb shape is the same for the whole burst (changing the setting mid-flight never swaps art in the air); nil =
-    -- Starlight. A shape may scale the orb count, size and flight time (all multipliers on the player's own settings).
+    -- Starlight.
     local shape = XF_PROFILE.shapes.by[config.orbShape]
     local flightTime = config.flightTime
-    if shape then
-        n, nPurple, scale = shape.adjust(n, nPurple, scale)
-        flightTime = flightTime * shape.timeMul
-    end
-    -- speed mode: px per second for the whole burst (nil = fixed flight time); a shape's time multiplier slows it
+    -- speed mode: px per second for the whole burst (nil = fixed flight time)
     XF_PROFILE.flightSpeed = config.flightMode == "speed"
-        and XF_PROFILE.shapes.k.refSpeed * config.flightSpeed / 100 / (shape and shape.timeMul or 1) or nil
+        and XF_PROFILE.shapes.k.refSpeed * config.flightSpeed / 100 or nil
     local x, y = params.x, params.y
     local style = ns.RenderStyle(params.style or config.style, params.popMode or config.popMode)
     if params.kind == "other" then
@@ -2059,18 +2046,15 @@ function Orbs:PreviewSound(voice)
     end
 end
 
-local SOUND_ALIAS = { glassa = "glass", glassb = "coin", brush = "swish", ding = "pixel" } -- older voice names
 -- /xporbs sound on|off|glass|coin|swish|pixel|volume N: the arrival chime. Turning it on also clears a SOUND_ERR
--- shutdown, so it can be retried. A voice name picks the sound (and turns the chime on); the older names glassa,
--- glassb, brush and ding still work (as glass, coin, swish and pixel). volume N sets the volume in percent
--- (snapped to the options slider's steps) and plays a sample note if the chime is on.
+-- shutdown, so it can be retried. A voice name picks the sound (and turns the chime on). volume N sets the volume in
+-- percent (snapped to the options slider's steps) and plays a sample note if the chime is on.
 function ns.commands.sound(arg)
     local word, rest = string.match(arg or "", "^%s*(%S*)%s*(.-)%s*$")
-    local voice = SOUND_ALIAS[word] or word
-    if word == "on" or CHIME_PATHS[voice] then
+    if word == "on" or CHIME_PATHS[word] then
         settings().sound = true
         if word ~= "on" then
-            settings().soundVoice = voice
+            settings().soundVoice = word
         end
         soundDead = false
         refreshPanel()
@@ -2156,8 +2140,8 @@ function ns.commands.path(arg)
     ns.Print("flight pathing: " .. (ns.PATH_LABEL[settings().flightPath] or "Smooth"))
 end
 
--- /xporbs shape starlight|bubble|retro|crackle: how the orbs are drawn (db.orbShape; the old names power and wisp still
--- work). Size, quantity and opacity are remembered per shape (ns.SetOrbShape). No argument shows the current one.
+-- /xporbs shape starlight|bubble|retro|crackle: how the orbs are drawn (db.orbShape). Size, quantity and opacity are
+-- remembered per shape (ns.SetOrbShape). No argument shows the current one.
 function ns.commands.shape(arg)
     local word = string.match(arg or "", "^%s*(%S*)")
     if word ~= "" then
@@ -2261,7 +2245,10 @@ end)
 table.insert(ns.statusProviders, function()
     local config = settings()
     local size = config.orbShape == "retro" and (config.size .. " px") or tostring(config.size)
-    return string.format("orb shape: %s (size %s, quantity %d%%, opacity %d%%), pulsing %s",
-        ns.SHAPE_LABEL[config.orbShape] or ns.SHAPE_LABEL.starlight, size, config.density, config.opacity,
-        config.pulse and "on" or "off")
+    local line = string.format("orb shape: %s (size %s, quantity %d%%, opacity %d%%)",
+        ns.SHAPE_LABEL[config.orbShape] or ns.SHAPE_LABEL.starlight, size, config.density, config.opacity)
+    if config.orbShape == "bubble" then
+        line = line .. ", pulsing " .. (config.pulse and "on" or "off")
+    end
+    return line
 end)
