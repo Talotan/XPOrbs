@@ -34,23 +34,11 @@ local STYLE_DESC = {
     crossfade = "Pop on the nameplate (if shown); the orbs reappear just above the bar.",
     stream = "A plain stream from the estimated position. No pop, no nameplate needed.",
 }
-local STYLE_TIP = {
-    popstream = "Has a pop. Pick where it happens below.",
-    crossfade = "Has a pop. Nameplate: the pop and where the orbs vanish. Estimated position: the direction they "
-        .. "leave in. Without a nameplate it falls back to a plain stream.",
-    stream = "No pop. Nameplate: not used. Estimated position: where the stream starts.",
-}
 local POPMODES = { "nameplate", "direct" }
 local POPMODE_NAME = { nameplate = "Nameplate", direct = "Direct" }
 local POPMODE_DESC = {
     nameplate = "Pop on the nameplate (if shown), stream from the estimated position.",
     direct = "Pop and stream from the estimated position. No nameplate needed.",
-}
-local POPMODE_TIP = {
-    nameplate = "The pop is drawn on the mob's nameplate, so it sits exactly on the mob; the stream starts at the "
-        .. "estimated position. Without a nameplate: no pop, just the stream.",
-    direct = "The pop opens at the estimated position and flows straight into the stream, nearest to the bar first. "
-        .. "Never uses the nameplate, so it looks the same with nameplates off.",
 }
 local SPREAD_DESC = "Wider when zoomed in, tighter when zoomed out."
 local SPREAD_TIP = "Applies to all three styles: the nameplate pop, the pop or stream start at the estimated position. "
@@ -75,10 +63,10 @@ local FLIGHT_PATH_DESC = {
 local ORB_SHAPE_DESC = {
     starlight = "Soft glowing orbs with a spinning sparkle.",
     retro = "Chunky pixel-art orbs that move in blocky steps.",
-    globe = "Smooth glossy orbs with a long soft tail; they can gently pulse.",
+    bubble = "Smooth glossy orbs with a long soft tail; they can gently pulse.",
     crackle = "A bright core with lightning crackling round its edge.",
 }
-local PULSE_TIP = "Globe orbs gently swell and shrink."
+local PULSE_TIP = "Bubble orbs gently swell and shrink."
 local CAP_TIP = "Lowering the cap can improve performance on less powerful computers."
 local MAX_TIP = "At max level, each kill sends a small burst of orbs to your portrait."
 local SOUND_TIP = "Glass: a glassy tink. Coin: a soft coin clink. Swish: a soft brushed whoosh. "
@@ -1001,7 +989,7 @@ local SPEED_TYPE_DROPDOWN = {
     labels = { speed = "Constant speed", time = "Relative speed" },
     desc = {
         speed = "Orbs always move at the same speed, wherever they start.",
-        time = "Orbs change their speed so they always arrive after a set time.",
+        time = "Orbs from different locations move at different speeds so they always arrive after a set time.",
     },
     field = "speedTypeDropdown", radioX = { 0, 130 },
 }
@@ -1130,22 +1118,22 @@ local BOX_TOP_PAD, BOX_BOTTOM_PAD = 28, 8
 local BOX_H = BOX_TOP_PAD + 32 * 3 + 28 * 2 + BOX_BOTTOM_PAD -- (bottom pad 8: the option slot sits 2 px lower)
 local BOX_GAP = 10 -- under the box
 local GROUP_GAP = 8 -- between the global groups (flight / colours / cap)
-local BLEND_TIP = { -- the Outline option (db.blend)
+local BLEND_TIP = { -- the Outline Type option (db.blend)
     natural = "Soft glowing edge: orbs blend into each other, brightening where they overlap.",
     solid = "A dark outline round opaque orbs that stack in front of each other; colours stay true on bright ground.",
 }
 local BLEND_NAME = { natural = "Glow", solid = "Solid" }
 local STARLIGHT_NOTE = "No outline or extras: Starlight is always a soft glow with a spinning sparkle."
 local PIXEL_TIP = "The size of each art pixel."
--- Which shapes each option applies to (Core.lua: Starlight has no outline, only Retro sparkles, only Globe pulses,
+-- Which shapes each option applies to (Core.lua: Starlight has no outline, only Retro sparkles, only Bubble pulses,
 -- only Crackle has a speed)
 local OPTION_SHAPES = {
-    blend = { retro = true, globe = true, crackle = true },
+    blend = { retro = true, bubble = true, crackle = true },
     sparkle = { retro = true },
-    pulse = { globe = true },
+    pulse = { bubble = true },
     crackleSpeed = { crackle = true },
 }
-local OPTION_NAME = { blend = "Outline", sparkle = "Sparkle", pulse = "Pulsing", crackleSpeed = "Crackle speed" }
+local OPTION_NAME = { blend = "Outline Type", sparkle = "Sparkle", pulse = "Pulsing", crackleSpeed = "Crackle speed" }
 local CRACKLE_SPEED_TIP = "How fast the lightning round each orb changes. 200% is twice as fast."
 
 local function currentShape()
@@ -1200,7 +1188,7 @@ local function optionDescribe(keys)
     end
 end
 
--- Option row A: "Outline" with the Glow / Solid radios (Starlight: a grey note instead, centred across both rows).
+-- Option row A: "Outline Type" with the Glow / Solid radios (Starlight: a grey note instead, centred across both rows).
 local function blendRow(y)
     local row = newRow(y, 28)
     Options.rows.blend = row
@@ -1241,7 +1229,7 @@ local function blendRow(y)
     addReset(row, "blend", { "blend" }, optionDescribe({ "blend" }), optionResetSpec(), BOX_RESET_X)
 end
 
--- Option row B: the shape's extra, a standard checkbox row (Sparkle on Retro, Pulsing on Globe); Crackle's speed
+-- Option row B: the shape's extra, a standard checkbox row (Sparkle on Retro, Pulsing on Bubble); Crackle's speed
 -- slider sits in the same slot (see buildShapeBox); empty on Starlight.
 local function extraRow(y)
     local row = newRow(y, 28)
@@ -1467,7 +1455,6 @@ local function buildFlight(y)
         radio:SetScript("OnClick", function()
             radioClick("style", st)
         end)
-        tipOn(radio, STYLE_NAME[st], STYLE_TIP[st])
         radios[st] = radio
         Options.controls["style_" .. st] = radio
         Options.rows["style_" .. st] = row
@@ -1488,7 +1475,6 @@ local function buildFlight(y)
             settings().style = "popstream" -- a sub-choice only means something under Popstream
             radioClick("popMode", pm)
         end)
-        tipOn(radio, "Popstream (" .. ns.POPMODE_LABEL[pm] .. ")", POPMODE_TIP[pm])
         subs[pm] = radio
         Options.controls["popMode_" .. pm] = radio
         Options.rows["popMode_" .. pm] = row

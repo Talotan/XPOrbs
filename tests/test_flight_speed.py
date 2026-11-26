@@ -12,11 +12,11 @@ from test_p2_unknown import fire, live_recs
 from test_v013 import no_template
 from test_v09 import make
 
-REF = 1000.0  # OrbShapes.k.refSpeed
+REF = 1300.0  # OrbShapes.k.refSpeed
 GAP_K = 0.3  # OrbShapes.k.ghostGapK: ghost spacing in drawn diameters
 NEAR = (700, 300)
 FAR = (150, 1000)
-CORNER = (1450, 1050)  # the longest way on the test screen: 1000 px/s at 50 % only clamps past ~1250 px
+CORNER = (1450, 1050)  # the longest way on the test screen: 1300 px/s at 50 % only clamps past ~1625 px
 
 
 def stream(g, origin, n=1, **kw):
@@ -63,14 +63,14 @@ def test_constants_are_exposed(g):
     assert k.refSpeed == REF and k.ghostGapK == GAP_K and k.ghostLag is None
 
 
-def test_100_percent_is_1000_px_per_second(g):
-    assert g.ns.OrbShapes.k.refSpeed == 1000  # was 500: the new 100 % is what 200 % used to be
+def test_100_percent_is_1300_px_per_second(g):
+    assert g.ns.OrbShapes.k.refSpeed == 1300  # the new 100 % is what 130 % used to be
     o = stream(g, CORNER)[0]
-    assert arc(g, o) > 1000  # no clamp involved: duration = arc / 1000 exactly, ~1 s per 1000 px
-    assert o.dur == pytest.approx(arc(g, o) / 1000)
+    assert arc(g, o) > 1000  # no clamp involved: duration = arc / 1300 exactly, ~1 s per 1300 px
+    assert o.dur == pytest.approx(arc(g, o) / 1300)
     land(g)
     o = stream(g, NEAR)[0]
-    assert o.dur == pytest.approx(arc(g, o) / 1000)
+    assert o.dur == pytest.approx(arc(g, o) / 1300)
 
 
 def test_duration_follows_the_arc_length(g):
@@ -84,10 +84,10 @@ def test_duration_follows_the_arc_length(g):
 
 
 def test_speed_200_halves_the_duration(g):
-    d100 = stream(g, (400, 650))[0].dur
+    d100 = stream(g, CORNER)[0].dur
     land(g)
     g.db.flightSpeed = 200
-    d200 = stream(g, (400, 650))[0].dur
+    d200 = stream(g, CORNER)[0].dur
     assert 0.35 < d200 and d100 < 2.5
     assert d200 == pytest.approx(d100 / 2)
 
@@ -100,8 +100,8 @@ def test_duration_is_clamped(g):
     land(g)
     g.db.flightSpeed = 50
     far = stream(g, CORNER)[0]
-    assert arc(g, far) / (REF * 0.5) > 2.5  # the clamp is what limits it
-    assert far.dur == pytest.approx(2.5)
+    # at 100 % = 1300 px/s the slowest setting (50 %) no longer reaches the 2.5 s cap on this screen
+    assert far.dur == pytest.approx(min(2.5, arc(g, far) / (REF * 0.5)))
 
 
 def test_time_mode_duration_ignores_the_distance(g):
@@ -149,7 +149,7 @@ def chain_gaps(body, ghosts):
     return [math.dist(a, b) for a, b in pairwise(pts)]
 
 
-@pytest.mark.parametrize("shape", ["starlight", "crackle", "globe"])
+@pytest.mark.parametrize("shape", ["starlight", "crackle", "bubble"])
 @pytest.mark.parametrize("mode", ["speed", "time"])
 def test_ghost_spacing_in_px_does_not_grow_with_flight_speed(g, shape, mode):
     if mode == "time":
@@ -163,7 +163,7 @@ def test_ghost_spacing_in_px_does_not_grow_with_flight_speed(g, shape, mode):
     assert fast_gaps == pytest.approx(slow_gaps, rel=0.2, abs=1.5)  # 2.5x faster, the same px
 
 
-@pytest.mark.parametrize("shape", ["starlight", "crackle", "globe"])
+@pytest.mark.parametrize("shape", ["starlight", "crackle", "bubble"])
 @pytest.mark.parametrize("speed", [50, 100, 250])
 def test_consecutive_ghosts_overlap_at_any_speed(g, shape, speed):
     _, body, ghosts = at_half(g, shape, speed)

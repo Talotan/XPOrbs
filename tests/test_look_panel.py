@@ -5,11 +5,11 @@ import pytest
 from test_m5 import build, ctl, show
 from test_shape_look import look_of
 
-SHAPES = ["starlight", "retro", "globe", "crackle"]
+SHAPES = ["starlight", "retro", "bubble", "crackle"]
 PICK = {
     "starlight": "Starlight (default)",
     "retro": "Retro",
-    "globe": "Globe",
+    "bubble": "Bubble",
     "crackle": "Crackle",
 }
 LOOK_ORDER = [
@@ -152,7 +152,7 @@ def test_the_box_has_the_same_height_for_every_shape(m):
 
 
 def test_the_caption_follows_the_shape(m):
-    for shape, name in zip(SHAPES, ["Starlight", "Retro", "Globe", "Crackle"]):
+    for shape, name in zip(SHAPES, ["Starlight", "Retro", "Bubble", "Crackle"]):
         pick(m, shape)
         assert str(m.opt.shapeBoxCaption.text) == name + " settings"
     cap = m.opt.shapeBoxCaption
@@ -165,7 +165,7 @@ def test_the_caption_follows_the_shape(m):
     [
         ("starlight", {"note": True, "blend": False, "sparkle": False, "pulse": False}),
         ("retro", {"note": False, "blend": True, "sparkle": True, "pulse": False}),
-        ("globe", {"note": False, "blend": True, "sparkle": False, "pulse": True}),
+        ("bubble", {"note": False, "blend": True, "sparkle": False, "pulse": True}),
         ("crackle", {"note": False, "blend": True, "sparkle": False, "pulse": False}),
     ],
 )
@@ -208,9 +208,9 @@ def test_blend_radios_write_per_shape(m):
     assert c.blend_natural.checked is True and c.blend_solid.checked is False
     m.stub.click(c.blend_solid)
     assert m.db.blend == "solid" and m.db.shapeLook.retro.blend == "solid"
-    assert m.db.shapeLook.globe.blend == "natural"
+    assert m.db.shapeLook.bubble.blend == "natural"
     assert c.blend_solid.checked is True and c.blend_natural.checked is False
-    pick(m, "globe")
+    pick(m, "bubble")
     assert m.db.blend == "natural" and c.blend_natural.checked is True
     pick(m, "retro")
     assert c.blend_solid.checked is True
@@ -231,13 +231,13 @@ def test_sparkle_and_pulse_checkboxes_write_per_shape(m):
     assert c.sparkle.checked is True
     m.stub.click(c.sparkle)
     assert m.db.sparkle is False and m.db.shapeLook.retro.sparkle is False
-    assert m.db.shapeLook.globe.sparkle is True
-    pick(m, "globe")
+    assert m.db.shapeLook.bubble.sparkle is True
+    pick(m, "bubble")
     assert c.pulse.checked is False  # Pulsing starts off
     m.stub.hover(c.pulse)
-    assert str(m.stub.tooltip.text) == "Globe orbs gently swell and shrink."
+    assert str(m.stub.tooltip.text) == "Bubble orbs gently swell and shrink."
     m.stub.click(c.pulse)
-    assert m.db.pulse is True and m.db.shapeLook.globe.pulse is True
+    assert m.db.pulse is True and m.db.shapeLook.bubble.pulse is True
     assert m.db.shapeLook.retro.pulse is False
 
 
@@ -257,7 +257,7 @@ def test_retro_calls_it_pixel_size_with_a_hint(m):
     assert "size of each art pixel" in str(m.stub.tooltip.text)
     m.stub.hover(m.opt.valueButtons["size"])
     assert "size of each art pixel" in str(m.stub.tooltip.text)
-    pick(m, "globe")
+    pick(m, "bubble")
     assert size_label(m) == ["Orb size"]
     m.stub.tooltip.text = None
     m.stub.hover(ctl(m, "size"))
@@ -272,23 +272,23 @@ def test_the_size_slider_follows_the_shape(m):
     assert (s.minV, s.maxV, s.step) == (8, 32, 1) and text() == "14"
     pick(m, "retro")
     assert (s.minV, s.maxV, s.step) == (1, 7, 1) and text() == "2 px" and s.value == 2
-    for shape in ("globe", "crackle", "starlight"):
+    for shape in ("bubble", "crackle", "starlight"):
         pick(m, shape)
         assert (s.minV, s.maxV, s.step) == (8, 32, 1) and text() == "14"
 
 
 def test_switching_shapes_never_writes_a_clamped_size_back(m):
     s = ctl(m, "size")
-    pick(m, "globe")
+    pick(m, "bubble")
     m.stub.slide(s, 14)
     pick(m, "retro")
     assert m.db.size == 2
     m.stub.slide(s, 5)
-    assert m.db.shapeLook.retro.size == 5 and m.db.shapeLook.globe.size == 14
-    pick(m, "globe")
+    assert m.db.shapeLook.retro.size == 5 and m.db.shapeLook.bubble.size == 14
+    pick(m, "bubble")
     assert m.db.size == 14 and s.value == 14
     pick(m, "retro")
-    assert m.db.size == 5 and s.value == 5 and look_of(m.db, "globe")[0] == 14
+    assert m.db.size == 5 and s.value == 5 and look_of(m.db, "bubble")[0] == 14
 
 
 def test_a_typed_size_uses_the_current_range(m):
@@ -298,7 +298,7 @@ def test_a_typed_size_uses_the_current_range(m):
     assert m.db.size == 7  # nearest permitted value on Retro, not on the 8..32 range
     m.stub.hover(m.opt.valueButtons["size"])
     assert "(1" in str(m.stub.tooltip.text) and "7 px)" in str(m.stub.tooltip.text)
-    pick(m, "globe")
+    pick(m, "bubble")
     m.stub.hover(m.opt.valueButtons["size"])
     assert "(8" in str(m.stub.tooltip.text) and "32)" in str(m.stub.tooltip.text)
 
@@ -314,10 +314,10 @@ def test_the_two_option_resets_are_separate_and_per_shape(m):
     m.stub.click(c.sparkle)
     assert extra_btn.shown
     m.stub.hover(blend_btn)
-    assert str(m.stub.tooltip.text) == "Reset to default: Outline glow"
+    assert str(m.stub.tooltip.text) == "Reset to default: Outline Type glow"
     m.stub.hover(extra_btn)
     assert str(m.stub.tooltip.text) == "Reset to default: Sparkle on"
-    pick(m, "globe")
+    pick(m, "bubble")
     assert not blend_btn.shown and not extra_btn.shown
     m.stub.click(c.pulse)
     assert extra_btn.shown

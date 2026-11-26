@@ -31,7 +31,7 @@ def reset_shown(m, key):
 def test_the_blend_option_is_called_outline(m):
     pick(m, "retro")
     texts = all_texts(m)
-    assert "Outline" in texts and "Blend" not in texts
+    assert "Outline Type" in texts and "Blend" not in texts
     assert not any("blend or extras" in t for t in texts)
     assert any(t.startswith("No outline or extras") for t in texts)
     # the radios: Glow (internal "natural") and Solid
@@ -40,7 +40,7 @@ def test_the_blend_option_is_called_outline(m):
 
 
 def test_outline_tooltips_and_reset_text(m):
-    pick(m, "globe")
+    pick(m, "bubble")
     c = m.opt.controls
     m.stub.hover(c.blend_natural)
     assert "Soft glowing edge" in " ".join(str(x) for x in m.stub.tooltip.lines.values())
@@ -48,7 +48,7 @@ def test_outline_tooltips_and_reset_text(m):
     assert "outline" in " ".join(str(x) for x in m.stub.tooltip.lines.values())
     m.stub.click(c.blend_solid)
     m.stub.hover(m.opt.resets["blend"])
-    assert str(m.stub.tooltip.text) == "Reset to default: Outline glow"
+    assert str(m.stub.tooltip.text) == "Reset to default: Outline Type glow"
 
 
 # ---------------------------------------------------------------- Rested orb colour
@@ -105,7 +105,7 @@ def test_one_reset_restores_the_rested_tickbox_and_colour(m):
 
 def test_crackle_speed_is_only_shown_for_crackle(m):
     row = m.opt.rows["crackleSpeed"]
-    for shape in ("starlight", "retro", "globe"):
+    for shape in ("starlight", "retro", "bubble"):
         pick(m, shape)
         assert not row.shown, shape
     pick(m, "crackle")
@@ -141,8 +141,8 @@ def test_crackle_speed_is_saved_per_shape_and_has_its_own_reset(m):
         and not m.opt.resets["shapeExtra"].shown
         and not m.opt.resets["blend"].shown
     )
-    pick(m, "globe")
-    assert m.db.crackleSpeed == 100 and m.db.shapeLook.globe.crackleSpeed == 100
+    pick(m, "bubble")
+    assert m.db.crackleSpeed == 100 and m.db.shapeLook.bubble.crackleSpeed == 100
     pick(m, "crackle")
     assert m.db.crackleSpeed == 150 and ctl(m, "crackleSpeed").value == 150
     m.stub.hover(reset)
@@ -202,7 +202,7 @@ def test_crackle_speed_scales_the_bolt_interval(env, speed, every):
 def test_other_shapes_ignore_the_crackle_speed(env):
     g = make(env)
     g.db.crackleSpeed = 200
-    go(g, "globe", n=1, trail=False, advance=0.05)
+    go(g, "bubble", n=1, trail=False, advance=0.05)
     (o,) = live_recs(g)
     assert o.boltEvery is None
 
@@ -244,7 +244,7 @@ def test_trail_opacity_dims_with_the_trail_tickbox(m):
 BASE = {
     "starlight": [0.55, 0.30, 0.15],
     "retro": [0.70, 0.40],
-    "globe": [0.52, 0.36, 0.22, 0.12],
+    "bubble": [0.52, 0.36, 0.22, 0.12],
     "crackle": [0.55, 0.30, 0.15],
 }
 

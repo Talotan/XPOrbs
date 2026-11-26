@@ -8,7 +8,7 @@ local ADDON, ns = ...
 -- so their visible discs just do not touch; the "Cluster" tickbox (db.previewCluster) packs them into an overlapping
 -- cloud instead, like orbs piled up after a kill, with the rested ones mixed in. The shape's own animation runs
 -- (Starlight's spinning sparkle, Retro's blinking twinkle on its grid,
--- Globe's breathing and glint, Crackle's bolt swaps), no trail. It is drawn by the same shape code as real orbs (the
+-- Bubble's breathing and glint, Crackle's bolt swaps), no trail. It is drawn by the same shape code as real orbs (the
 -- shape's setup and draw with the orb area as the frame), from 36 textures of its own, and follows the shape, size,
 -- quantity, blend, opacity, pulsing and colour settings as they change. The spacing scales with the orb's size.
 --
@@ -28,9 +28,9 @@ local PAD, TITLE_H = 8, 28 -- px: the window's side/bottom padding and the room 
 local AREA_W, AREA_H = WINDOW_W - 2 * PAD, WINDOW_H - TITLE_H - PAD
 local MIN_ORBS, MAX_ORBS, SLOTS = 2, 12, 36 -- 12 orbs x 3 textures
 -- The visible disc's diameter per px of orb size, per shape: the drawn quad times the share of it that is seen (about
--- 0.6 of Starlight's 2 x quad once the glow is discounted, the Globe body's plateau is 0.72 of its 1.5 x quad,
+-- 0.6 of Starlight's 2 x quad once the glow is discounted, the Bubble body's plateau is 0.72 of its 1.5 x quad,
 -- Crackle's core 0.4 of its 2.3 x quad plus a little for the bolts). Retro's disc is 8 cells.
-local VISIBLE = { starlight = 1.15, globe = 1.08, crackle = 1.35 } -- (Crackle: the bolts need room in the tidy layout)
+local VISIBLE = { starlight = 1.15, bubble = 1.08, crackle = 1.35 } -- (Crackle: the bolts need room in the tidy layout)
 local CLUSTER_VISIBLE = { crackle = 1.15 } -- the unit of the pile where it differs from VISIBLE
 local GAP_K, GAP_MIN = 0.12, 3 -- the gap between neighbouring discs: this share of the diameter, at least this many px
 local RETRO_GAP = 2 -- cells between neighbouring Retro discs (the grid snap eats up to one)

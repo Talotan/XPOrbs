@@ -65,8 +65,8 @@ back with `/xporbs minimap on` or the "Show minimap button" option).
 | `/xporbs perf [reset]` | Print the addon's memory use, the average and worst time of an orb frame, and how much of the orb pool is in use. `reset` zeroes the frame timings. |
 | `/xporbs style popstream [nameplate\|direct]` | Set the kill style to Popstream, optionally with its pop on the nameplate or direct. With no argument, print the current style. |
 | `/xporbs style crossfade\|stream` | Set the kill style to Crossfade or Direct Stream (`stream`). The older names still work: `streampop` is Popstream (Direct), and `wide` is Popstream (Nameplate) with zoom-scaled spread on. |
-| `/xporbs shape starlight\|retro\|globe\|crackle` | Set the orb shape: `starlight` (the default), `retro`, `globe` or `crackle` (the first names `wisp` and `power` still work). Size, quantity and opacity are remembered per shape. With no argument, print the current shape. |
-| `/xporbs pulse on\|off` | Turn Globe's gentle swelling and shrinking on or off (off by default). |
+| `/xporbs shape starlight\|retro\|bubble\|crackle` | Set the orb shape: `starlight` (the default), `retro`, `bubble` or `crackle` (the first names `wisp` and `power` still work). Size, quantity and opacity are remembered per shape. With no argument, print the current shape. |
+| `/xporbs pulse on\|off` | Turn Bubble's gentle swelling and shrinking on or off (off by default). |
 | `/xporbs path smooth\|chaos\|helix` | Set the flight pathing (how orbs fly): `smooth` (the default), `chaos` or `helix`. With no argument, print the current pathing. |
 | `/xporbs wide on\|off` | Turn the zoom-scaled spread on or off (on by default). |
 | `/xporbs unknown wide\|off` | Where orbs start when the mob's position is unknown: `wide` (the default) spreads them over an area that scales with camera zoom, `off` starts them at one point. |
@@ -88,7 +88,7 @@ The panel has these sections, most-used first:
 
 - **General:** enable, orbs at max level, quest bursts, exploration bursts, the minimap button and the debug log.
 - **Look:** the orb shape dropdown and, in a box under it, that shape's own size, quantity, opacity and extras
-  (Outline, Sparkle, Pulsing, Crackle speed); then the trail and its opacity, orb colour (or your class colour),
+  (Outline Type, Sparkle, Pulsing, Crackle speed); then the trail and its opacity, orb colour (or your class colour),
   rested orb colour (a tickbox and a swatch in one row) and the maximum orbs per burst.
 - **Flight:** the Flight pathing dropdown, the Speed type dropdown (Constant speed, where orbs always move at the same
   speed, or Relative speed, where they always arrive after a set time) with its Flight speed or Flight time slider,
@@ -202,12 +202,12 @@ quantity and opacity are remembered per shape: tune Retro and Starlight keeps it
 - **Starlight** (default): soft glowing orbs with a spinning sparkle and a fading trail.
 - **Retro**: chunky pixel-art orbs on an 8 x 8 grid that move in blocky steps, with a blinking twinkle and a trail of
   two square pixels.
-- **Globe**: smooth, solid, glossy orbs with a small highlight up and to the left, breathing slightly (untick
+- **Bubble**: smooth, solid, glossy orbs with a small highlight up and to the left, breathing slightly (untick
   **Pulsing**, or `/xporbs pulse off`, to keep them steady), with a long four-ghost tail.
 - **Crackle**: a steady bright core with a bolt of lightning crackling round its edge that jumps to a new shape and
   angle about every 80 ms. **Crackle speed** (50 to 200 %) makes the lightning change slower or faster.
 
-**Outline** (Retro, Globe and Crackle): Glow is a soft glowing edge, so orbs brighten where they overlap;
+**Outline Type** (Retro, Bubble and Crackle): Glow is a soft glowing edge, so orbs brighten where they overlap;
 Solid is an opaque orb with a dark outline that stacks in front of its neighbours and keeps its colour on bright ground.
 Starlight has no outline.
 
@@ -324,7 +324,7 @@ Kills.lua            event wiring, kill matching, rested detection, hands bursts
 Mouseover.lua        cursor samples while hovering a hostile unit
 Target.lua           destination (XP bar edge), frame picker
 Orbs.lua             overlay, texture pool, plate-anchored frames, flight and glow
-Shapes.lua           the Retro, Globe and Crackle orb shapes (Starlight is drawn in Orbs.lua)
+Shapes.lua           the Retro, Bubble and Crackle orb shapes (Starlight is drawn in Orbs.lua)
 Calib.lua            zoom-anchor calibration panel (/xporbs calib)
 Options.lua          settings panel
 ShapePreview.lua     the orb preview window above the test target (follows the panel)

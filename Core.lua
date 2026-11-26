@@ -44,13 +44,13 @@ ns.defaults = {
     -- Popstream's sub-choice: "nameplate" (pop on the nameplate) or "direct" (pop at the estimate)
     popMode = "nameplate",
     flightPath = "smooth", -- how orbs fly: "smooth" (the plain curve), "chaos" (erratic) or "helix" (spiralling)
-    orbShape = "starlight", -- how orbs are drawn: "starlight", "retro" (pixel art), "globe" or "crackle" (SHAPE_LABEL)
+    orbShape = "starlight", -- how orbs are drawn: "starlight", "retro" (pixel art), "bubble" or "crackle" (SHAPE_LABEL)
     -- blend, pulse, sparkle and crackleSpeed are active values too (like size): the current shape's own, kept in
-    -- shapeLook. The UI only shows the ones that apply to a shape: Outline (db.blend) for retro/globe/crackle, Sparkle
-    -- for retro, Pulsing for globe, Crackle speed for crackle
+    -- shapeLook. The UI only shows the ones that apply to a shape: Outline (db.blend) for retro/bubble/crackle, Sparkle
+    -- for retro, Pulsing for bubble, Crackle speed for crackle
     -- the Outline option: "natural" (shown as "Glow" in the UI: additive, no outline) or "solid" (opaque, dark rim)
     blend = "natural",
-    pulse = false, -- Globe orbs gently swell and shrink
+    pulse = false, -- Bubble orbs gently swell and shrink
     sparkle = true,
     crackleSpeed = 100, -- Crackle's bolt animation rate in % (200 = the bolts change twice as fast)
     -- the look each orb shape remembers (see ns.SHAPE_LOOK_KEYS); a missing or broken entry gets these. Retro's size
@@ -58,9 +58,9 @@ ns.defaults = {
     shapeLook = {
         starlight = { size = 14, density = 100, opacity = 100, blend = "natural", pulse = false, sparkle = true,
             crackleSpeed = 100 },
-        retro = { size = 2, density = 75, opacity = 100, blend = "natural", pulse = false, sparkle = true,
+        retro = { size = 2, density = 100, opacity = 100, blend = "natural", pulse = false, sparkle = true,
             crackleSpeed = 100 },
-        globe = { size = 14, density = 100, opacity = 100, blend = "natural", pulse = false, sparkle = true,
+        bubble = { size = 14, density = 100, opacity = 100, blend = "natural", pulse = false, sparkle = true,
             crackleSpeed = 100 },
         crackle = { size = 14, density = 100, opacity = 100, blend = "natural", pulse = false, sparkle = true,
             crackleSpeed = 100 },
@@ -143,9 +143,9 @@ ns.STYLE_LABEL = { popstream = "Popstream", crossfade = "Crossfade", stream = "D
 ns.POPMODE_LABEL = { nameplate = "Nameplate", direct = "Direct" }
 ns.PATH_ORDER = { "smooth", "chaos", "helix" }
 ns.PATH_LABEL = { smooth = "Smooth", chaos = "Chaos", helix = "Helix" } -- the valid db.flightPath values
-ns.SHAPE_ORDER = { "starlight", "retro", "globe", "crackle" }
-ns.SHAPE_LABEL = { starlight = "Starlight", retro = "Retro", globe = "Globe", crackle = "Crackle" } -- valid db.orbShape
-ns.SHAPE_ALIAS = { power = "crackle", wisp = "globe" } -- the first names of these shapes, still accepted
+ns.SHAPE_ORDER = { "starlight", "retro", "bubble", "crackle" }
+ns.SHAPE_LABEL = { starlight = "Starlight", retro = "Retro", bubble = "Bubble", crackle = "Crackle" } -- valid orbShape
+ns.SHAPE_ALIAS = { power = "crackle", wisp = "bubble" } -- the first names of these shapes, still accepted
 -- what each shape remembers
 ns.SHAPE_LOOK_KEYS = { "size", "density", "opacity", "blend", "pulse", "sparkle", "crackleSpeed" }
 local RETRO_SIZE_RANGE = { 1, 7, 1 } -- Retro's size is px per art pixel, not an orb size
@@ -637,9 +637,9 @@ function commands.help()
         .. "direction)")
     say("  stream = Direct Stream: a plain stream from the estimated mob position (no pop, no nameplate)")
     say("/xporbs path smooth|chaos|helix - flight pathing: a clean arc, an erratic wobble or a spiral (no arg: show)")
-    say("/xporbs shape starlight|retro|globe|crackle - orb shape: soft stars, pixel art, glowing globes or "
+    say("/xporbs shape starlight|retro|bubble|crackle - orb shape: soft stars, pixel art, glowing bubbles or "
         .. "crackling orbs (no arg: show). Size, quantity and opacity are remembered per shape")
-    say("/xporbs pulse on|off - Globe orbs gently swell and shrink (no arg: show)")
+    say("/xporbs pulse on|off - Bubble orbs gently swell and shrink (no arg: show)")
     say("/xporbs wide on|off - zoom-scaled spread: pops and stream starts spread wider when zoomed in, tighter "
         .. "zoomed out (on by default)")
     say("/xporbs unknown wide|off - where orbs start when the mob's position is unknown")

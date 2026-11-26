@@ -63,7 +63,7 @@ def save_tga(img, path):
 
 
 # ---------------------------------------------------------------------------
-# Orb shapes besides Starlight: Retro (pixel art), Globe (solid ball with a glint), Crackle (core plus bolts).
+# Orb shapes besides Starlight: Retro (pixel art), Bubble (solid ball with a glint), Crackle (core plus bolts).
 # Every new texture has power-of-two dimensions (older clients show other sizes as missing); art that is not
 # a power of two is padded and the game crops it with SetTexCoord.
 # ---------------------------------------------------------------------------
@@ -74,7 +74,7 @@ def smoothstep(a, b, x):
     return t * t * (3 - 2 * t)
 
 
-def globe(u, v):
+def bubble(u, v):
     """Glowing ball: a hot centred core on a solid plateau, a faint bright rim and a soft halo."""
     r = math.hypot(u, v)
     body = 0.72 * (1 - smoothstep(0.52, 0.74, r))
@@ -84,14 +84,14 @@ def globe(u, v):
     return max(halo, body + core + rim)
 
 
-def globe_under(u, v):
-    """The dark disc under a globe: solid, with a soft edge."""
+def bubble_under(u, v):
+    """The dark disc under a bubble: solid, with a soft edge."""
     return 1 - smoothstep(0.60, 0.82, math.hypot(u, v))
 
 
-def globe_glint(u, v):
+def bubble_glint(u, v):
     """A soft highlight: a gaussian blob a little longer along the diagonal that runs up-right (across the line to
-    the highlight's up-left position), peak 1.0, faded to nothing well inside the quad. Drawn 0.30 x the globe."""
+    the highlight's up-left position), peak 1.0, faded to nothing well inside the quad. Drawn 0.30 x the bubble."""
     along = (u - v) / math.sqrt(
         2
     )  # v grows downwards in the image, so (+u, -v) is up and to the right
@@ -253,7 +253,7 @@ def build_shaded(size, shade_fn, radius, ramp=0.05):
     return img
 
 
-GLOBE_SOLID_R = 0.72  # the globe body's plateau radius
+BUBBLE_SOLID_R = 0.72  # the bubble body's plateau radius
 CRACKLE_SOLID_R = 0.40  # smaller than the core's visible edge (~0.5), which restores the dark gap before the bolts
 _LIGHT = (-0.5, 0.5, 0.7)  # towards the light: up, left, front
 _LIGHT_LEN = math.sqrt(sum(c * c for c in _LIGHT))
@@ -365,7 +365,7 @@ def preview(imgs):
 SIZES = {
     "Starlight": 14,
     "Retro": 2,
-    "Globe": 14,
+    "Bubble": 14,
     "Crackle": 14,
 }  # the per-shape default db.size (Retro: px per cell)
 RETRO_K = 24 / 14  # Shapes.lua / Core.lua: size units to px for Retro
@@ -487,7 +487,7 @@ def draw_orb(canvas, kind, tex, col, x, y, ux, uy, t, rnd, trail=True):
                 1.0,
                 True,
             )
-    elif kind == "Globe":
+    elif kind == "Bubble":
         body = SIZE * 1.5 * (1 + 0.06 * math.sin(2 * math.pi * 2.5 * t))
         if trail:
             for gap, a, s in (
@@ -497,14 +497,14 @@ def draw_orb(canvas, kind, tex, col, x, y, ux, uy, t, rnd, trail=True):
                 (10, 0.52, 0.87),
             ):
                 add_layer(
-                    canvas, tex["globe"], col, x - ux * gap, y - uy * gap, body * s, a
+                    canvas, tex["bubble"], col, x - ux * gap, y - uy * gap, body * s, a
                 )
-        blend_layer(canvas, tex["globe_under"], dim, x, y, body, 0.80)
-        add_layer(canvas, tex["globe"], col, x, y, body)
+        blend_layer(canvas, tex["bubble_under"], dim, x, y, body, 0.80)
+        add_layer(canvas, tex["bubble"], col, x, y, body)
         # the glint: 0.30 x the body, up and to the left (the canvas y grows downwards), ADD, 0.55, white 0.75
         add_layer(
             canvas,
-            tex["globe_glint"],
+            tex["bubble_glint"],
             lighten(col, 0.75),
             x - 0.20 * body,
             y - 0.20 * body,
@@ -549,7 +549,7 @@ def _background(kind, w, h, seed):
 def preview_shapes(imgs):
     PREVIEW.mkdir(parents=True, exist_ok=True)
     tex = _alphas(imgs)
-    kinds = ["Starlight", "Retro", "Globe", "Crackle"]
+    kinds = ["Starlight", "Retro", "Bubble", "Crackle"]
     pw, ph = 380, 150
     sheet = Image.new("RGB", (2 * pw + 30, 4 * (ph + 22) + 20 + 150), (30, 30, 36))
     draw = ImageDraw.Draw(sheet)
@@ -672,18 +672,18 @@ def orb_ops(
         body = SIZE * 2.0
         if trail:
             for gap, a, s in ((24, 0.30, 0.70), (12, 0.55, 0.85)):
-                ghost("orb", "globe_solid", gap, a, s, body)
+                ghost("orb", "bubble_solid", gap, a, s, body)
         ops.append(
             (
                 sl["under"],
                 lambda c: blend_layer(c, tex["orb"], dim, x, y, body * 1.25, 0.45),
             )
         )
-        if solid:  # mock, never shipped: globe_solid scaled to Starlight's body
+        if solid:  # mock, never shipped: bubble_solid scaled to Starlight's body
             ops.append(
                 (
                     sl["body"],
-                    lambda c: blend_tex(c, imgs["globe_solid"], body_col, x, y, body),
+                    lambda c: blend_tex(c, imgs["bubble_solid"], body_col, x, y, body),
                 )
             )
         else:
@@ -773,7 +773,7 @@ def orb_ops(
                     ),
                 )
             )
-    elif kind == "Globe":
+    elif kind == "Bubble":
         body = SIZE * 1.5 * (1 + 0.06 * math.sin(2 * math.pi * 2.5 * t))
         if trail:
             for gap, a, s in (
@@ -782,12 +782,12 @@ def orb_ops(
                 (20, 0.36, 0.75),
                 (10, 0.52, 0.87),
             ):
-                ghost("globe", "globe_solid", gap, a, s, body)
+                ghost("bubble", "bubble_solid", gap, a, s, body)
         ops.append(
             (
                 sl["under"],
                 lambda c: blend_layer(
-                    c, tex["globe_under"], dim, x, y, body, min(1.0, 0.80 * under_k)
+                    c, tex["bubble_under"], dim, x, y, body, min(1.0, 0.80 * under_k)
                 ),
             )
         )
@@ -795,19 +795,19 @@ def orb_ops(
             ops.append(
                 (
                     sl["body"],
-                    lambda c: blend_tex(c, imgs["globe_solid"], body_col, x, y, body),
+                    lambda c: blend_tex(c, imgs["bubble_solid"], body_col, x, y, body),
                 )
             )
         else:
             ops.append(
-                (sl["body"], lambda c: add_layer(c, tex["globe"], col, x, y, body))
+                (sl["body"], lambda c: add_layer(c, tex["bubble"], col, x, y, body))
             )
         ops.append(
             (
                 sl["top"],
                 lambda c: add_layer(
                     c,
-                    tex["globe_glint"],
+                    tex["bubble_glint"],
                     lighten(col, 0.75),
                     x - 0.20 * body,
                     y - 0.20 * body,
@@ -884,11 +884,11 @@ def visible_d(kind):
     """The visible disc diameter in drawn px (not the quad), for spacing the overlapping pile."""
     if kind == "Retro":
         return 8 * retro_cell()
-    if kind == "Globe":
-        return GLOBE_SOLID_R * SIZES["Globe"] * 1.5
+    if kind == "Bubble":
+        return BUBBLE_SOLID_R * SIZES["Bubble"] * 1.5
     if kind == "Crackle":
         return 2 * CRACKLE_SOLID_R * SIZES["Crackle"] * 2.0 * 1.15
-    return GLOBE_SOLID_R * SIZES["Starlight"] * 2.0  # the Starlight solid mock
+    return BUBBLE_SOLID_R * SIZES["Starlight"] * 2.0  # the Starlight solid mock
 
 
 # a loose pile: 4 purple + 1 blue, offsets in units of ~0.58 x the visible diameter
@@ -970,12 +970,12 @@ def preview_blend(imgs):
     # (row label, kind, solid_trail?, show the Natural column?)
     strip_rows = [
         ("Retro", "Retro", False, True),
-        ("Globe", "Globe", False, True),
-        ("Globe\nsolid trail", "Globe", True, False),
+        ("Bubble", "Bubble", False, True),
+        ("Bubble\nsolid trail", "Bubble", True, False),
         ("Crackle", "Crackle", False, True),
         ("Crackle\nsolid trail", "Crackle", True, False),
     ]
-    zoom_rows = [("Retro", "Retro"), ("Globe", "Globe"), ("Crackle", "Crackle")]
+    zoom_rows = [("Retro", "Retro"), ("Bubble", "Bubble"), ("Crackle", "Crackle")]
     mock_rows = [("Starlight\nsolid mock", "Starlight")]
     head, block_h = 48, 26
     H = (
@@ -1098,7 +1098,7 @@ def preview_blend(imgs):
 # it and copy its lift (SOLID_LIFT here and in Shapes.lua) and underlay/extra alphas.
 # Per-variant "opt" feeds orb_ops: lift, under (x underlay alpha), extra (x additive glint / bolts / twinkle alpha).
 
-GLOBE_VARIANTS = {
+BUBBLE_VARIANTS = {
     "A": dict(name="old", base=0.50, gain=0.65, wrap=0.0, rim=0.07, rim_shade=0.6, ramp=0.05,
               lift=0.06, under=1.0, extra=1.0),
     "B": dict(name="softer terminator (DEFAULT)", base=0.70, gain=0.30, wrap=0.6, rim=0.07, rim_shade=0.6, ramp=0.05,
@@ -1148,8 +1148,8 @@ def _rim(r, R, p, shade):
     return shade * p["rim_shade"] if p["rim"] and r > R - p["rim"] else shade
 
 
-def globe_variant_shade(p):
-    R = p.get("radius", GLOBE_SOLID_R)
+def bubble_variant_shade(p):
+    R = p.get("radius", BUBBLE_SOLID_R)
 
     def fn(u, v):
         r = math.hypot(u, v)
@@ -1200,9 +1200,9 @@ def variant_imgs(kind, p, imgs):
     out = dict(imgs)
     if kind == "Retro":
         out["retro_solid"] = retro_variant(p)
-    elif kind == "Globe":
-        fn, R = globe_variant_shade(p)
-        out["globe_solid"] = build_shaded((64, 64), fn, R, p["ramp"])
+    elif kind == "Bubble":
+        fn, R = bubble_variant_shade(p)
+        out["bubble_solid"] = build_shaded((64, 64), fn, R, p["ramp"])
     else:
         fn, R = crackle_variant_shade(p)
         out["crackle_core_solid"] = build_shaded((64, 64), fn, R, p["ramp"])
@@ -1216,7 +1216,7 @@ def _params_line(kind, p):
         if p["core2"]:
             lv = f"2x2 {p['core2']:.2f}, " + lv
         s = f"levels {lv}"
-    elif kind == "Globe":
+    elif kind == "Bubble":
         if "radial" in p:
             t, d, e = p["radial"]
             s = f"radial {t:.2f} - {d:.2f}*r^{e:g}"
@@ -1270,8 +1270,8 @@ def _render_rows(kind, title, rows, path):
 
 def solid_variants_sheet(imgs, out):
     """Per shape: a Natural reference row then A-F (B = the shipped default)."""
-    tables = {"Retro": RETRO_VARIANTS, "Globe": GLOBE_VARIANTS, "Crackle": CRACKLE_VARIANTS}
-    for kind, key in (("Retro", "retro_solid"), ("Globe", "globe_solid"), ("Crackle", "crackle_core_solid")):
+    tables = {"Retro": RETRO_VARIANTS, "Bubble": BUBBLE_VARIANTS, "Crackle": CRACKLE_VARIANTS}
+    for kind, key in (("Retro", "retro_solid"), ("Bubble", "bubble_solid"), ("Crackle", "crackle_core_solid")):
         b = variant_imgs(kind, tables[kind]["B"], imgs)[key]  # variant B must equal the shipped bake
         assert b.tobytes() == imgs[key].tobytes(), f"{kind} variant B differs from the shipped Solid bake"
     out = Path(out)
@@ -1283,22 +1283,22 @@ def solid_variants_sheet(imgs, out):
         _render_rows(kind, f"{kind} - Solid variants", rows, path)
 
 
-def globe_rim_compare(imgs, out):
-    """Globe Solid B with the wired rim (0.6) against B with a milder rim (0.8), with Glow and the old A for reference."""
-    G = GLOBE_VARIANTS
+def bubble_rim_compare(imgs, out):
+    """Bubble Solid B with the wired rim (0.6) against B with a milder rim (0.8), with Glow and the old A for reference."""
+    G = BUBBLE_VARIANTS
     rows = [
         ("Natural (Glow)", "reference", "natural", imgs, None),
-        ("A  old", _params_line("Globe", G["A"]), "solid", variant_imgs("Globe", G["A"], imgs), G["A"]),
-        ("B  rim 0.6 (wired)", _params_line("Globe", G["B"]), "solid", variant_imgs("Globe", G["B"], imgs), G["B"]),
+        ("A  old", _params_line("Bubble", G["A"]), "solid", variant_imgs("Bubble", G["A"], imgs), G["A"]),
+        ("B  rim 0.6 (wired)", _params_line("Bubble", G["B"]), "solid", variant_imgs("Bubble", G["B"], imgs), G["B"]),
     ]
     p8 = dict(G["B"], rim_shade=0.8)
-    rows.append(("B  rim 0.8", _params_line("Globe", p8), "solid", variant_imgs("Globe", p8, imgs), p8))
-    _render_rows("Globe", "Globe Solid B: rim 0.6 vs 0.8", rows, Path(out))
+    rows.append(("B  rim 0.8", _params_line("Bubble", p8), "solid", variant_imgs("Bubble", p8, imgs), p8))
+    _render_rows("Bubble", "Bubble Solid B: rim 0.6 vs 0.8", rows, Path(out))
 
 
 def _default_solid(kind, key):
     """The shipped Solid texture: variant B of the tables above."""
-    table = {"Retro": RETRO_VARIANTS, "Globe": GLOBE_VARIANTS, "Crackle": CRACKLE_VARIANTS}[kind]
+    table = {"Retro": RETRO_VARIANTS, "Bubble": BUBBLE_VARIANTS, "Crackle": CRACKLE_VARIANTS}[kind]
     return variant_imgs(kind, table["B"], {})[key]
 
 
@@ -1312,12 +1312,12 @@ def build_imgs():
         "retro": retro(),
         "retro_under": retro_under(),
         "retro_twinkle": retro_twinkle(),
-        "globe": build((64, 64), globe),
-        "globe_under": build((64, 64), globe_under),
-        "globe_glint": build((64, 64), globe_glint),
+        "bubble": build((64, 64), bubble),
+        "bubble_under": build((64, 64), bubble_under),
+        "bubble_glint": build((64, 64), bubble_glint),
         "crackle_core": build((64, 64), crackle_core),
         # Solid blend variants (hard alpha mask, RGB shading)
-        "globe_solid": _default_solid("Globe", "globe_solid"),
+        "bubble_solid": _default_solid("Bubble", "bubble_solid"),
         "crackle_core_solid": _default_solid("Crackle", "crackle_core_solid"),
         "retro_solid": _default_solid("Retro", "retro_solid"),
         "bolt1": bolt_ring(301, 2, 1),
@@ -1334,9 +1334,9 @@ def main():
             sys.exit("usage: make_textures.py --solid-variants <out.png>")
         solid_variants_sheet(build_imgs(), Path(sys.argv[i + 1]))
         return
-    if "--globe-rim-compare" in sys.argv:
-        i = sys.argv.index("--globe-rim-compare")
-        globe_rim_compare(build_imgs(), Path(sys.argv[i + 1]))
+    if "--bubble-rim-compare" in sys.argv:
+        i = sys.argv.index("--bubble-rim-compare")
+        bubble_rim_compare(build_imgs(), Path(sys.argv[i + 1]))
         return
     MEDIA.mkdir(exist_ok=True)
     imgs = build_imgs()

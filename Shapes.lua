@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: GPL-3.0-or-later
 local ADDON, ns = ...
 
--- The orb shapes other than Starlight (db.orbShape): Retro, Globe and Crackle. Starlight is the original drawing in
+-- The orb shapes other than Starlight (db.orbShape): Retro, Bubble and Crackle. Starlight is the original drawing in
 -- Orbs.lua; this file registers the other three in ns.OrbShapes.by (see the SHAPES comment in Orbs.lua for what a shape
 -- table must offer) and borrows the pooled-texture and placement helpers of Orbs.lua through ns.OrbShapes.host.
 --
@@ -10,7 +10,7 @@ local ADDON, ns = ...
 --
 -- Per orb, a shape draws with the 3 textures of a slot (underlay, body, third) and, for a flying orb, up to 4 more
 -- (ghost1..ghost4, the trail). The third is the sparkle of Starlight: Retro's twinkle, Crackle's bolt layer,
--- Globe's glint. The state that varies per orb (blink phase, bolt timer, breathing phase, cell size) lives in `st`:
+-- Bubble's glint. The state that varies per orb (blink phase, bolt timer, breathing phase, cell size) lives in `st`:
 -- the orb record, or a per-slot table of a pop group.
 
 local SHAPES = ns.OrbShapes
@@ -26,11 +26,11 @@ local RETRO_TEX = "Interface\\AddOns\\XPOrbs\\media\\retro" -- 64x64: the 8 x 8 
 local RETRO_UNDER_TEX = "Interface\\AddOns\\XPOrbs\\media\\retro_under" -- 128x128: 10 x 10 cell art, top left
 local RETRO_TWINKLE_TEX = "Interface\\AddOns\\XPOrbs\\media\\retro_twinkle" -- 32x32: 3 x 3 cell "+", top left
 local RETRO_SOLID_TEX = "Interface\\AddOns\\XPOrbs\\media\\retro_solid" -- the octagon, shading in RGB, alpha 1
-local GLOBE_SOLID_TEX = "Interface\\AddOns\\XPOrbs\\media\\globe_solid" -- an opaque lit sphere with a dark rim
+local BUBBLE_SOLID_TEX = "Interface\\AddOns\\XPOrbs\\media\\bubble_solid" -- an opaque lit sphere with a dark rim
 local CRACKLE_CORE_SOLID_TEX = "Interface\\AddOns\\XPOrbs\\media\\crackle_core_solid" -- an opaque core, dark rim
-local GLOBE_TEX = "Interface\\AddOns\\XPOrbs\\media\\globe"
-local GLOBE_UNDER_TEX = "Interface\\AddOns\\XPOrbs\\media\\globe_under"
-local GLOBE_GLINT_TEX = "Interface\\AddOns\\XPOrbs\\media\\globe_glint"
+local BUBBLE_TEX = "Interface\\AddOns\\XPOrbs\\media\\bubble"
+local BUBBLE_UNDER_TEX = "Interface\\AddOns\\XPOrbs\\media\\bubble_under"
+local BUBBLE_GLINT_TEX = "Interface\\AddOns\\XPOrbs\\media\\bubble_glint"
 local CRACKLE_CORE_TEX = "Interface\\AddOns\\XPOrbs\\media\\crackle_core"
 -- the four bolt frames, built once so nothing is concatenated while orbs fly
 local BOLT_TEX = {
@@ -44,7 +44,7 @@ local UNDER_K = k.underK
 local GLOW = k.glow
 local GHOST_KEY = { "ghost1", "ghost2", "ghost3", "ghost4" }
 
--- Solid (db.blend == "solid", Retro / Globe / Crackle only): the body is an opaque BLEND texture whose RGB carries the
+-- Solid (db.blend == "solid", Retro / Bubble / Crackle only): the body is an opaque BLEND texture whose RGB carries the
 -- shading, so orbs layer over each other instead of adding up. The underlay and the trails move below the bodies:
 -- every underlay, then every trail, then every body, then the glint / bolts / twinkle. The drawn sizes are the Natural
 -- ones: the solid discs were cut to sit where each Natural body is seen. Trails stay additive except for dark orbs
@@ -71,17 +71,17 @@ local RETRO_TRAIL_SMALL = { gap = 9, cells = 1, alpha = 0.40 } -- 1 cell, a stab
 -- RETRO_GROW_SPAN of the pop, in whole pixels: it pops in in steps and never gets bigger than in flight.
 local RETRO_GROW_FROM, RETRO_GROW_SPAN = 0.4, 0.4
 
--- Globe (the size, count and flight time are the player's own: no multipliers)
-local GLOBE_BODY = 1.5 -- drawn size = size * this (the art has a solid rim, so no GLOW)
-local GLOBE_UNDER_ALPHA = 0.80
-local GLOBE_BREATH, GLOBE_RATE = 0.06, 2.5 -- size x (1 + GLOBE_BREATH * sin(2 pi GLOBE_RATE t + phase)), if db.pulse
-local GLOBE_GAP = { 1, 2, 3, 4 } -- ghost i sits i x ghostGapK drawn diameters behind the orb
-local GLOBE_GHOST_ALPHA = { 0.52, 0.36, 0.22, 0.12 }
-local GLOBE_GHOST_SIZE = { 0.87, 0.75, 0.65, 0.55 }
+-- Bubble (the size, count and flight time are the player's own: no multipliers)
+local BUBBLE_BODY = 1.5 -- drawn size = size * this (the art has a solid rim, so no GLOW)
+local BUBBLE_UNDER_ALPHA = 0.80
+local BUBBLE_BREATH, BUBBLE_RATE = 0.06, 2.5 -- size x (1 + BREATH * sin(2 pi RATE t + phase)), if db.pulse
+local BUBBLE_GAP = { 1, 2, 3, 4 } -- ghost i sits i x ghostGapK drawn diameters behind the orb
+local BUBBLE_GHOST_ALPHA = { 0.52, 0.36, 0.22, 0.12 }
+local BUBBLE_GHOST_SIZE = { 0.87, 0.75, 0.65, 0.55 }
 -- the glint, a small highlight up and to the left of the centre that makes it read as a sphere: quad = body * SIZE,
 -- centred (X, Y) bodies from the centre (y up), tinted lerp(colour, white, WHITE)
-local GLOBE_GLINT_SIZE, GLOBE_GLINT_X, GLOBE_GLINT_Y = 0.30, -0.20, 0.20
-local GLOBE_GLINT_ALPHA, GLOBE_GLINT_WHITE = 0.55, 0.75
+local BUBBLE_GLINT_SIZE, BUBBLE_GLINT_X, BUBBLE_GLINT_Y = 0.30, -0.20, 0.20
+local BUBBLE_GLINT_ALPHA, BUBBLE_GLINT_WHITE = 0.55, 0.75
 
 -- Crackle
 local CRACKLE_CORE = 1.15 -- core size = body * this (body = size * GLOW as Starlight)
@@ -276,28 +276,28 @@ function RETRO.trail(orb, progress, dx, dy, control2X, control2Y, orbX, orbY, al
     trailSquare(orb, orb.ghost2, RETRO_TRAIL_SMALL, progress, dx, dy, control2X, control2Y, orbX, orbY, alpha)
 end
 
--- ---------------------------------------------------------------- Globe
+-- ---------------------------------------------------------------- Bubble
 
-local GLOBE = { needTrail = 7, needPlain = 3, timeMul = 1, adjust = identity }
+local BUBBLE = { needTrail = 7, needPlain = 3, timeMul = 1, adjust = identity }
 
-function GLOBE.setup(under, body, spark, st, red, green, blue)
-    local sl = styleBody(body, st, GLOBE_TEX, GLOBE_SOLID_TEX, red, green, blue)
-    under:SetTexture(GLOBE_UNDER_TEX)
+function BUBBLE.setup(under, body, spark, st, red, green, blue)
+    local sl = styleBody(body, st, BUBBLE_TEX, BUBBLE_SOLID_TEX, red, green, blue)
+    under:SetTexture(BUBBLE_UNDER_TEX)
     style(under, sl.under, "BLEND", red * UNDER_K, green * UNDER_K, blue * UNDER_K)
-    spark:SetTexture(GLOBE_GLINT_TEX)
-    style(spark, sl.top, "ADD", lerp(red, 1, GLOBE_GLINT_WHITE), lerp(green, 1, GLOBE_GLINT_WHITE),
-        lerp(blue, 1, GLOBE_GLINT_WHITE))
+    spark:SetTexture(BUBBLE_GLINT_TEX)
+    style(spark, sl.top, "ADD", lerp(red, 1, BUBBLE_GLINT_WHITE), lerp(green, 1, BUBBLE_GLINT_WHITE),
+        lerp(blue, 1, BUBBLE_GLINT_WHITE))
     st.phase = random() * TWO_PI
     st.pulse = ns.db.pulse ~= false -- fixed at set-up (see RETRO.setup)
 end
 
-function GLOBE.build(orb, trail, red, green, blue)
-    buildSlots(GLOBE, orb, red, green, blue, true)
+function BUBBLE.build(orb, trail, red, green, blue)
+    buildSlots(BUBBLE, orb, red, green, blue, true)
     if trail then
         local blend = SHAPES.trailBlend(red, green, blue)
         for i = 1, 4 do
             local tex = take()
-            tex:SetTexture(GLOBE_TEX)
+            tex:SetTexture(BUBBLE_TEX)
             style(tex, (orb.solid and SUB_SOLID or SUB_NATURAL).trail, blend, red, green, blue)
             ready(tex)
             orb[GHOST_KEY[i]] = tex
@@ -307,27 +307,27 @@ end
 
 -- A solid ball with a faint dark disc under it and a small glint up and to the left, breathing slowly (unless
 -- st.pulse is off). The glint breathes with the body.
-function GLOBE.draw(st, t, rel, under, body, spark, x, y, size, alpha)
-    local drawn = size * GLOBE_BODY
+function BUBBLE.draw(st, t, rel, under, body, spark, x, y, size, alpha)
+    local drawn = size * BUBBLE_BODY
     if st.pulse then
-        drawn = drawn * (1 + GLOBE_BREATH * sin(TWO_PI * GLOBE_RATE * t + st.phase))
+        drawn = drawn * (1 + BUBBLE_BREATH * sin(TWO_PI * BUBBLE_RATE * t + st.phase))
     end
     st.bodySize = drawn
-    putAt(under, rel, x, y, drawn, alpha * GLOBE_UNDER_ALPHA)
+    putAt(under, rel, x, y, drawn, alpha * BUBBLE_UNDER_ALPHA)
     putAt(body, rel, x, y, drawn, alpha)
-    putAt(spark, rel, x + GLOBE_GLINT_X * drawn, y + GLOBE_GLINT_Y * drawn, drawn * GLOBE_GLINT_SIZE,
-        alpha * GLOBE_GLINT_ALPHA)
+    putAt(spark, rel, x + BUBBLE_GLINT_X * drawn, y + BUBBLE_GLINT_Y * drawn, drawn * BUBBLE_GLINT_SIZE,
+        alpha * BUBBLE_GLINT_ALPHA)
 end
 
 -- Four ghosts behind the orb, each smaller and fainter, ghostGapK drawn diameters apart (overlapping at any speed).
-function GLOBE.trail(orb, progress, dx, dy, control2X, control2Y, orbX, orbY, alpha)
+function BUBBLE.trail(orb, progress, dx, dy, control2X, control2Y, orbX, orbY, alpha)
     local step = k.ghostGapK * orb.bodySize
     for i = 1, 4 do
         local tex = orb[GHOST_KEY[i]]
-        local x, y, sizeMul, alphaMul = behind(orb, progress, GLOBE_GAP[i] * step, dx, dy, control2X, control2Y, orbX,
+        local x, y, sizeMul, alphaMul = behind(orb, progress, BUBBLE_GAP[i] * step, dx, dy, control2X, control2Y, orbX,
             orbY)
         if x then
-            place(tex, x, y, orb.bodySize * sizeMul * GLOBE_GHOST_SIZE[i], alpha * alphaMul * GLOBE_GHOST_ALPHA[i])
+            place(tex, x, y, orb.bodySize * sizeMul * BUBBLE_GHOST_SIZE[i], alpha * alphaMul * BUBBLE_GHOST_ALPHA[i])
         else
             hideTex(tex)
         end
@@ -399,7 +399,7 @@ function CRACKLE.draw(st, t, rel, under, body, spark, x, y, size, alpha)
     putAt(spark, rel, x, y, bodySize * CRACKLE_BOLT, alpha * st.boltAlpha)
 end
 
-SHAPES.by.retro, SHAPES.by.globe, SHAPES.by.crackle = RETRO, GLOBE, CRACKLE
+SHAPES.by.retro, SHAPES.by.bubble, SHAPES.by.crackle = RETRO, BUBBLE, CRACKLE
 SHAPES.nearestOk = function()
     return nearestOk
 end

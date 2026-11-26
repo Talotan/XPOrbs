@@ -75,11 +75,11 @@ local FADE_IN_POP = 0.15 -- ... after a pop
 -- PopControl radius multiplier / upward bias for the stream after a pop (defaults 1 / 0.35)
 local POP_STREAM_SPREAD, POP_STREAM_LIFT = 0.45, 0.10
 local GHOST_STEP = 0.015 -- in p, before easing
--- Flight speed mode (db.flightMode "speed"): px per second at flightSpeed 100 % (1000 px/s: calibrated in game so 100 %
+-- Flight speed mode (db.flightMode "speed"): px per second at flightSpeed 100 % (1300 px/s: calibrated in game so 100 %
 -- feels like the old 1 s flight time over a typical mob-to-bar flight). Lives in SHAPES.k (refSpeed) so Burst reads it.
 -- The trail ghosts are spaced in px along the path, ghostGapK x the drawn diameter apart (SHAPES.k), whatever the
 -- speed, so they always overlap into a smear; orb.pxToProgress (1 / path length, set at spawn) turns px into progress.
-local REF_SPEED = 1000
+local REF_SPEED = 1300
 local GHOST1_ALPHA, GHOST1_SIZE = 0.55, 0.85
 local GHOST2_ALPHA, GHOST2_SIZE = 0.30, 0.70
 local GHOST3_ALPHA, GHOST3_SIZE = 0.15, 0.55
@@ -187,7 +187,7 @@ local SP_PROFILE = { born = 0.03, bloomMin = 0.20, bloomSpan = 0.06, bsize = 1.5
 XF_PROFILE.sp = SP_PROFILE -- reached through XF_PROFILE from Burst, which cannot take another upvalue
 
 -- Orb shapes (db.orbShape). "starlight" is the original drawing in this file: orb.shape is nil for it, so every branch
--- below that handles a shape is skipped and Starlight runs exactly the code it always did. Retro, Globe and Crackle
+-- below that handles a shape is skipped and Starlight runs exactly the code it always did. Retro, Bubble and Crackle
 -- live in Shapes.lua (loaded right after this file): it fills `by` (name -> shape table) and uses `host` (the helpers
 -- of this file: pooled textures, placement, the flight path) and `k` (the shared tunables). One table, reached through
 -- XF_PROFILE from Burst, which cannot take another upvalue.
@@ -548,7 +548,7 @@ local function freeOrb(orb)
     if orb.ghost2 then
         release(orb.ghost2)
     end
-    if orb.ghost3 then -- Starlight's and Crackle's third ghost, Globe's longer trail
+    if orb.ghost3 then -- Starlight's and Crackle's third ghost, Bubble's longer trail
         release(orb.ghost3)
     end
     if orb.ghost4 then
@@ -734,7 +734,7 @@ local function drawOrb(orb, progress, dx, dy)
     local shape = orb.shape
     if shape then
         shape.draw(orb, orb.elapsed, nil, orb.under, orb.body, orb.spark, orbX, orbY, size * sizeMul, alpha * alphaMul)
-        if shape.trail then -- a trail of its own (Retro, Globe); Crackle keeps the Starlight ghosts below
+        if shape.trail then -- a trail of its own (Retro, Bubble); Crackle keeps the Starlight ghosts below
             if orb.ghost1 then
                 shape.trail(orb, progress, dx, dy, control2X, control2Y, orbX, orbY,
                     alpha * alphaMul * (orb.trailK or 1))
@@ -2129,14 +2129,14 @@ function ns.commands.path(arg)
     ns.Print("flight pathing: " .. (ns.PATH_LABEL[settings().flightPath] or "Smooth"))
 end
 
--- /xporbs shape starlight|retro|globe|crackle: how the orbs are drawn (db.orbShape; the old names power and wisp still
+-- /xporbs shape starlight|retro|bubble|crackle: how the orbs are drawn (db.orbShape; the old names power and wisp still
 -- work). Size, quantity and opacity are remembered per shape (ns.SetOrbShape). No argument shows the current one.
 function ns.commands.shape(arg)
     local word = string.match(arg or "", "^%s*(%S*)")
     if word ~= "" then
         settings()
         if not ns.SetOrbShape(word) then
-            ns.Print("shape: use starlight, retro, globe or crackle")
+            ns.Print("shape: use starlight, retro, bubble or crackle")
             return
         end
         refreshPanel()
@@ -2144,20 +2144,20 @@ function ns.commands.shape(arg)
     ns.Print("orb shape: " .. (ns.SHAPE_LABEL[settings().orbShape] or ns.SHAPE_LABEL.starlight))
 end
 
--- /xporbs pulse on|off: the "Pulsing" tickbox, always Globe's own look (shapeLook.globe.pulse): its orbs gently swell
+-- /xporbs pulse on|off: the "Pulsing" tickbox, always Bubble's own look (shapeLook.bubble.pulse): its orbs gently swell
 -- and shrink.
 function ns.commands.pulse(arg)
     local word = string.match(arg or "", "%S+")
     settings()
     if word == "on" or word == "off" then
-        ns.SetShapeLook("globe", "pulse", word == "on") -- Globe's own look, whichever shape is active
+        ns.SetShapeLook("bubble", "pulse", word == "on") -- Bubble's own look, whichever shape is active
         refreshPanel()
     elseif word ~= nil then
-        ns.Print("pulse: use on or off (now " .. (ns.GetShapeLook("globe", "pulse") and "on" or "off") .. ")")
+        ns.Print("pulse: use on or off (now " .. (ns.GetShapeLook("bubble", "pulse") and "on" or "off") .. ")")
         return
     end
-    ns.Print("pulsing: " .. (ns.GetShapeLook("globe", "pulse") and "on" or "off")
-        .. (settings().orbShape ~= "globe" and " (Globe only)" or ""))
+    ns.Print("pulsing: " .. (ns.GetShapeLook("bubble", "pulse") and "on" or "off")
+        .. (settings().orbShape ~= "bubble" and " (Bubble only)" or ""))
 end
 
 local function spreadState()

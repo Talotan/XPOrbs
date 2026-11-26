@@ -1,6 +1,6 @@
-"""Selectable orb shapes (db.orbShape): Starlight (the original), Retro, Globe and Crackle. Settings, the slash command,
+"""Selectable orb shapes (db.orbShape): Starlight (the original), Retro, Bubble and Crackle. Settings, the slash command,
 the Options dropdown, the art every shape puts on its textures (flying orbs, corpse pops, crossfade copies A and B),
-the texture budget, each shape's behaviour (Globe glint and pulse, Retro grid snapping and twinkle, Crackle bolt ticks), the
+the texture budget, each shape's behaviour (Bubble glint and pulse, Retro grid snapping and twinkle, Crackle bolt ticks), the
 per-burst snapshot and the media files."""
 
 import math
@@ -19,7 +19,7 @@ from test_v102 import load_db
 
 MEDIA = ROOT / "media"
 PRE = "Interface\\AddOns\\XPOrbs\\media\\"
-SHAPES = ["starlight", "retro", "globe", "crackle"]
+SHAPES = ["starlight", "retro", "bubble", "crackle"]
 BOLTS = [PRE + f"bolt{i}" for i in range(1, 5)]
 TWO_PI = 2 * math.pi
 
@@ -27,16 +27,16 @@ TWO_PI = 2 * math.pi
 ART = {
     "starlight": (PRE + "orb", PRE + "orb", PRE + "sparkle"),
     "retro": (PRE + "retro_under", PRE + "retro", PRE + "retro_twinkle"),
-    "globe": (PRE + "globe_under", PRE + "globe", PRE + "globe_glint"),
+    "bubble": (PRE + "bubble_under", PRE + "bubble", PRE + "bubble_glint"),
     "crackle": (PRE + "orb", PRE + "crackle_core", BOLTS),
 }
 GHOST_ART = {
     "starlight": PRE + "orb",
-    "globe": PRE + "globe",
+    "bubble": PRE + "bubble",
     "crackle": PRE + "crackle_core",
 }
 # pool textures per flying orb: (with the trail, without)
-NEED = {"starlight": (6, 3), "retro": (5, 3), "globe": (7, 3), "crackle": (6, 3)}
+NEED = {"starlight": (6, 3), "retro": (5, 3), "bubble": (7, 3), "crackle": (6, 3)}
 
 
 def path_of(tex):
@@ -101,7 +101,7 @@ def test_slash_shape_sets_prints_and_rejects(env):
     assert m.say()[-1].endswith("orb shape: Starlight")
     for word, label in (
         ("retro", "Retro"),
-        ("globe", "Globe"),
+        ("bubble", "Bubble"),
         ("crackle", "Crackle"),
         ("starlight", "Starlight"),
     ):
@@ -111,7 +111,7 @@ def test_slash_shape_sets_prints_and_rejects(env):
     m.slash("shape bogus")
     assert (
         m.db.orbShape == "retro"
-        and "shape: use starlight, retro, globe or crackle" in m.say()[-1]
+        and "shape: use starlight, retro, bubble or crackle" in m.say()[-1]
     )
 
 
@@ -119,12 +119,12 @@ def test_help_and_status_mention_the_shape(env):
     m = build(env)
     m.slash("help")
     assert any(
-        "/xporbs shape" in line and "starlight|retro|globe|crackle" in line
+        "/xporbs shape" in line and "starlight|retro|bubble|crackle" in line
         for line in m.say()
     )
-    m.db.orbShape = "globe"
+    m.db.orbShape = "bubble"
     m.slash("status")
-    assert any("orb shape: Globe" in line for line in m.say())
+    assert any("orb shape: Bubble" in line for line in m.say())
 
 
 def test_slash_refreshes_the_dropdown(env):
@@ -149,7 +149,7 @@ def test_orb_shape_dropdown_in_the_look_section(env):
     assert selection(dropdown) == [
         ("Starlight (default)", True),
         ("Retro", False),
-        ("Globe", False),
+        ("Bubble", False),
         ("Crackle", False),
     ]
     def y(key):
@@ -165,8 +165,8 @@ def test_picking_a_shape_saves_it_and_shows_the_reset(env):
     show(m)
     btn = m.opt.resets["orbShape"]
     assert not btn.shown
-    assert m.stub.pickMenu(m.opt.shapeDropdown, "Globe") is True
-    assert m.db.orbShape == "globe" and btn.shown
+    assert m.stub.pickMenu(m.opt.shapeDropdown, "Bubble") is True
+    assert m.db.orbShape == "bubble" and btn.shown
     assert [s for _, s in selection(m.opt.shapeDropdown)] == [False, False, True, False]
     m.stub.click(btn)
     assert m.db.orbShape == "starlight" and not btn.shown
@@ -244,7 +244,7 @@ def test_flying_orbs_wear_their_shapes_art(env, shape):
             )
         else:
             ghosts = [o.ghost1, o.ghost2] + (
-                [o.ghost3, o.ghost4] if shape == "globe" else []
+                [o.ghost3, o.ghost4] if shape == "bubble" else []
             )
             assert all(path_of(t) == GHOST_ART[shape] for t in ghosts)
     assert [o.shape is None for o in recs] == [shape == "starlight"] * len(recs)
@@ -337,7 +337,7 @@ def test_starlights_ceiling_is_unchanged(env):
 
 def test_a_tight_pool_drops_the_trail_per_shapes_plain_need(env):
     g = make(env)
-    set_shape(g, "globe")
+    set_shape(g, "bubble")
     g.db.trail = True
     g.db.cap = 10
     assert g.orbs.Info(g.orbs)[3] == 10 * 7 * 2 + 8  # 148, one slot of it the arrival flash's
@@ -351,15 +351,15 @@ def test_a_tight_pool_drops_the_trail_per_shapes_plain_need(env):
     assert in_use(g) == 0
 
 
-# ---------------------------------------------------------------- Globe
+# ---------------------------------------------------------------- Bubble
 
 
-def test_globe_has_no_count_size_or_time_multiplier(env):
+def test_bubble_has_no_count_size_or_time_multiplier(env):
     g = make(env)
-    set_shape(g, "globe")
+    set_shape(g, "bubble")
     g.db.flightTime = 1.0
     saved = {k: g.db[k] for k in ("size", "density", "flightTime", "cap")}
-    shape = g.ns.OrbShapes.by.globe
+    shape = g.ns.OrbShapes.by.bubble
     assert shape.timeMul == 1
     n, n_purple, scale = shape.adjust(10, 4, 1.0)
     assert (n, n_purple, scale) == (10, 4, 1.0)
@@ -373,27 +373,27 @@ def test_globe_has_no_count_size_or_time_multiplier(env):
 
 
 @pytest.mark.parametrize("n", [1, 2, 3, 7, 40])
-def test_globe_draws_every_orb_asked_for(env, n):
+def test_bubble_draws_every_orb_asked_for(env, n):
     g = make(env)
-    set_shape(g, "globe")
+    set_shape(g, "bubble")
     fire(g, "stream", n=n)
     assert len(flying(g)) == n
 
 
-def test_globe_default_size_draws_a_21_px_ball(env):
+def test_bubble_default_size_draws_a_21_px_ball(env):
     g = make(env)
-    g.ns.SetOrbShape("globe")
+    g.ns.SetOrbShape("bubble")
     g.ns.SetLook("pulse", False)
     assert g.db.size == 14
-    go(g, "globe", n=1, trail=False, advance=0.3)
+    go(g, "bubble", n=1, trail=False, advance=0.3)
     (o,) = flying(g)
     assert o.body.width == pytest.approx(21)
 
 
-def test_globe_breathes_and_draws_at_one_and_a_half_times_the_size(env):
+def test_bubble_breathes_and_draws_at_one_and_a_half_times_the_size(env):
     g = make(env)
     g.ns.SetLook("pulse", True)  # Pulsing starts off
-    go(g, "globe", n=2, trail=False, advance=0.0)
+    go(g, "bubble", n=2, trail=False, advance=0.0)
     (o, _) = flying(g)[:2]
     sizes = []
     for _ in range(30):
@@ -406,11 +406,11 @@ def test_globe_breathes_and_draws_at_one_and_a_half_times_the_size(env):
     assert o.under.width == pytest.approx(o.body.width)  # the dark disc is the body's size
 
 
-def test_pulse_off_keeps_the_globe_at_a_constant_size(env):
+def test_pulse_off_keeps_the_bubble_at_a_constant_size(env):
     g = make(env)
-    g.ns.SetOrbShape("globe")
+    g.ns.SetOrbShape("bubble")
     g.ns.SetLook("pulse", False)
-    go(g, "globe", n=1, trail=False, advance=0.0)
+    go(g, "bubble", n=1, trail=False, advance=0.0)
     (o,) = flying(g)
     sizes = []
     for _ in range(30):
@@ -422,7 +422,7 @@ def test_pulse_off_keeps_the_globe_at_a_constant_size(env):
     g.tick(0.02, 12)
     assert o.body.width == pytest.approx(o.size * 1.5)
     g.tick(5)  # the burst lands; the next one is set up with pulsing on and breathes
-    go(g, "globe", n=1, trail=False, advance=0.0)
+    go(g, "bubble", n=1, trail=False, advance=0.0)
     (o,) = flying(g)
     sizes = set()
     for _ in range(12):
@@ -443,15 +443,15 @@ def test_retro_sparkle_is_fixed_when_the_orb_is_set_up(env):
         assert not o.spark.shown
 
 
-def test_globe_glint_sits_up_and_left_and_breathes_with_the_body(env):
+def test_bubble_glint_sits_up_and_left_and_breathes_with_the_body(env):
     g = make(env)
-    go(g, "globe", n=1, trail=False, advance=0.3)
+    go(g, "bubble", n=1, trail=False, advance=0.3)
     (o,) = flying(g)
     for _ in range(6):
         g.tick(0.03, 1)
         body = o.body.width
         spark = o.spark
-        assert path_of(spark) == PRE + "globe_glint" and spark.shown
+        assert path_of(spark) == PRE + "bubble_glint" and spark.shown
         assert spark.width == pytest.approx(0.30 * body)
         assert spark.points[1][4] - o.body.points[1][4] == pytest.approx(-0.20 * body)
         assert spark.points[1][5] - o.body.points[1][5] == pytest.approx(0.20 * body)
@@ -462,18 +462,18 @@ def test_globe_glint_sits_up_and_left_and_breathes_with_the_body(env):
     assert tint == pytest.approx([c + (1 - c) * 0.75 for c in colour])
 
 
-def test_globe_pop_has_the_glint_too(env):
+def test_bubble_pop_has_the_glint_too(env):
     g = make(env)
-    go(g, "globe", style="popstream", n=1, advance=0.2)
+    go(g, "bubble", style="popstream", n=1, advance=0.2)
     under, body, glint = pop_textures(g)[:3]
-    assert path_of(glint) == PRE + "globe_glint" and glint.shown
+    assert path_of(glint) == PRE + "bubble_glint" and glint.shown
     assert glint.points[1][4] - body.points[1][4] == pytest.approx(-0.20 * body.width)
     assert glint.points[1][5] - body.points[1][5] == pytest.approx(0.20 * body.width)
 
 
-def test_globe_trail_has_four_ghosts_fainter_and_smaller(env):
+def test_bubble_trail_has_four_ghosts_fainter_and_smaller(env):
     g = make(env)
-    go(g, "globe", n=2, trail=True, advance=0.45)
+    go(g, "bubble", n=2, trail=True, advance=0.45)
     (o, _) = flying(g)[:2]
     ghosts = [o.ghost1, o.ghost2, o.ghost3, o.ghost4]
     assert all(t.shown for t in ghosts)
@@ -770,7 +770,7 @@ def test_crackle_pop_bolts_tick_too(env):
 
 
 @pytest.mark.parametrize(
-    "first, second", [("starlight", "retro"), ("globe", "crackle"), ("crackle", "starlight")]
+    "first, second", [("starlight", "retro"), ("bubble", "crackle"), ("crackle", "starlight")]
 )
 def test_the_shape_is_fixed_for_the_burst(env, first, second):
     g = make(env, trail=True)
@@ -797,7 +797,7 @@ def test_the_shape_is_fixed_for_a_pop_and_a_crossfade(env):
     )
     g.tick(0.05, 40)
     go(g, "starlight", style="crossfade", n=2, advance=0.1)
-    set_shape(g, "globe")
+    set_shape(g, "bubble")
     g.tick(0.05, 3)
     shown = [t for t in a_orbs(g)]
     assert shown and all(path_of(t) == PRE + "orb" for t in shown)
@@ -807,7 +807,7 @@ def test_the_shape_is_fixed_for_a_pop_and_a_crossfade(env):
 
 def test_a_recycled_record_never_keeps_the_old_shape(env):
     g = make(env, trail=True)
-    go(g, "globe", n=2, advance=0.1)
+    go(g, "bubble", n=2, advance=0.1)
     g.tick(0.05, 60)
     go(g, "starlight", n=2, advance=0.1)
     for o in flying(g):
@@ -817,7 +817,7 @@ def test_a_recycled_record_never_keeps_the_old_shape(env):
 # ---------------------------------------------------------------- Test burst, portrait bursts, textures all returned
 
 
-@pytest.mark.parametrize("shape", ["retro", "globe", "crackle"])
+@pytest.mark.parametrize("shape", ["retro", "bubble", "crackle"])
 def test_the_test_burst_uses_the_shape(env, shape):
     g = make(env, trail=True)
     set_shape(g, shape)
@@ -887,9 +887,9 @@ def test_every_media_texture_the_lua_names_exists():
         "retro",
         "retro_under",
         "retro_twinkle",
-        "globe",
-        "globe_under",
-        "globe_glint",
+        "bubble",
+        "bubble_under",
+        "bubble_glint",
         "crackle_core",
     } <= names
     assert {f"bolt{i}" for i in range(1, 5)} <= names
@@ -901,9 +901,9 @@ NEW = [
     "retro",
     "retro_under",
     "retro_twinkle",
-    "globe",
-    "globe_under",
-    "globe_glint",
+    "bubble",
+    "bubble_under",
+    "bubble_glint",
     "crackle_core",
     "bolt1",
     "bolt2",
@@ -1006,8 +1006,8 @@ def test_the_generators_keep_the_original_textures_byte_identical():
 
 
 
-def test_globe_glint_is_a_soft_blob_that_fades_well_inside_the_quad():
-    w, h, rows = read_tga(MEDIA / "globe_glint.tga")
+def test_bubble_glint_is_a_soft_blob_that_fades_well_inside_the_quad():
+    w, h, rows = read_tga(MEDIA / "bubble_glint.tga")
     assert (w, h) == (64, 64)
     assert alpha_at(rows, 31, 31) == 255 and alpha_at(rows, 32, 32) == 255  # peak alpha 1.0 in the middle
     ring = [
@@ -1044,11 +1044,11 @@ def test_the_bolts_hug_the_cores_rim(name):
     assert max(radii) < 0.75  # the spike is shorter too
 
 
-# ---------------------------------------------------------------- Solid blend (Retro, Globe, Crackle)
+# ---------------------------------------------------------------- Solid blend (Retro, Bubble, Crackle)
 
 SOLID_ART = {
     "retro": PRE + "retro_solid",
-    "globe": PRE + "globe_solid",
+    "bubble": PRE + "bubble_solid",
     "crackle": PRE + "crackle_core_solid",
 }
 SOLID_LIFT = 0.06
@@ -1079,7 +1079,7 @@ def solid_burst(g, shape, blend, **kw):
     return recs
 
 
-@pytest.mark.parametrize("shape", ["retro", "globe", "crackle"])
+@pytest.mark.parametrize("shape", ["retro", "bubble", "crackle"])
 def test_solid_body_is_the_solid_texture_blended_in_a_lifted_colour(env, shape):
     g = make(env)
     for o in solid_burst(g, shape, "solid"):
@@ -1091,18 +1091,18 @@ def test_solid_body_is_the_solid_texture_blended_in_a_lifted_colour(env, shape):
         assert tint_of(o.body) == pytest.approx([c + (1 - c) * SOLID_LIFT for c in want])
 
 
-@pytest.mark.parametrize("shape", ["retro", "globe", "crackle"])
+@pytest.mark.parametrize("shape", ["retro", "bubble", "crackle"])
 def test_solid_layers_underlay_minus_two_trail_minus_one_top_plus_one(env, shape):
     g = make(env)
     for o in solid_burst(g, shape, "solid"):
         assert layer_of(o.under) == -2 and mode_of(o.under) == "BLEND"
         assert layer_of(o.spark) == 1 and mode_of(o.spark) == "ADD"
         ghosts = ghosts_of(o)
-        assert len(ghosts) == {"retro": 2, "globe": 4, "crackle": 3}[shape]
+        assert len(ghosts) == {"retro": 2, "bubble": 4, "crackle": 3}[shape]
         assert all(layer_of(t) == -1 and mode_of(t) == "ADD" for t in ghosts)
 
 
-@pytest.mark.parametrize("shape", ["retro", "globe", "crackle"])
+@pytest.mark.parametrize("shape", ["retro", "bubble", "crackle"])
 def test_natural_keeps_todays_sublayers_and_modes(env, shape):
     g = make(env)
     for o in solid_burst(g, shape, "natural"):
@@ -1158,9 +1158,9 @@ def test_starlight_ignores_blend(env):
 def test_solid_pops_use_the_solid_art_too(env):
     g = make(env)
     g.db.blend = "solid"
-    go(g, "globe", style="popstream", n=1, advance=0.2)
+    go(g, "bubble", style="popstream", n=1, advance=0.2)
     under, body, glint = pop_textures(g)[:3]
-    assert path_of(body) == SOLID_ART["globe"] and mode_of(body) == "BLEND"
+    assert path_of(body) == SOLID_ART["bubble"] and mode_of(body) == "BLEND"
     assert layer_of(under) == -2 and layer_of(glint) == 1
 
 

@@ -13,8 +13,8 @@ from test_v102 import load_db
 
 DEFAULT_LOOK = {
     "starlight": (14, 100, 100),
-    "retro": (2, 75, 100),
-    "globe": (14, 100, 100),
+    "retro": (2, 100, 100),
+    "bubble": (14, 100, 100),
     "crackle": (14, 100, 100),
 }
 
@@ -36,7 +36,7 @@ def retro_cell(step, scale=1.0):
 # ---------------------------------------------------------------- the renames and their old names
 
 
-@pytest.mark.parametrize("old, new", [("power", "crackle"), ("wisp", "globe")])
+@pytest.mark.parametrize("old, new", [("power", "crackle"), ("wisp", "bubble")])
 def test_a_saved_old_shape_name_is_mapped(env, old, new):
     assert load_db(env, {"version": 7, "orbShape": old}).orbShape == new
 
@@ -46,7 +46,7 @@ def test_the_slash_command_still_takes_the_old_names(env):
     m.slash("shape power")
     assert m.db.orbShape == "crackle" and m.say()[-1].endswith("orb shape: Crackle")
     m.slash("shape wisp")
-    assert m.db.orbShape == "globe" and m.say()[-1].endswith("orb shape: Globe")
+    assert m.db.orbShape == "bubble" and m.say()[-1].endswith("orb shape: Bubble")
 
 
 def test_the_labels_and_order(env):
@@ -55,7 +55,7 @@ def test_the_labels_and_order(env):
     assert [str(m.ns.SHAPE_LABEL[s]) for s in SHAPES] == [
         "Starlight",
         "Retro",
-        "Globe",
+        "Bubble",
         "Crackle",
     ]
     assert m.ns.SHAPE_LABEL["power"] is None and m.ns.SHAPE_LABEL["wisp"] is None
@@ -78,15 +78,15 @@ def test_every_shape_starts_with_its_own_defaults(env):
     assert (
         active(db) == DEFAULT_LOOK["starlight"]
         and db.opacity == 100
-        and db.pulse is False  # Pulsing starts off (only Globe uses it)
+        and db.pulse is False  # Pulsing starts off (only Bubble uses it)
     )
 
 
 def test_a_save_without_shapelook_keeps_its_size_and_density_for_the_current_shape(env):
     db = load_db(env, {"version": 7, "orbShape": "crackle", "size": 20, "density": 200})
     assert look_of(db, "crackle") == (20, 200, 100)
-    assert [look_of(db, s) for s in ("starlight", "globe", "retro")] == [
-        DEFAULT_LOOK[s] for s in ("starlight", "globe", "retro")
+    assert [look_of(db, s) for s in ("starlight", "bubble", "retro")] == [
+        DEFAULT_LOOK[s] for s in ("starlight", "bubble", "retro")
     ]
     assert active(db) == (20, 200, 100)
 
@@ -98,7 +98,7 @@ def test_the_migration_defaults_to_starlight_and_maps_old_names(env):
         and look_of(db, "retro") == DEFAULT_LOOK["retro"]
     )
     env2_db = load_db(env, {"version": 7, "orbShape": "wisp", "size": 9})
-    assert env2_db.orbShape == "globe" and look_of(env2_db, "globe") == (9, 100, 100)
+    assert env2_db.orbShape == "bubble" and look_of(env2_db, "bubble") == (9, 100, 100)
 
 
 def test_the_migration_clamps_what_it_copies(env):
@@ -121,7 +121,7 @@ def test_the_active_values_come_from_the_current_shapes_entry(env):
     )
     assert active(db) == (
         5,
-        75,
+        100,
         100,
     )  # the entry wins; its missing keys get that shape's defaults
 
@@ -131,16 +131,16 @@ def test_partial_and_junk_entries_are_repaired_and_clamped(env):
         env,
         {
             "version": 7,
-            "orbShape": "globe",
+            "orbShape": "bubble",
             "shapeLook": {
-                "globe": {"size": 99, "density": "x"},
+                "bubble": {"size": 99, "density": "x"},
                 "retro": "junk",
                 "starlight": {"size": 10, "opacity": 33},
                 "crackle": {"opacity": -5, "size": float("nan")},
             },
         },
     )
-    assert look_of(db, "globe") == (32, 100, 100)
+    assert look_of(db, "bubble") == (32, 100, 100)
     assert look_of(db, "retro") == DEFAULT_LOOK["retro"]
     assert look_of(db, "starlight") == (10, 100, 35)  # opacity snaps to its step of 5
     assert look_of(db, "crackle") == (14, 100, 20)
@@ -149,10 +149,10 @@ def test_partial_and_junk_entries_are_repaired_and_clamped(env):
 
 @pytest.mark.parametrize("junk", ["text", 5, True, [], {}])
 def test_a_junk_shapelook_gives_the_defaults(env, junk):
-    db = load_db(env, {"version": 7, "orbShape": "globe", "shapeLook": junk})
+    db = load_db(env, {"version": 7, "orbShape": "bubble", "shapeLook": junk})
     for shape, look in DEFAULT_LOOK.items():
         assert look_of(db, shape) == look
-    assert active(db) == DEFAULT_LOOK["globe"]
+    assert active(db) == DEFAULT_LOOK["bubble"]
 
 
 def test_no_schema_bump_for_the_look(env):
@@ -173,7 +173,7 @@ def test_switching_stores_the_active_look_and_loads_the_new_shapes(env):
     ns, db = g.ns, g.db
     db.size = 20  # the Starlight tuning
     assert ns.SetOrbShape("retro") is True
-    assert db.orbShape == "retro" and active(db) == (2, 75, 100)
+    assert db.orbShape == "retro" and active(db) == (2, 100, 100)
     assert look_of(db, "starlight") == (20, 100, 100)
     db.size, db.density, db.opacity = 5, 150, 60
     assert ns.SetOrbShape("starlight") is True
@@ -188,7 +188,7 @@ def test_switching_rejects_unknown_names_and_takes_old_ones(env):
     assert g.ns.SetOrbShape("power") is True and g.db.orbShape == "crackle"
     assert (
         g.ns.SetOrbShape("wisp") is True
-        and g.db.orbShape == "globe"
+        and g.db.orbShape == "bubble"
         and g.db.size == 14
     )
 
@@ -207,9 +207,9 @@ def test_the_slash_command_switches_and_the_sliders_follow(env):
     show(m)
     m.stub.slide(ctl(m, "size"), 20)
     m.slash("shape retro")
-    assert active(m.db) == (2, 75, 100)
+    assert active(m.db) == (2, 100, 100)
     # (the size slider still has the 8-32 range until the Options follow Retro's 1-7)
-    assert (ctl(m, "density").value, ctl(m, "opacity").value) == (75, 100)
+    assert (ctl(m, "density").value, ctl(m, "opacity").value) == (100, 100)
     m.slash("shape starlight")
     assert ctl(m, "size").value == 20 and ctl(m, "density").value == 100
 
@@ -218,7 +218,7 @@ def test_the_dropdown_switches_and_the_sliders_follow(env):
     m = build(env)
     show(m)
     m.stub.slide(ctl(m, "opacity"), 60)
-    assert m.stub.pickMenu(m.opt.shapeDropdown, "Globe") is True
+    assert m.stub.pickMenu(m.opt.shapeDropdown, "Bubble") is True
     assert active(m.db) == (14, 100, 100)
     assert ctl(m, "size").value == 14 and ctl(m, "opacity").value == 100
     m.stub.pickMenu(m.opt.shapeDropdown, "Starlight (default)")
@@ -288,12 +288,12 @@ def test_the_reset_buttons_restore_the_current_shapes_default(env):
     assert str(m.stub.tooltip.text) == "Reset to default: 2 px"
     m.stub.click(size_btn)
     assert m.db.size == 2 and look_of(m.db, "retro")[0] == 2 and not size_btn.shown
-    m.stub.slide(ctl(m, "density"), 100)
+    m.stub.slide(ctl(m, "density"), 75)
     assert density_btn.shown
     m.stub.hover(density_btn)
-    assert str(m.stub.tooltip.text) == "Reset to default: 75%"
+    assert str(m.stub.tooltip.text) == "Reset to default: 100%"
     m.stub.click(density_btn)
-    assert m.db.density == 75 and look_of(m.db, "retro")[1] == 75
+    assert m.db.density == 100 and look_of(m.db, "retro")[1] == 100
 
 
 def test_the_buttons_follow_a_shape_switch(env):
@@ -324,7 +324,7 @@ def test_the_shape_reset_goes_back_to_starlight_and_swaps_the_look(env):
 
 def test_reset_all_restores_every_shapes_entry(env):
     m = build(env)
-    for shape, size in (("starlight", 9), ("retro", 30), ("globe", 8), ("crackle", 25)):
+    for shape, size in (("starlight", 9), ("retro", 30), ("bubble", 8), ("crackle", 25)):
         m.slash(f"shape {shape}")
         m.db.size, m.db.opacity = size, 40
         m.ns.SetLook("size", size)
@@ -338,12 +338,12 @@ def test_reset_all_restores_every_shapes_entry(env):
 
 def test_the_core_reset_of_a_look_matches_the_buttons(env):
     g = make(env)
-    g.ns.SetOrbShape("globe")
+    g.ns.SetOrbShape("bubble")
     g.ns.SetLook("size", 9)
-    assert g.db.size == 9 and look_of(g.db, "globe")[0] == 9
+    assert g.db.size == 9 and look_of(g.db, "bubble")[0] == 9
     assert (
-        g.ns.ShapeDefault("globe", "size") == 14
-        and g.ns.ShapeDefault("retro", "density") == 75
+        g.ns.ShapeDefault("bubble", "size") == 14
+        and g.ns.ShapeDefault("retro", "density") == 100
     )
 
 
@@ -356,14 +356,14 @@ def test_status_shows_the_active_shapes_look(env):
     m.stub.chat = m.lua.table() if False else m.stub.chat
     m.slash("status")
     assert any(
-        "orb shape: Retro (size 2 px, quantity 75%, opacity 100%), pulsing off" in line
+        "orb shape: Retro (size 2 px, quantity 100%, opacity 100%), pulsing off" in line
         for line in m.say()
     )
-    m.slash("shape globe")
+    m.slash("shape bubble")
     m.slash("pulse off")
     m.slash("status")
     assert any(
-        "orb shape: Globe (size 14, quantity 100%, opacity 100%), pulsing off" in line
+        "orb shape: Bubble (size 14, quantity 100%, opacity 100%), pulsing off" in line
         for line in m.say()
     )
 
@@ -420,70 +420,70 @@ def test_pulse_defaults_off_and_is_a_boolean(env):
     # pulse is per shape now: a junk value in a shape's entry gets the default, a real boolean stays
     db = load_db(
         env,
-        {"lookRev": 2, "orbShape": "globe", "shapeLook": {"globe": {"pulse": "yes"}}},
+        {"lookRev": 2, "orbShape": "bubble", "shapeLook": {"bubble": {"pulse": "yes"}}},
     )
-    assert db.pulse is False and db.shapeLook.globe.pulse is False
+    assert db.pulse is False and db.shapeLook.bubble.pulse is False
     db = load_db(
-        env, {"lookRev": 2, "orbShape": "globe", "shapeLook": {"globe": {"pulse": True}}}
+        env, {"lookRev": 2, "orbShape": "bubble", "shapeLook": {"bubble": {"pulse": True}}}
     )
-    assert db.pulse is True and db.shapeLook.globe.pulse is True
+    assert db.pulse is True and db.shapeLook.bubble.pulse is True
 
 
 def test_the_pulse_slash_command(env):
     m = build(env)
-    m.slash("shape globe")
+    m.slash("shape bubble")
     m.slash("pulse")
     assert m.say()[-1].endswith("pulsing: off")
     m.slash("pulse on")
     assert m.db.pulse is True and m.say()[-1].endswith("pulsing: on")
-    assert m.db.shapeLook.globe.pulse is True and m.db.shapeLook.retro.pulse is False
+    assert m.db.shapeLook.bubble.pulse is True and m.db.shapeLook.retro.pulse is False
     m.slash("pulse off")
-    assert m.db.pulse is False and m.db.shapeLook.globe.pulse is False
+    assert m.db.pulse is False and m.db.shapeLook.bubble.pulse is False
     m.slash("pulse sideways")
     assert "pulse: use on or off (now off)" in m.say()[-1]
     m.slash("help")
     assert any("/xporbs pulse on|off" in line for line in m.say())
 
 
-def test_the_pulse_command_off_globe_sets_globes_own_look(env):
+def test_the_pulse_command_off_bubble_sets_bubbles_own_look(env):
     m = build(env)
     m.slash("shape starlight")
     m.slash("pulse on")
-    assert m.say()[-1].endswith("pulsing: on (Globe only)")
-    assert m.db.shapeLook.globe.pulse is True
+    assert m.say()[-1].endswith("pulsing: on (Bubble only)")
+    assert m.db.shapeLook.bubble.pulse is True
     assert m.db.pulse is False and m.db.shapeLook.starlight.pulse is False  # Starlight's own look is untouched
-    m.slash("shape globe")
+    m.slash("shape bubble")
     assert m.db.pulse is True
     m.slash("shape retro")
     m.slash("pulse off")
-    assert m.say()[-1].endswith("pulsing: off (Globe only)")
-    assert m.db.shapeLook.retro.pulse is False and m.db.shapeLook.globe.pulse is False
-    m.slash("shape globe")
+    assert m.say()[-1].endswith("pulsing: off (Bubble only)")
+    assert m.db.shapeLook.retro.pulse is False and m.db.shapeLook.bubble.pulse is False
+    m.slash("shape bubble")
     assert m.db.pulse is False
 
 
-def test_the_pulse_command_with_no_argument_reports_globes_value(env):
+def test_the_pulse_command_with_no_argument_reports_bubbles_value(env):
     m = build(env)
-    m.slash("shape globe")
+    m.slash("shape bubble")
     m.slash("pulse on")
     m.slash("shape crackle")
     m.slash("pulse")
-    assert m.say()[-1].endswith("pulsing: on (Globe only)")
-    m.slash("shape globe")
+    assert m.say()[-1].endswith("pulsing: on (Bubble only)")
+    m.slash("shape bubble")
     m.slash("pulse")
-    assert m.say()[-1].endswith("pulsing: on") and not m.say()[-1].endswith("(Globe only)")
+    assert m.say()[-1].endswith("pulsing: on") and not m.say()[-1].endswith("(Bubble only)")
 
 
 def test_the_pulsing_checkbox_follows_the_shape_dropdown(env):
     m = build(env)
     show(m)
-    m.slash("shape globe")
+    m.slash("shape bubble")
     box = ctl(m, "pulse")
     assert box.checked is False and box.shown and str(m.opt.rows["pulse"].points[1][5]) != ""
     assert -m.opt.rows["orbShape"].points[1][5] < -m.opt.rows["pulse"].points[1][5]
     assert -m.opt.rows["pulse"].points[1][5] < -m.opt.rows["color"].points[1][5]
     m.stub.hover(box)
-    assert str(m.stub.tooltip.text) == "Globe orbs gently swell and shrink."
+    assert str(m.stub.tooltip.text) == "Bubble orbs gently swell and shrink."
     m.stub.click(box)
     assert m.db.pulse is True and m.opt.resets["pulse"].shown
     m.slash("pulse off")
@@ -668,7 +668,7 @@ def test_orb_size_is_the_generic_size_units(env):
         assert ns.OrbSize({"orbShape": "retro", "size": step}) * ns.RETRO_K == pytest.approx(
             8 * step
         )
-    for shape in ("starlight", "globe", "crackle"):
+    for shape in ("starlight", "bubble", "crackle"):
         assert ns.OrbSize({"orbShape": shape, "size": 20}) == 20
 
 
@@ -775,9 +775,9 @@ def test_retro_pops_keep_the_rested_cell_too(env):
 
 def test_the_other_shapes_pops_keep_their_sizes(env):
     g = make(env)
-    g.ns.SetOrbShape("globe")
+    g.ns.SetOrbShape("bubble")
     g.ns.SetLook("pulse", False)
-    for shape, factor in (("globe", 1.5), ("crackle", 2.0 * 1.15), ("starlight", 2.0)):
+    for shape, factor in (("bubble", 1.5), ("crackle", 2.0 * 1.15), ("starlight", 2.0)):
         set_shape(g, shape)
         fire(g, "popstream", n=1)
         g.tick(0.02, 3)  # progress well under the shrink, alpha 1
@@ -987,15 +987,15 @@ def db_of(m, shape, size=None, rested=False):
 def test_the_spacing_is_per_shape(env):
     m = build(env)
     sp = m.ns.ShapePreview
-    assert {k: float(v) for k, v in sp.VISIBLE.items()} == {"starlight": 1.15, "globe": 1.08, "crackle": 1.35}
+    assert {k: float(v) for k, v in sp.VISIBLE.items()} == {"starlight": 1.15, "bubble": 1.08, "crackle": 1.35}
     # visible disc + a gap of 12 % (at least 3 px), Rested tint off
-    for shape, size in (("starlight", 14), ("globe", 14), ("crackle", 14), ("starlight", 30)):
+    for shape, size in (("starlight", 14), ("bubble", 14), ("crackle", 14), ("starlight", 30)):
         db = db_of(m, shape, size)
         visible = sp.VISIBLE[shape] * size
         assert sp.VisibleFor(db) == pytest.approx(visible)
         assert sp.SpacingFor(db) == pytest.approx(visible + max(3, 0.12 * visible))
     # Rested tint: the rested orbs are 1.15 x bigger and the spacing allows for them
-    assert sp.VisibleFor(db_of(m, "globe", 14, rested=True)) == pytest.approx(1.08 * 14 * 1.15)
+    assert sp.VisibleFor(db_of(m, "bubble", 14, rested=True)) == pytest.approx(1.08 * 14 * 1.15)
     # Retro: the disc is 8 cells, the gap 2 cells; every orb is drawn on the one cell, so Rested tint changes nothing
     assert sp.SpacingFor(db_of(m, "retro", 2)) == 20
     assert sp.SpacingFor(db_of(m, "retro", 3)) == 30
@@ -1022,7 +1022,7 @@ def test_the_fit_is_separate_in_x_and_y_and_has_a_floor(env):
 def test_the_cluster_unit_is_the_visible_diameter(env):
     m = build(env)
     sp = m.ns.ShapePreview
-    db = db_of(m, "globe", 14)
+    db = db_of(m, "bubble", 14)
     assert sp.RadiusFor(sp.Pattern(6, True), db, True) == pytest.approx(float(sp.VisibleFor(db)))
 
 
@@ -1075,7 +1075,7 @@ def test_unused_textures_are_hidden(env):
 )
 def test_the_preview_is_set_up_again_when_the_look_changes(env, change):
     m = build(env)
-    m.slash("shape globe")
+    m.slash("shape bubble")
     up(m)
     box = m.ns.ShapePreview.box
     first = box.pattern
@@ -1143,7 +1143,7 @@ def test_the_preview_follows_the_crackle_speed(env):
 def test_the_preview_uses_the_same_sizes_as_real_orbs(env):
     m = build(env)
     up(m)
-    m.slash("shape globe")
+    m.slash("shape bubble")
     m.ns.SetLook("pulse", False)
     tick(m)
     widths = [t.width for t in bodies(m)]
@@ -1177,7 +1177,7 @@ def test_the_preview_updates_with_size_opacity_pulse_and_colours(env):
     m.stub.slide(ctl(m, "opacity"), 50)
     tick(m)
     assert all(t.alpha == pytest.approx(0.5) for t in bodies(m))
-    m.slash("shape globe")
+    m.slash("shape bubble")
     m.stub.click(ctl(m, "pulse"))  # Pulsing starts off: switch it on
     tick(m, 8)
     assert len({round(float(bodies(m)[0].width), 3) for _ in range(1)}) == 1
@@ -1237,7 +1237,7 @@ def test_the_previews_ticks_run_only_while_the_panel_is_shown(env):
     m.opt.panel.scripts.OnHide(m.opt.panel)
     assert box.scripts.OnUpdate is None and not m.ns.ShapePreview.window.shown
     # a slash command refreshes the panel even while hidden: that must not wake the preview
-    m.slash("shape globe")
+    m.slash("shape bubble")
     assert box.scripts.OnUpdate is None and not m.ns.ShapePreview.window.shown
     show(m)
     assert box.scripts.OnUpdate is not None and m.ns.ShapePreview.window.shown
@@ -1271,8 +1271,8 @@ def test_a_draw_error_is_logged_once_and_never_thrown(env):
     m.slash("debug on")  # the log only records with it on
     up(m)
     tick(m)
-    m.ns.OrbShapes.by.globe.draw = m.lua.eval("function() error('boom') end")
-    m.slash("shape globe")
+    m.ns.OrbShapes.by.bubble.draw = m.lua.eval("function() error('boom') end")
+    m.slash("shape bubble")
     tick(m, 5)
     assert (
         sum(
@@ -1298,11 +1298,11 @@ def test_shape_range_gives_retro_its_own_size_range(env):
     retro = g.ns.ShapeRange("retro", "size")
     assert tuple(retro.values()) == (1, 7, 1)
     assert tuple(g.ns.RETRO_SIZE_RANGE.values()) == (1, 7, 1)
-    assert tuple(g.ns.ShapeRange("globe", "size").values()) == (8, 32, 1)
+    assert tuple(g.ns.ShapeRange("bubble", "size").values()) == (8, 32, 1)
     assert tuple(g.ns.ShapeRange("retro", "density").values()) == (25, 400, 25)
     assert tuple(g.ns.ShapeRange("starlight", "opacity").values()) == (20, 100, 5)
     assert g.ns.ShapeRange("retro", "blend") is None
-    assert g.ns.ShapeRange("globe", "pulse") is None
+    assert g.ns.ShapeRange("bubble", "pulse") is None
 
 
 def test_every_shape_defaults_carry_all_six_keys(env):
@@ -1321,14 +1321,14 @@ def test_sanitize_snaps_sizes_per_shape(env):
             "lookRev": 2,
             "shapeLook": {
                 "retro": {"size": 50},
-                "globe": {"size": 3},
+                "bubble": {"size": 3},
                 "starlight": {"size": 2},
                 "crackle": {"size": 0},
             },
         },
     )
     assert db.shapeLook.retro.size == 7
-    assert db.shapeLook.globe.size == 8
+    assert db.shapeLook.bubble.size == 8
     assert db.shapeLook.starlight.size == 8
     assert db.shapeLook.crackle.size == 8
     db = load_db(env, {"lookRev": 2, "shapeLook": {"retro": {"size": -4}}})
@@ -1350,14 +1350,14 @@ def test_bad_blend_pulse_and_sparkle_fall_back_to_the_shape_default(env):
             "orbShape": "retro",
             "shapeLook": {
                 "retro": {"blend": "glowy", "pulse": "no", "sparkle": 1},
-                "globe": {"blend": "solid", "pulse": False, "sparkle": False},
+                "bubble": {"blend": "solid", "pulse": False, "sparkle": False},
                 "crackle": {"blend": 5},
             },
         },
     )
-    retro, globe, crackle = (db.shapeLook[s] for s in ("retro", "globe", "crackle"))
+    retro, bubble, crackle = (db.shapeLook[s] for s in ("retro", "bubble", "crackle"))
     assert (retro.blend, retro.pulse, retro.sparkle) == ("natural", False, True)
-    assert (globe.blend, globe.pulse, globe.sparkle) == ("solid", False, False)
+    assert (bubble.blend, bubble.pulse, bubble.sparkle) == ("solid", False, False)
     assert crackle.blend == "natural"
     assert (db.blend, db.pulse, db.sparkle) == ("natural", False, True)  # retro's, active
 
@@ -1367,9 +1367,9 @@ def test_the_active_blend_pulse_and_sparkle_follow_the_current_shape(env):
         env,
         {
             "lookRev": 2,
-            "orbShape": "globe",
+            "orbShape": "bubble",
             "pulse": True,
-            "shapeLook": {"globe": {"blend": "solid", "pulse": False, "sparkle": False}},
+            "shapeLook": {"bubble": {"blend": "solid", "pulse": False, "sparkle": False}},
         },
     )
     assert (db.blend, db.pulse, db.sparkle) == ("solid", False, False)
@@ -1377,7 +1377,7 @@ def test_the_active_blend_pulse_and_sparkle_follow_the_current_shape(env):
 
 def test_a_global_pulse_flag_that_is_not_a_boolean_is_ignored(env):
     db = load_db(env, {"pulse": "yes"})
-    assert db.pulse is False and db.shapeLook.globe.pulse is False
+    assert db.pulse is False and db.shapeLook.bubble.pulse is False
 
 
 def test_switching_shapes_swaps_blend_pulse_and_sparkle(env):
@@ -1386,22 +1386,22 @@ def test_switching_shapes_swaps_blend_pulse_and_sparkle(env):
     ns.SetOrbShape("retro")
     ns.SetLook("blend", "solid")
     ns.SetLook("sparkle", False)
-    ns.SetOrbShape("globe")
+    ns.SetOrbShape("bubble")
     assert (db.blend, db.pulse, db.sparkle) == ("natural", False, True)
     ns.SetLook("pulse", True)
     ns.SetOrbShape("retro")
     assert (db.blend, db.pulse, db.sparkle) == ("solid", False, False)
-    assert db.shapeLook.globe.blend == "natural" and db.shapeLook.globe.pulse is True
-    ns.SetOrbShape("globe")
+    assert db.shapeLook.bubble.blend == "natural" and db.shapeLook.bubble.pulse is True
+    ns.SetOrbShape("bubble")
     assert (db.blend, db.pulse, db.sparkle) == ("natural", True, True)
 
 
-def test_set_look_blend_on_retro_leaves_globe_alone(env):
+def test_set_look_blend_on_retro_leaves_bubble_alone(env):
     g = make(env)
     g.ns.SetOrbShape("retro")
     g.ns.SetLook("blend", "solid")
     assert g.db.blend == "solid" and g.db.shapeLook.retro.blend == "solid"
-    assert g.db.shapeLook.globe.blend == "natural"
+    assert g.db.shapeLook.bubble.blend == "natural"
     assert g.db.shapeLook.starlight.blend == "natural"
 
 
@@ -1420,9 +1420,9 @@ def test_look_values_survive_a_reload(env):
 def test_migration_keeps_values_that_are_already_valid(env):
     db = load_db(
         env,
-        {"version": 7, "shapeLook": {"retro": {"size": 5}, "globe": {"size": 20}}},
+        {"version": 7, "shapeLook": {"retro": {"size": 5}, "bubble": {"size": 20}}},
     )
-    assert db.shapeLook.retro.size == 5 and db.shapeLook.globe.size == 20
+    assert db.shapeLook.retro.size == 5 and db.shapeLook.bubble.size == 20
     assert db.lookRev == 2
 
 
@@ -1432,7 +1432,7 @@ def test_a_130_save_becomes_starlights_look(env):
     assert db.orbShape == "starlight" and db.lookRev == 2
     assert look_of(db, "starlight") == (20, 75, 100)
     assert active(db) == (20, 75, 100)
-    for shape in ("retro", "globe", "crackle"):
+    for shape in ("retro", "bubble", "crackle"):
         assert look_of(db, shape) == DEFAULT_LOOK[shape]
     assert db.sound is False  # the stored chime choice survives the new default
 
@@ -1456,39 +1456,39 @@ def test_reset_keeps_lookrev_so_the_migration_does_not_return(env):
     m = build(env)
     m.slash("reset")
     assert m.db.lookRev == 2
-    m.db.shapeLook.globe.size = 17
+    m.db.shapeLook.bubble.size = 17
     db = reload_db(env)
-    assert db.shapeLook.globe.size == 17
+    assert db.shapeLook.bubble.size == 17
 
 
-def test_pulse_off_on_globe_is_globes_alone(env):
+def test_pulse_off_on_bubble_is_bubbles_alone(env):
     m = build(env)
-    m.slash("shape globe")
+    m.slash("shape bubble")
     m.slash("pulse off")
-    assert m.db.shapeLook.globe.pulse is False and m.db.shapeLook.retro.pulse is False
+    assert m.db.shapeLook.bubble.pulse is False and m.db.shapeLook.retro.pulse is False
     m.slash("pulse on")
-    assert m.db.shapeLook.globe.pulse is True and m.db.shapeLook.retro.pulse is False
+    assert m.db.shapeLook.bubble.pulse is True and m.db.shapeLook.retro.pulse is False
     m.slash("shape retro")
     assert m.db.pulse is False
-    m.slash("shape globe")
+    m.slash("shape bubble")
     assert m.db.pulse is True
 
 
 def test_the_preview_resyncs_when_blend_changes(env):
     m = build(env)
     up(m)
-    m.slash("shape globe")
+    m.slash("shape bubble")
     tick(m)
-    assert path_of(bodies(m)[0]) == PRE + "globe"
+    assert path_of(bodies(m)[0]) == PRE + "bubble"
     m.ns.SetLook("blend", "solid")
     m.ns.ShapePreview.Sync(m.ns.ShapePreview)
     tick(m)
-    assert path_of(bodies(m)[0]) == PRE + "globe_solid"
+    assert path_of(bodies(m)[0]) == PRE + "bubble_solid"
     assert str(bodies(m)[0].calls["SetBlendMode"][1]) == "BLEND"
     m.ns.SetLook("blend", "natural")
     m.ns.ShapePreview.Sync(m.ns.ShapePreview)
     tick(m)
-    assert path_of(bodies(m)[0]) == PRE + "globe"
+    assert path_of(bodies(m)[0]) == PRE + "bubble"
 
 
 def test_the_preview_resyncs_when_sparkle_changes(env):
@@ -1507,7 +1507,7 @@ def test_the_preview_resyncs_when_sparkle_changes(env):
 
 # ---------------------------------------------------------------- tidy layout (no overlap) and the Cluster tickbox
 
-VISIBLE_SHARE = {"starlight": 0.6, "globe": 0.72, "crackle": 0.5, "retro": 1.0}  # of the body quad's width
+VISIBLE_SHARE = {"starlight": 0.6, "bubble": 0.72, "crackle": 0.5, "retro": 1.0}  # of the body quad's width
 
 
 def at_count(m, shape, n, cluster=False, rested=True):
@@ -1581,7 +1581,7 @@ def test_the_cluster_grows_outwards_and_stays_centred(env):
 def test_the_clustered_rested_orbs_are_mixed_in_not_a_bottom_row(env):
     m = build(env)
     for n in (6, 9, 12):
-        bs = at_count(m, "globe", n, cluster=True)
+        bs = at_count(m, "bubble", n, cluster=True)
         rested = tuple(round(float(m.db.restedColor[i]), 3) for i in (1, 2, 3))
         flags = [
             tuple(round(float(v), 3) for v in b.calls["SetVertexColor"].values()) == rested for b in bs
@@ -1636,7 +1636,7 @@ def test_the_cluster_setting_is_a_sanitized_boolean_and_reset_by_reset(env):
 def test_the_cluster_unit_ignores_the_rested_scale_and_starlight_is_stretched(env):
     m = build(env)
     sp = m.ns.ShapePreview
-    for shape, factor in (("globe", 1), ("crackle", 1), ("retro", 1), ("starlight", 1.3)):
+    for shape, factor in (("bubble", 1), ("crackle", 1), ("retro", 1), ("starlight", 1.3)):
         on = db_of(m, shape, None, rested=True)
         off = db_of(m, shape, None, rested=False)
         points = sp.Pattern(6, True)
