@@ -14,7 +14,18 @@ function(mode)
             error("unknown frame type")
         end
         local f = base(kind, ...)
+        if kind == "Frame" then
+            f.raised = 0
+            f.SetToplevel = function(self, v) self.calls = self.calls or {}; self.calls.SetToplevel = { v } end
+            f.Raise = function(self) self.raised = self.raised + 1 end
+        end
         if kind == "PlayerModel" then
+            if mode == "blank" or mode == "blank-then-loads" then
+                -- reports no file until it is loaded; "blank" never loads, the other loads on the 2nd SetCreature
+                f.clears = 0
+                f.GetModelFileID = function(self) return self.loaded and 123456 or nil end
+                f.ClearModel = function(self) self.clears = self.clears + 1 end
+            end
             f.log, f.anims = {}, {}
             for _, name in ipairs({ "SetCreature", "SetDisplayInfo", "SetAnimation", "SetPortraitZoom",
                     "SetCamDistanceScale", "SetFacing", "SetPosition" }) do
@@ -105,7 +116,9 @@ def test_a_failed_build_hides_its_frame_and_is_not_retried(env):
     )()
     show(m)
     first = len(lua_list(created))
-    assert first > 0 and not created[1].shown  # the half-built window is hidden, not left on screen
+    assert (
+        first > 0 and not created[1].shown
+    )  # the half-built window is hidden, not left on screen
     assert pv.window is None and pv.model is None and pv.popAnchor is None
     hide(m)
     show(m)
@@ -126,8 +139,8 @@ def test_window_follows_the_options_panel(env):
     assert pv.window.shown
     assert pv.window.width == 200 and pv.window.height == pv.WINDOW_H == 286
     assert (
-        pv.window.calls["SetFrameStrata"][1] == "MEDIUM"
-    )  # below the HIGH orbs overlay
+        pv.window.calls["SetFrameStrata"][1] == "DIALOG"
+    )  # the settings panel's strata, raised above it
 
 
 def test_docks_to_the_settings_panel_when_there_is_no_orb_preview(env):
@@ -158,7 +171,9 @@ def test_every_style_gets_the_located_case(env, style):
     m.slash("test 5 " + style)
     p = m.ns.captured
     assert (
-        p["est"] != "default" and m.same(p["plate"], m.ns.Preview.popAnchor) and p["ex"] == 1500
+        p["est"] != "default"
+        and m.same(p["plate"], m.ns.Preview.popAnchor)
+        and p["ex"] == 1500
     )
 
 
@@ -254,7 +269,9 @@ def test_model_calls_are_pcall_guarded(env):
     m.slash("test 5")
     m.stub.tick(4)
     m.stub.runTimers()
-    assert m.ns.Preview.window.shown and m.same(m.ns.captured["plate"], m.ns.Preview.popAnchor)
+    assert m.ns.Preview.window.shown and m.same(
+        m.ns.captured["plate"], m.ns.Preview.popAnchor
+    )
 
 
 def test_a_missing_model_api_breaks_nothing(env):
@@ -292,7 +309,11 @@ def pop_y_from_window_top(m, style, zoom_anchor):
     ]
     assert hung
     anchor_pt = lua_list(anchor.points)[-1]
-    assert anchor_pt[1] == "BOTTOM" and m.same(anchor_pt[2], m.ns.Preview.window) and anchor_pt[3] == "TOP"
+    assert (
+        anchor_pt[1] == "BOTTOM"
+        and m.same(anchor_pt[2], m.ns.Preview.window)
+        and anchor_pt[3] == "TOP"
+    )
     rel, offset = hung[-1][3], hung[-1][5]
     base = anchor_pt[5] + (anchor.height / 2 if rel == "CENTER" else 0)
     return base + offset
@@ -300,7 +321,9 @@ def pop_y_from_window_top(m, style, zoom_anchor):
 
 @pytest.mark.parametrize("zoom_anchor", [True, False])
 @pytest.mark.parametrize("style", ["popstream", "crossfade"])
-def test_the_stream_origin_rises_with_the_model_and_the_pop_anchor_stays_put(env, style, zoom_anchor):
+def test_the_stream_origin_rises_with_the_model_and_the_pop_anchor_stays_put(
+    env, style, zoom_anchor
+):
     m = make(env)
     show(m)
     y = pop_y_from_window_top(m, style, zoom_anchor)
@@ -308,23 +331,33 @@ def test_the_stream_origin_rises_with_the_model_and_the_pop_anchor_stays_put(env
     bar_y = -(12 + 44 - 4)  # the health bar's centre
     area_h = 260 - 8 - (12 + 44 + 4)  # the model area's height
     centre_y = -(12 + 44 + 4 + 260 - 8) / 2  # the model area's centre
-    origin_y = centre_y + (m.ns.captured["ey"] - 600)  # the stream origin (the model's GetCenter y is 600)
-    anchor_y = bar_y + 0.6 * (centre_y - bar_y)  # ANCHOR_FRACTION: the same absolute spot as before the model rose
+    origin_y = centre_y + (
+        m.ns.captured["ey"] - 600
+    )  # the stream origin (the model's GetCenter y is 600)
+    anchor_y = bar_y + 0.6 * (
+        centre_y - bar_y
+    )  # ANCHOR_FRACTION: the same absolute spot as before the model rose
     assert pv.modelAreaHeight == area_h
-    assert y == pytest.approx(anchor_y) and y == pytest.approx(pv.anchorY)  # whatever the zoom-anchor setting
+    assert y == pytest.approx(anchor_y) and y == pytest.approx(
+        pv.anchorY
+    )  # whatever the zoom-anchor setting
     assert anchor_y == pytest.approx(-114.4)  # unchanged by the raise
     # Hogger (the Alliance stand-in): the origin is the old spot (half way from the centre to the anchor) plus 15 %
     old_origin_y = centre_y + (anchor_y - centre_y) / 2
     assert origin_y - old_origin_y == pytest.approx(0.10 * area_h)
     assert pv.originRise() == pytest.approx(origin_y - centre_y)
-    assert bar_y > centre_y and origin_y > centre_y and bar_y > origin_y  # all still inside the window, bar on top
+    assert (
+        bar_y > centre_y and origin_y > centre_y and bar_y > origin_y
+    )  # all still inside the window, bar on top
 
 
 def test_gamon_is_zoomed_in_and_not_raised(env):
     m = make(env)
     m.G.UnitFactionGroup = lambda unit: "Horde"
     show(m)
-    assert m.ns.Preview.originRise() == pytest.approx(20.8)  # the old origin spot: no raise
+    assert m.ns.Preview.originRise() == pytest.approx(
+        20.8
+    )  # the old origin spot: no raise
     assert m.ns.Preview.model.camDistance == pytest.approx(0.80)
 
 
@@ -346,7 +379,12 @@ def test_the_window_has_no_title_and_the_name_uses_a_big_font(env):
 
 @pytest.mark.parametrize(
     ("faction", "npc", "name"),
-    [("Alliance", 448, "Hogger"), ("Horde", 6466, "Gamon"), ("Neutral", 448, "Hogger"), (None, 448, "Hogger")],
+    [
+        ("Alliance", 448, "Hogger"),
+        ("Horde", 6466, "Gamon"),
+        ("Neutral", 448, "Hogger"),
+        (None, 448, "Hogger"),
+    ],
 )
 def test_the_stand_in_follows_the_players_faction(env, faction, npc, name):
     m = make(env)
@@ -354,7 +392,11 @@ def test_the_stand_in_follows_the_players_faction(env, faction, npc, name):
     show(m)
     m.stub.runTimers()
     assert m.ns.Preview.model.creature == npc
-    texts = [f.text for f in m.stub.frames.values() if f.kind == "FontString" and f.text == name]
+    texts = [
+        f.text
+        for f in m.stub.frames.values()
+        if f.kind == "FontString" and f.text == name
+    ]
     assert texts
 
 
@@ -366,8 +408,12 @@ def test_a_raising_faction_call_falls_back_to_hogger(env):
     assert m.ns.Preview.model.creature == 448
 
 
-@pytest.mark.parametrize(("faction", "display_id", "npc"), [("Horde", 5205, 6466), ("Alliance", 108956, 448)])
-def test_both_stand_ins_load_by_display_id_with_the_creature_as_fallback(env, faction, display_id, npc):
+@pytest.mark.parametrize(
+    ("faction", "display_id", "npc"), [("Horde", 5205, 6466), ("Alliance", 108956, 448)]
+)
+def test_both_stand_ins_load_by_display_id_with_the_creature_as_fallback(
+    env, faction, display_id, npc
+):
     m = make(env)
     m.G.UnitFactionGroup = lambda unit: faction
     show(m)
@@ -404,10 +450,14 @@ def test_the_test_kill_button_sits_inside_the_window_under_the_model(env):
     pv = m.ns.Preview
     button = pv.testButton
     assert pv.buttonFrame is None  # no separate frame any more
-    assert (button.width, button.height) == (100, 22) and str(button.text) == "Test Kill"
+    assert (button.width, button.height) == (100, 22) and str(
+        button.text
+    ) == "Test Kill"
     assert m.same(button.createdParent, pv.window)
     pt = lua_list(button.points)[0]
-    assert (pt[1], pt[3], pt[4], pt[5]) == ("BOTTOM", "BOTTOM", 0, 8) and m.same(pt[2], pv.window)
+    assert (pt[1], pt[3], pt[4], pt[5]) == ("BOTTOM", "BOTTOM", 0, 8) and m.same(
+        pt[2], pv.window
+    )
     # the model area ends above the button row: 8 px padding + the 22 px button + a 4 px gap
     low = lua_list(pv.model.points)[1]
     assert (low[1], low[3], low[4], low[5]) == ("BOTTOMRIGHT", "BOTTOMRIGHT", -8, 34)
@@ -428,13 +478,18 @@ def test_the_window_is_movable_clamped_and_dragged_by_its_frame(env):
     m = make(env)
     show(m)
     win = m.ns.Preview.window
-    assert win.calls["SetMovable"][1] is True and win.calls["SetClampedToScreen"][1] is True
+    assert (
+        win.calls["SetMovable"][1] is True
+        and win.calls["SetClampedToScreen"][1] is True
+    )
     assert win.calls["RegisterForDrag"][1] == "LeftButton"
     win.scripts.OnDragStart(win)
     assert win.calls["StartMoving"] is not None
     win.scripts.OnDragStop(win)
     assert win.calls["StopMovingOrSizing"] is not None
-    assert m.ns.Preview.model.scripts.OnMouseDown is not None  # the model still turns on left-drag
+    assert (
+        m.ns.Preview.model.scripts.OnMouseDown is not None
+    )  # the model still turns on left-drag
 
 
 def test_the_move_cross_is_hidden_until_the_mouse_is_over_the_window(env):
@@ -444,7 +499,9 @@ def test_the_move_cross_is_hidden_until_the_mouse_is_over_the_window(env):
     win, handle = pv.window, pv.moveHandle
     assert not handle.shown
     win.scripts.OnEnter(win)
-    assert handle.shown and handle.alpha == pytest.approx(0.6)  # dimmed while the window is hovered
+    assert handle.shown and handle.alpha == pytest.approx(
+        0.6
+    )  # dimmed while the window is hovered
     win.left, win.bottom, win.width, win.height = 100, 100, 200, 286
     m.stub.cursor.x, m.stub.cursor.y = 150, 150
     handle.scripts.OnEnter(handle)
@@ -473,7 +530,10 @@ def test_the_move_cross_hides_when_the_mouse_leaves_from_the_test_kill_button(en
     win.scripts.OnEnter(win)
     assert handle.shown
     win.left, win.bottom, win.width, win.height = 100, 100, 200, 286
-    m.stub.cursor.x, m.stub.cursor.y = 150, 110  # the button is a child: still inside the window
+    m.stub.cursor.x, m.stub.cursor.y = (
+        150,
+        110,
+    )  # the button is a child: still inside the window
     button.scripts.OnLeave(button)
     assert handle.shown
     m.stub.cursor.x, m.stub.cursor.y = 900, 900  # off the button and out of the window
@@ -487,7 +547,9 @@ def test_the_move_cross_drags_the_window_and_has_a_tooltip(env):
     pv = m.ns.Preview
     handle = pv.moveHandle
     pt = lua_list(handle.points)[0]
-    assert (pt[1], pt[3], pt[4], pt[5]) == ("TOPRIGHT", "TOPRIGHT", -8, -8) and m.same(pt[2], pv.window)
+    assert (pt[1], pt[3], pt[4], pt[5]) == ("TOPRIGHT", "TOPRIGHT", -8, -8) and m.same(
+        pt[2], pv.window
+    )
     assert (handle.width, handle.height) == (16, 16)
     handle.scripts.OnMouseDown(handle, "LeftButton")
     assert pv.window.calls["StartMoving"] is not None
@@ -513,7 +575,12 @@ def test_the_window_docks_again_when_the_panel_hides_and_shows(env):
     assert not pv.moveHandle.shown and not pv.window.shown
     show(m)
     back = lua_list(pv.window.points)
-    assert len(back) == 1 and (back[0][1], back[0][3], back[0][4], back[0][5]) == ("TOP", "BOTTOM", 0, -2)
+    assert len(back) == 1 and (back[0][1], back[0][3], back[0][4], back[0][5]) == (
+        "TOP",
+        "BOTTOM",
+        0,
+        -2,
+    )
     assert m.same(back[0][2], m.ns.ShapePreview.window)
 
 
@@ -833,7 +900,9 @@ def ring_radii(m, zoom, with_window):
 def test_the_test_target_pop_is_the_same_size_at_any_camera_zoom(env):
     m = make(env)
     near = ring_radii(m, 5, True)
-    assert m.ns.captured["zoomFactor"] == 1  # the stand-in tells Burst not to read the camera
+    assert (
+        m.ns.captured["zoomFactor"] == 1
+    )  # the stand-in tells Burst not to read the camera
     m.stub.tick(5)
     far = ring_radii(m, 40, True)
     assert near == pytest.approx(far)
@@ -854,5 +923,110 @@ def test_the_name_font_is_two_pixels_smaller_than_the_big_font_object(env):
         "{ GetFont = function() return 'Fonts/FRIZQT__.TTF', 32, 'OUTLINE' end }"
     )
     show(m)
-    name = [f for f in m.stub.frames.values() if f.kind == "FontString" and f.text == "Hogger"][0]
+    name = [
+        f
+        for f in m.stub.frames.values()
+        if f.kind == "FontString" and f.text == "Hogger"
+    ][0]
     assert lua_list(name.calls["SetFont"]) == ["Fonts/FRIZQT__.TTF", 30, "OUTLINE"]
+
+
+def count(model, name):
+    return lua_list(model.log).count(name)
+
+
+def test_the_test_target_is_high_strata_toplevel_and_raised(env):
+    # the orb preview window is checked in test_shape_look
+    m = make(env)
+    show(m)
+    win = m.ns.Preview.window
+    assert win.calls["SetFrameStrata"][1] == "DIALOG"
+    assert win.calls["SetToplevel"][1] is True
+    assert win.raised >= 1  # raised on show
+
+
+def test_a_drag_start_raises_the_test_target(env):
+    m = make(env)
+    show(m)
+    win = m.ns.Preview.window
+    before = win.raised
+    win.scripts.OnDragStart(win)
+    assert win.raised == before + 1
+
+
+def test_a_blank_model_is_cleared_and_retried_then_falls_back_to_the_display_id(env):
+    m = make(env, "blank")
+    show(m)
+    model = m.ns.Preview.model
+    assert count(model, "SetDisplayInfo") == 1 and count(model, "SetCreature") == 0
+    m.stub.runTimers()  # first check: the creature
+    assert count(model, "SetCreature") == 1 and model.clears == 0
+    m.stub.runTimers()  # retry 1: cleared, the creature again
+    assert count(model, "SetCreature") == 2 and model.clears == 1
+    m.stub.runTimers()  # retry 2: cleared, the display id
+    assert count(model, "SetDisplayInfo") == 2 and model.clears == 2
+    m.stub.runTimers()  # out of retries: nothing more
+    assert count(model, "SetDisplayInfo") == 2 and count(model, "SetCreature") == 2
+    assert len(m.stub.timers) == 0
+
+
+def test_a_retry_stops_once_the_model_reports_a_file(env):
+    m = make(env, "blank")
+    show(m)
+    model = m.ns.Preview.model
+    m.stub.runTimers()
+    m.stub.runTimers()
+    assert count(model, "SetCreature") == 2
+    model.loaded = True
+    m.stub.runTimers()
+    assert count(model, "SetCreature") == 2 and count(model, "SetDisplayInfo") == 1
+    assert len(m.stub.timers) == 0
+
+
+def test_a_retry_logs_one_debug_line(env):
+    m = make(env, "blank")
+    m.ns.db.debug = True
+    show(m)
+    m.stub.runTimers()
+    m.stub.runTimers()
+    log = lua_list(m.ns.db.log)
+    assert sum("preview model not loaded" in str(line) for line in log) == 1
+
+
+def test_a_loaded_model_is_not_retried(env):
+    m = make(env, "readback")
+    show(m)
+    m.stub.runTimers()
+    model = m.ns.Preview.model
+    assert count(model, "SetCreature") == 0 and len(m.stub.timers) == 0
+
+
+def test_no_errors_without_get_model_file_id_or_timers(env):
+    m = make(env)  # the stub model has no GetModelFileID or ClearModel
+    show(m)
+    m.stub.runTimers()
+    m.stub.runTimers()
+    m.stub.runTimers()
+    assert m.ns.Preview.window.shown
+    m2 = make(env)
+    m2.lua.eval("function() C_Timer = nil end")()
+    hide(m2)
+    show(m2)
+    assert m2.ns.Preview.window.shown
+
+
+def test_orb_frames_are_dialog_above_the_windows(env):
+    m = make(env)
+    show(m)
+    m.slash("test 5")
+    pops = [
+        f
+        for f in lua_list(m.stub.frames)
+        if f.width == 1 and f.height == 1 and f.calls and f.calls["SetFrameStrata"]
+    ]
+    assert pops
+    for f in [m.ns.Orbs.overlay] + pops:
+        assert f.calls["SetFrameStrata"][1] == "FULLSCREEN_DIALOG"
+    assert (
+        m.ns.Preview.window.calls["SetFrameStrata"][1] == "DIALOG"
+    )  # below the orbs' FULLSCREEN_DIALOG

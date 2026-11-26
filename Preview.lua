@@ -51,6 +51,7 @@ local STAND_INS = {
         raise = 0 },
 }
 local LOAD_WAIT = 1.0 -- seconds to wait for the first load method before trying the other one
+local RETRY_WAIT = 0.5 -- seconds between the later load checks
 
 -- The stand-in for the player's faction (Hogger when neutral, unknown or unreadable).
 local function pickStandIn()
@@ -204,14 +205,43 @@ local function loadByCreature()
     return (try(model, "SetCreature", standIn.npcId))
 end
 
+-- Retries: the first check (LOAD_WAIT after the display id) switches to the creature. A model that is still blank
+-- RETRY_WAIT later is cleared and loaded by the creature again, and once more by the display id (a blank window was
+-- seen once in game, fixed by a relog). Each retry logs one line (/xporbs debug on). The steps run one per check.
+local RETRY_STEPS = { { loadByCreature }, { loadByCreature, true }, { loadByDisplayId, true } }
+local RETRY_NAMES = { "creature", "creature (cleared)", "display id (cleared)" }
+local retryStage = 0
+
+local function checkLater(delay)
+    if C_Timer and C_Timer.After and not loadCheckPending then
+        loadCheckPending = true
+        pcall(C_Timer.After, delay, ns.Preview.CheckLoad)
+    end
+end
+
 local function loadFallback()
     loadCheckPending = false
     if not model or hasLoaded() then
         return
     end
-    loadByCreature()
+    retryStage = retryStage + 1
+    local step = RETRY_STEPS[retryStage]
+    if not step then
+        return
+    end
+    if retryStage > 1 and ns.Log then
+        pcall(ns.Log, ns, "preview model not loaded, retry %d via %s", retryStage - 1, RETRY_NAMES[retryStage])
+    end
+    if step[2] then
+        modelLoaded = false
+        try(model, "ClearModel")
+    end
+    step[1]()
     frameModel() -- the load event may not fire on every client; pose it anyway
+    checkLater(RETRY_WAIT)
 end
+
+Preview.CheckLoad = loadFallback -- exposed for tests; the timers call it through the table
 
 local function createModel(parent)
     for _, kind in ipairs({ "PlayerModel", "CinematicModel", "DressUpModel" }) do
@@ -235,10 +265,8 @@ local function loadModel()
         return
     end
     frameModel()
-    if C_Timer and C_Timer.After and not loadCheckPending then
-        loadCheckPending = true
-        pcall(C_Timer.After, LOAD_WAIT, loadFallback)
-    end
+    retryStage = 0
+    checkLater(LOAD_WAIT)
 end
 
 -- ---------------------------------------------------------------- the fake nameplate
@@ -422,6 +450,7 @@ local MOVE_RECTS = {
 
 local function startMove()
     if window then
+        try(window, "Raise")
         pcall(window.StartMoving, window)
     end
 end
@@ -498,8 +527,10 @@ local function buildWindow()
     standIn = pickStandIn()
     currentFacing = standIn.facing
     frame:SetSize(WINDOW_W, WINDOW_H)
-    -- MEDIUM, below the orbs overlay (HIGH): the stream and pops draw over the window and the settings panel
-    frame:SetFrameStrata("MEDIUM")
+    -- DIALOG: always above the settings panel (HIGH), even after a click on it. The orbs (FULLSCREEN_DIALOG) draw over
+    -- this window on purpose (the pop sits on the plate). Children inherit the strata.
+    frame:SetFrameStrata("DIALOG")
+    try(frame, "SetToplevel", true)
     frame:EnableMouse(true)
     -- movable anywhere (left-drag on the window; the model keeps left-drag for turning the mob), kept on screen
     frame:SetMovable(true)
@@ -568,6 +599,7 @@ function Preview:Sync(show)
         end
         dockWindow()
         window:Show()
+        try(window, "Raise") -- in front of other DIALOG frames
         setHealth(1)
         setIdle() -- the model's animation can be lost while hidden
         return true

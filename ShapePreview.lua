@@ -3,9 +3,9 @@ local ADDON, ns = ...
 
 -- Orb preview window: a framed window like the "Test target" one (Preview.lua), docked to the right of the settings
 -- panel with the test target window hung under it (anchored to its bottom edge, so it follows when the window grows).
--- A header row holds the "Preview" title (top left) and the Cluster tickbox (top right). It shows a cluster of stationary orbs of the current shape: the
--- count follows Quantity (n = round(6 * density / 100), 2..12; 6 at the default 100%) in a fixed pattern (pair,
--- triangle, 2 x 2, pentagon, honeycomb rows), the last 2/5 of them rested when Rested tint is on. The orbs are spaced
+-- A header row holds the "Preview" title (top left) and the Cluster tickbox (top right). It shows a cluster of
+-- stationary orbs of the current shape: the count follows Quantity (n = round(6 * density / 100), 2..12; 6 at the
+-- default 100%) in a fixed pattern (pair, triangle, 2 x 2, pentagon, honeycomb rows), the last 2/5 of them rested when Rested tint is on. The orbs are spaced
 -- so their visible discs just do not touch; the "Cluster" tickbox (db.previewCluster) packs them into an overlapping
 -- cloud instead, like orbs piled up after a kill, with the rested ones mixed in. The shape's own animation runs
 -- (Starlight's spinning sparkle, Retro's blinking twinkle on its grid,
@@ -399,7 +399,10 @@ local function build()
     end
     window = frame
     frame:SetSize(WINDOW_W, WINDOW_H)
-    frame:SetFrameStrata("MEDIUM") -- below the orbs overlay (HIGH), like the test target
+    frame:SetFrameStrata("DIALOG") -- above the settings panel (HIGH); the orbs (FULLSCREEN_DIALOG) draw over it
+    pcall(function()
+        frame:SetToplevel(true) -- raises on click
+    end)
     frame:EnableMouse(true)
     ns.Preview.AddBackground(frame)
     local title = frame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
@@ -573,6 +576,7 @@ function ShapePreview:Sync(show)
         window.up = true
         dock()
         window:Show()
+        pcall(window.Raise, window) -- in front of other DIALOG frames
     end
     configureIfChanged()
     box:SetScript("OnUpdate", onUpdate)

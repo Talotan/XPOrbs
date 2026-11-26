@@ -418,7 +418,7 @@ local function ensureFrames()
     end
     overlay = CreateFrame("Frame", nil, UIParent)
     overlay:SetAllPoints(UIParent)
-    overlay:SetFrameStrata("HIGH")
+    overlay:SetFrameStrata("FULLSCREEN_DIALOG") -- above the test target and preview windows (DIALOG) on purpose
     overlay:EnableMouse(false)
     overlay:Show()
     Orbs.overlay = overlay
@@ -801,7 +801,7 @@ end
 local function newPop()
     local frame = CreateFrame("Frame", nil, UIParent)
     frame:SetSize(1, 1)
-    frame:SetFrameStrata("HIGH")
+    frame:SetFrameStrata("FULLSCREEN_DIALOG") -- above the test target and preview windows (DIALOG) on purpose
     frame:EnableMouse(false)
     frame:Hide()
     return { frame = frame, tex = {}, offsetX = {}, offsetY = {}, drift = {}, size = {}, rotation = {}, n = 0,

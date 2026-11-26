@@ -324,7 +324,12 @@ def test_the_shape_reset_goes_back_to_starlight_and_swaps_the_look(env):
 
 def test_reset_all_restores_every_shapes_entry(env):
     m = build(env)
-    for shape, size in (("starlight", 9), ("retro", 30), ("bubble", 8), ("crackle", 25)):
+    for shape, size in (
+        ("starlight", 9),
+        ("retro", 30),
+        ("bubble", 8),
+        ("crackle", 25),
+    ):
         m.slash(f"shape {shape}")
         m.db.size, m.db.opacity = size, 40
         m.ns.SetLook("size", size)
@@ -424,7 +429,8 @@ def test_pulse_defaults_off_and_is_a_boolean(env):
     )
     assert db.pulse is False and db.shapeLook.bubble.pulse is False
     db = load_db(
-        env, {"lookRev": 2, "orbShape": "bubble", "shapeLook": {"bubble": {"pulse": True}}}
+        env,
+        {"lookRev": 2, "orbShape": "bubble", "shapeLook": {"bubble": {"pulse": True}}},
     )
     assert db.pulse is True and db.shapeLook.bubble.pulse is True
 
@@ -451,7 +457,9 @@ def test_the_pulse_command_off_bubble_sets_bubbles_own_look(env):
     m.slash("pulse on")
     assert m.say()[-1].endswith("pulsing: on (Bubble only)")
     assert m.db.shapeLook.bubble.pulse is True
-    assert m.db.pulse is False and m.db.shapeLook.starlight.pulse is False  # Starlight's own look is untouched
+    assert (
+        m.db.pulse is False and m.db.shapeLook.starlight.pulse is False
+    )  # Starlight's own look is untouched
     m.slash("shape bubble")
     assert m.db.pulse is True
     m.slash("shape retro")
@@ -471,7 +479,9 @@ def test_the_pulse_command_with_no_argument_reports_bubbles_value(env):
     assert m.say()[-1].endswith("pulsing: on (Bubble only)")
     m.slash("shape bubble")
     m.slash("pulse")
-    assert m.say()[-1].endswith("pulsing: on") and not m.say()[-1].endswith("(Bubble only)")
+    assert m.say()[-1].endswith("pulsing: on") and not m.say()[-1].endswith(
+        "(Bubble only)"
+    )
 
 
 def test_the_pulsing_checkbox_follows_the_shape_dropdown(env):
@@ -479,7 +489,11 @@ def test_the_pulsing_checkbox_follows_the_shape_dropdown(env):
     show(m)
     m.slash("shape bubble")
     box = ctl(m, "pulse")
-    assert box.checked is False and box.shown and str(m.opt.rows["pulse"].points[1][5]) != ""
+    assert (
+        box.checked is False
+        and box.shown
+        and str(m.opt.rows["pulse"].points[1][5]) != ""
+    )
     assert -m.opt.rows["orbShape"].points[1][5] < -m.opt.rows["pulse"].points[1][5]
     assert -m.opt.rows["pulse"].points[1][5] < -m.opt.rows["color"].points[1][5]
     m.stub.hover(box)
@@ -665,9 +679,9 @@ def test_orb_size_is_the_generic_size_units(env):
             step * 8 * 14 / 24
         )
         # converting back with the Retro constant gives 8 px per step
-        assert ns.OrbSize({"orbShape": "retro", "size": step}) * ns.RETRO_K == pytest.approx(
-            8 * step
-        )
+        assert ns.OrbSize(
+            {"orbShape": "retro", "size": step}
+        ) * ns.RETRO_K == pytest.approx(8 * step)
     for shape in ("starlight", "bubble", "crackle"):
         assert ns.OrbSize({"orbShape": shape, "size": 20}) == 20
 
@@ -846,7 +860,8 @@ def test_the_preview_window_is_framed_titled_and_docked_to_the_settings_panel(en
     sp = m.ns.ShapePreview
     win = sp.window
     assert (win.width, win.height) == (200, 120)
-    assert win.calls["SetFrameStrata"][1] == "MEDIUM"
+    assert win.calls["SetFrameStrata"][1] == "DIALOG"
+    assert win.calls["SetToplevel"][1] is True
     pt = win.points[1]
     assert (pt[1], pt[3], pt[4], pt[5]) == ("TOPLEFT", "TOPRIGHT", 4, 0)
     assert m.lua.eval("rawequal")(pt[2], m.G.SettingsPanel)
@@ -881,6 +896,7 @@ def test_the_test_target_docks_as_before_when_the_preview_build_fails(env):
 
 def test_the_scroll_area_stays_full_with_the_preview_up(env):
     m = build(env)
+
     def pts():
         return [tuple(m.opt.scroll.points[i][k] for k in (1, 3, 4, 5)) for i in (1, 2)]
 
@@ -891,7 +907,8 @@ def test_the_scroll_area_stays_full_with_the_preview_up(env):
 
 
 @pytest.mark.parametrize(
-    "density, n", [(10, 2), (25, 2), (50, 3), (75, 5), (100, 6), (125, 8), (200, 12), (400, 12)]
+    "density, n",
+    [(10, 2), (25, 2), (50, 3), (75, 5), (100, 6), (125, 8), (200, 12), (400, 12)],
 )
 def test_the_orb_count_follows_quantity(env, density, n):
     m = build(env)
@@ -920,7 +937,10 @@ def test_the_last_orbs_are_the_rested_ones(env):
 
 def pattern(m, n):
     points = m.ns.ShapePreview.Pattern(n)
-    return [(round(float(points[i][1]), 3), round(float(points[i][2]), 3)) for i in range(1, n + 1)]
+    return [
+        (round(float(points[i][1]), 3), round(float(points[i][2]), 3))
+        for i in range(1, n + 1)
+    ]
 
 
 def test_the_patterns(env):
@@ -929,30 +949,64 @@ def test_the_patterns(env):
     assert pattern(m, 2) == [(-0.5, 0), (0.5, 0)]
     tri = pattern(m, 3)
     assert tri[0][0] == 0 and tri[0][1] > 0  # one at the top
-    assert pattern(m, 4) == [(-0.5, 0.5), (0.5, 0.5), (-0.5, -0.5), (0.5, -0.5)]  # 2 x 2
+    assert pattern(m, 4) == [
+        (-0.5, 0.5),
+        (0.5, 0.5),
+        (-0.5, -0.5),
+        (0.5, -0.5),
+    ]  # 2 x 2
     five = pattern(m, 5)  # a pentagon, the first at the top
     assert five[0][0] == 0 and five[0][1] > 0
-    rows = {6: (3, 3), 7: (2, 3, 2), 8: (3, 2, 3), 9: (3, 3, 3), 10: (3, 4, 3), 11: (4, 3, 4), 12: (4, 4, 4)}
+    rows = {
+        6: (3, 3),
+        7: (2, 3, 2),
+        8: (3, 2, 3),
+        9: (3, 3, 3),
+        10: (3, 4, 3),
+        11: (4, 3, 4),
+        12: (4, 4, 4),
+    }
     for n in range(2, 13):
         pts = pattern(m, n)
         assert len(pts) == n
         # nobody closer than one unit (the neighbour distance), and everybody has a neighbour at one unit
         for i, p in enumerate(pts):
-            dists = [math.hypot(p[0] - q[0], p[1] - q[1]) for j, q in enumerate(pts) if j != i]
+            dists = [
+                math.hypot(p[0] - q[0], p[1] - q[1])
+                for j, q in enumerate(pts)
+                if j != i
+            ]
             assert min(dists) >= 0.99
             assert min(dists) == pytest.approx(1.0, abs=0.02)
         if n >= 6:
-            assert [p[1] for p in pts] == sorted((p[1] for p in pts), reverse=True)  # top row first
+            assert [p[1] for p in pts] == sorted(
+                (p[1] for p in pts), reverse=True
+            )  # top row first
     for n, counts in rows.items():
         pts = pattern(m, n)
         ys = sorted({p[1] for p in pts}, reverse=True)
         got = [sum(1 for p in pts if abs(p[1] - y) < 0.01) for y in ys]
         assert tuple(got) == counts  # rows top to bottom, in slot order
         assert max(abs(p[0]) for p in pts) <= 1.75
-    assert pattern(m, 6) == [(-1, 0.5), (0, 0.5), (1, 0.5), (-1, -0.5), (0, -0.5), (1, -0.5)]  # an aligned 3 x 2 grid
+    assert pattern(m, 6) == [
+        (-1, 0.5),
+        (0, 0.5),
+        (1, 0.5),
+        (-1, -0.5),
+        (0, -0.5),
+        (1, -0.5),
+    ]  # an aligned 3 x 2 grid
     assert pattern(m, 7)[:2] == [(-0.5, h), (0.5, h)]  # 2-3-2, centred
-    assert [p[0] for p in pattern(m, 9)[:3]] == [-0.75, 0.25, 1.25]  # equal rows interlock: +0.25 on the top row
-    assert [p[0] for p in pattern(m, 9)[3:6]] == [-1.25, -0.25, 0.75]  # and -0.25 on the middle one
+    assert [p[0] for p in pattern(m, 9)[:3]] == [
+        -0.75,
+        0.25,
+        1.25,
+    ]  # equal rows interlock: +0.25 on the top row
+    assert [p[0] for p in pattern(m, 9)[3:6]] == [
+        -1.25,
+        -0.25,
+        0.75,
+    ]  # and -0.25 on the middle one
 
 
 def test_the_orbs_are_drawn_on_the_pattern_scaled_by_the_spacing(env):
@@ -964,9 +1018,7 @@ def test_the_orbs_are_drawn_on_the_pattern_scaled_by_the_spacing(env):
     sp = m.ns.ShapePreview
     unit = float(sp.SpacingFor(m.db))  # Starlight 14 px: the visible disc plus the gap
     assert unit == pytest.approx(14 * 1.15 + max(3, 0.12 * 14 * 1.15))
-    drawn = sorted(
-        (float(b.points[1][4]), float(b.points[1][5])) for b in bodies(m)
-    )
+    drawn = sorted((float(b.points[1][4]), float(b.points[1][5])) for b in bodies(m))
     offsets = sp.Pattern(6)
     want = sorted(
         (float(offsets[i][1]) * unit, float(offsets[i][2]) * unit) for i in range(1, 7)
@@ -987,19 +1039,32 @@ def db_of(m, shape, size=None, rested=False):
 def test_the_spacing_is_per_shape(env):
     m = build(env)
     sp = m.ns.ShapePreview
-    assert {k: float(v) for k, v in sp.VISIBLE.items()} == {"starlight": 1.15, "bubble": 1.08, "crackle": 1.35}
+    assert {k: float(v) for k, v in sp.VISIBLE.items()} == {
+        "starlight": 1.15,
+        "bubble": 1.08,
+        "crackle": 1.35,
+    }
     # visible disc + a gap of 12 % (at least 3 px), Rested tint off
-    for shape, size in (("starlight", 14), ("bubble", 14), ("crackle", 14), ("starlight", 30)):
+    for shape, size in (
+        ("starlight", 14),
+        ("bubble", 14),
+        ("crackle", 14),
+        ("starlight", 30),
+    ):
         db = db_of(m, shape, size)
         visible = sp.VISIBLE[shape] * size
         assert sp.VisibleFor(db) == pytest.approx(visible)
         assert sp.SpacingFor(db) == pytest.approx(visible + max(3, 0.12 * visible))
     # Rested tint: the rested orbs are 1.15 x bigger and the spacing allows for them
-    assert sp.VisibleFor(db_of(m, "bubble", 14, rested=True)) == pytest.approx(1.08 * 14 * 1.15)
+    assert sp.VisibleFor(db_of(m, "bubble", 14, rested=True)) == pytest.approx(
+        1.08 * 14 * 1.15
+    )
     # Retro: the disc is 8 cells, the gap 2 cells; every orb is drawn on the one cell, so Rested tint changes nothing
     assert sp.SpacingFor(db_of(m, "retro", 2)) == 20
     assert sp.SpacingFor(db_of(m, "retro", 3)) == 30
-    assert sp.SpacingFor(db_of(m, "retro", 4, rested=True)) == 40  # still 8 + 2 cells of 4
+    assert (
+        sp.SpacingFor(db_of(m, "retro", 4, rested=True)) == 40
+    )  # still 8 + 2 cells of 4
 
 
 def test_a_tidy_layout_keeps_its_spacing_and_uses_fewer_per_row_when_wide(env):
@@ -1009,13 +1074,20 @@ def test_a_tidy_layout_keeps_its_spacing_and_uses_fewer_per_row_when_wide(env):
     def counts(db, n=12):
         pts = sp.Layout(n, False, db)
         ys = sorted({round(float(pts[i][2]), 3) for i in range(1, n + 1)}, reverse=True)
-        return [sum(1 for i in range(1, n + 1) if abs(float(pts[i][2]) - y) < 0.01) for y in ys]
+        return [
+            sum(1 for i in range(1, n + 1) if abs(float(pts[i][2]) - y) < 0.01)
+            for y in ys
+        ]
 
     db = db_of(m, "starlight", 14)
     assert counts(db) == [4, 4, 4]  # fits: the ROWS layout is kept
-    db = db_of(m, "starlight", 32)  # 41 px spacing, 64 px of art: three across fit, four do not
+    db = db_of(
+        m, "starlight", 32
+    )  # 41 px spacing, 64 px of art: three across fit, four do not
     assert counts(db) == [3, 3, 3, 3]
-    assert sp.RadiusFor(sp.Layout(12, False, db), db) == pytest.approx(float(sp.SpacingFor(db)))  # never squeezed
+    assert sp.RadiusFor(sp.Layout(12, False, db), db) == pytest.approx(
+        float(sp.SpacingFor(db))
+    )  # never squeezed
     db = db_of(m, "crackle", 32)
     assert max(counts(db)) <= 2
 
@@ -1024,7 +1096,9 @@ def test_the_cluster_unit_is_the_visible_diameter(env):
     m = build(env)
     sp = m.ns.ShapePreview
     db = db_of(m, "bubble", 14)
-    assert sp.RadiusFor(sp.Pattern(6, True), db, True) == pytest.approx(float(sp.VisibleFor(db)))
+    assert sp.RadiusFor(sp.Pattern(6, True), db, True) == pytest.approx(
+        float(sp.VisibleFor(db))
+    )
 
 
 def test_the_cluster_shrinks_to_fit_the_width(env):
@@ -1056,7 +1130,9 @@ def test_retro_stays_on_whole_cells_and_never_under_nine(env):
             assert float(sp.RadiusFor(sp.Pattern(n), db)) >= 9 * size
     db = db_of(m, "retro", 2)  # fits: 10 cells wanted
     assert sp.RadiusFor(sp.Pattern(6), db) == 20
-    db = db_of(m, "retro", 7)  # 10 cells wanted at least; it is never squeezed (the layout has fewer per row instead)
+    db = db_of(
+        m, "retro", 7
+    )  # 10 cells wanted at least; it is never squeezed (the layout has fewer per row instead)
     assert sp.RadiusFor(sp.Pattern(5), db) >= 70
 
 
@@ -1072,7 +1148,9 @@ def test_unused_textures_are_hidden(env):
     assert len(bodies(m)) == 5
     assert len([t for t in preview_orbs(m) if t.shown]) == 5 * 3
     box = m.ns.ShapePreview.box
-    assert not any(box.tex[i].shown for i in range(16, 37))  # the unused slots stay hidden
+    assert not any(
+        box.tex[i].shown for i in range(16, 37)
+    )  # the unused slots stay hidden
 
 
 @pytest.mark.parametrize(
@@ -1146,10 +1224,14 @@ def test_the_preview_follows_the_crackle_speed(env):
     up(m)
     m.slash("shape crackle")
     tick(m)
-    assert 0.07 <= float(m.ns.ShapePreview.box.st[1].boltEvery) <= 0.09  # 70-90 ms at 100 %
+    assert (
+        0.07 <= float(m.ns.ShapePreview.box.st[1].boltEvery) <= 0.09
+    )  # 70-90 ms at 100 %
     m.ns.SetLook("crackleSpeed", 200)
     m.ns.ShapePreview.Sync(m.ns.ShapePreview)
-    assert 0.035 <= float(m.ns.ShapePreview.box.st[1].boltEvery) <= 0.045  # set up again: twice as fast
+    assert (
+        0.035 <= float(m.ns.ShapePreview.box.st[1].boltEvery) <= 0.045
+    )  # set up again: twice as fast
 
 
 def test_the_preview_uses_the_same_sizes_as_real_orbs(env):
@@ -1260,7 +1342,9 @@ def test_the_preview_draws_with_its_own_textures_not_the_pool(env):
     up(m)
     tick(m)
     box_textures = {id(t) for t in preview_orbs(m)}
-    assert len(box_textures) == 18  # the six orbs of the default quantity (36 are made, the rest stay hidden)
+    assert (
+        len(box_textures) == 18
+    )  # the six orbs of the default quantity (36 are made, the rest stay hidden)
     assert m.orbs.Info(m.orbs)[1] == 0  # nothing taken from the orb pool
 
 
@@ -1269,7 +1353,9 @@ def test_the_preview_never_errors_before_orbs_or_shapes_are_ready(env):
     m.ns.OrbShapes = None
     up(m)
     assert m.ns.ShapePreview.box is None
-    assert m.ns.Preview.window.points[1][1] == "TOPLEFT"  # the test target docks as before
+    assert (
+        m.ns.Preview.window.points[1][1] == "TOPLEFT"
+    )  # the test target docks as before
     m.ns.OrbShapes = None
     m.ns.Orbs = None
     m.opt.Refresh(m.opt)
@@ -1350,7 +1436,9 @@ def test_sanitize_snaps_sizes_per_shape(env):
 
 
 def test_the_active_size_of_retro_is_not_snapped_to_the_global_range(env):
-    db = load_db(env, {"lookRev": 2, "orbShape": "retro", "shapeLook": {"retro": {"size": 3}}})
+    db = load_db(
+        env, {"lookRev": 2, "orbShape": "retro", "shapeLook": {"retro": {"size": 3}}}
+    )
     assert db.size == 3 and db.shapeLook.retro.size == 3
 
 
@@ -1371,7 +1459,11 @@ def test_bad_blend_pulse_and_sparkle_fall_back_to_the_shape_default(env):
     assert (retro.blend, retro.pulse, retro.sparkle) == ("natural", False, True)
     assert (bubble.blend, bubble.pulse, bubble.sparkle) == ("solid", False, False)
     assert crackle.blend == "natural"
-    assert (db.blend, db.pulse, db.sparkle) == ("natural", False, True)  # retro's, active
+    assert (db.blend, db.pulse, db.sparkle) == (
+        "natural",
+        False,
+        True,
+    )  # retro's, active
 
 
 def test_the_active_blend_pulse_and_sparkle_follow_the_current_shape(env):
@@ -1381,7 +1473,9 @@ def test_the_active_blend_pulse_and_sparkle_follow_the_current_shape(env):
             "lookRev": 2,
             "orbShape": "bubble",
             "pulse": True,
-            "shapeLook": {"bubble": {"blend": "solid", "pulse": False, "sparkle": False}},
+            "shapeLook": {
+                "bubble": {"blend": "solid", "pulse": False, "sparkle": False}
+            },
         },
     )
     assert (db.blend, db.pulse, db.sparkle) == ("solid", False, False)
@@ -1519,7 +1613,12 @@ def test_the_preview_resyncs_when_sparkle_changes(env):
 
 # ---------------------------------------------------------------- tidy layout (no overlap) and the Cluster tickbox
 
-VISIBLE_SHARE = {"starlight": 0.6, "bubble": 0.72, "crackle": 0.5, "retro": 1.0}  # of the body quad's width
+VISIBLE_SHARE = {
+    "starlight": 0.6,
+    "bubble": 0.72,
+    "crackle": 0.5,
+    "retro": 1.0,
+}  # of the body quad's width
 
 
 def at_count(m, shape, n, cluster=False, rested=True):
@@ -1538,7 +1637,11 @@ def at_count(m, shape, n, cluster=False, rested=True):
 def discs(bs, shape):
     """(x, y, visible diameter) of each orb's disc, from where and how big its body is drawn."""
     return [
-        (float(b.points[1][4]), float(b.points[1][5]), VISIBLE_SHARE[shape] * float(b.width))
+        (
+            float(b.points[1][4]),
+            float(b.points[1][5]),
+            VISIBLE_SHARE[shape] * float(b.width),
+        )
         for b in bs
     ]
 
@@ -1576,18 +1679,25 @@ def test_the_cluster_overlaps_and_is_deterministic(env, shape):
         assert sum(close) >= n // 2  # a pile, not a few strays
         again = discs(at_count(m, shape, n, cluster=False), shape)
         assert again != first  # the tickbox changes the layout
-        assert discs(at_count(m, shape, n, cluster=True), shape) == first  # and the pile is the same every time
+        assert (
+            discs(at_count(m, shape, n, cluster=True), shape) == first
+        )  # and the pile is the same every time
 
 
 def test_the_cluster_grows_outwards_and_stays_centred(env):
     m = build(env)
     sp = m.ns.ShapePreview
     for n in range(2, 13):
-        pts = [(float(p[1]), float(p[2])) for p in (sp.Pattern(n, True)[i] for i in range(1, n + 1))]
+        pts = [
+            (float(p[1]), float(p[2]))
+            for p in (sp.Pattern(n, True)[i] for i in range(1, n + 1))
+        ]
         assert sum(p[0] for p in pts) == pytest.approx(0, abs=1e-6)
         assert sum(p[1] for p in pts) == pytest.approx(0, abs=1e-6)
         dmin = min(math.dist(a, b) for i, a in enumerate(pts) for b in pts[:i])
-        assert 0.3 < dmin < 0.9  # a tight pile: well under a diameter apart, but not stacked
+        assert (
+            0.3 < dmin < 0.9
+        )  # a tight pile: well under a diameter apart, but not stacked
 
 
 def test_the_clustered_rested_orbs_are_mixed_in_not_a_bottom_row(env):
@@ -1596,7 +1706,9 @@ def test_the_clustered_rested_orbs_are_mixed_in_not_a_bottom_row(env):
         bs = at_count(m, "bubble", n, cluster=True)
         rested = tuple(round(float(m.db.restedColor[i]), 3) for i in (1, 2, 3))
         flags = [
-            tuple(round(float(v), 3) for v in b.calls["SetVertexColor"].values()) == rested for b in bs
+            tuple(round(float(v), 3) for v in b.calls["SetVertexColor"].values())
+            == rested
+            for b in bs
         ]
         count = sum(flags)
         assert count == m.ns.ShapePreview.RestedCount(n) and count >= 2
@@ -1604,7 +1716,9 @@ def test_the_clustered_rested_orbs_are_mixed_in_not_a_bottom_row(env):
         bottom = set(ys[:count])
         rested_ys = {float(b.points[1][5]) for b, f in zip(bs, flags) if f}
         assert rested_ys != bottom  # not just the lowest ones
-        assert not all(flags[-count:])  # nor simply the last slots (drawn on top of the rest)
+        assert not all(
+            flags[-count:]
+        )  # nor simply the last slots (drawn on top of the rest)
     # the tidy layout keeps them as the last (bottom) orbs
     sp = m.ns.ShapePreview
     assert sorted(sp.RestedSlots(6, False).keys()) == [5, 6]
@@ -1648,11 +1762,18 @@ def test_the_cluster_setting_is_a_sanitized_boolean_and_reset_by_reset(env):
 def test_the_cluster_unit_ignores_the_rested_scale_and_starlight_is_stretched(env):
     m = build(env)
     sp = m.ns.ShapePreview
-    for shape, factor in (("bubble", 1), ("crackle", 1), ("retro", 1), ("starlight", 1.3)):
+    for shape, factor in (
+        ("bubble", 1),
+        ("crackle", 1),
+        ("retro", 1),
+        ("starlight", 1.3),
+    ):
         on = db_of(m, shape, None, rested=True)
         off = db_of(m, shape, None, rested=False)
         points = sp.Pattern(6, True)
-        assert sp.RadiusFor(points, on, True) == pytest.approx(sp.RadiusFor(points, off, True))
+        assert sp.RadiusFor(points, on, True) == pytest.approx(
+            sp.RadiusFor(points, off, True)
+        )
         assert float(sp.CLUSTER_SCALE[shape] or 1) == factor
     db = db_of(m, "starlight", 14)
     assert sp.RadiusFor(sp.Pattern(6, True), db, True) == pytest.approx(14 * 1.15 * 1.3)
@@ -1662,22 +1783,51 @@ def test_the_cluster_unit_ignores_the_rested_scale_and_starlight_is_stretched(en
     assert sp.SpacingFor(db) == pytest.approx(14 * 1.35 + max(3, 0.12 * 14 * 1.35))
 
 
-GROWTH = [(0, 0), (0.75, 0.34), (-0.15, 0.49), (0.30, -0.19), (-0.75, -0.04), (0.39, 0.70), (-0.72, 0.65),
-          (-0.39, -0.54), (0.90, -0.32), (0.10, 1.03), (-1.36, 0.23), (1.39, 0.23)]
-BLUE = {2: [2], 3: [2], 4: [2, 3], 5: [2, 3], 6: [2, 3], 7: [2, 4, 7], 8: [2, 4, 7], 9: [2, 4, 7, 8],
-        10: [2, 4, 7, 8], 11: [2, 4, 7, 8], 12: [2, 4, 7, 8, 10]}
+GROWTH = [
+    (0, 0),
+    (0.75, 0.34),
+    (-0.15, 0.49),
+    (0.30, -0.19),
+    (-0.75, -0.04),
+    (0.39, 0.70),
+    (-0.72, 0.65),
+    (-0.39, -0.54),
+    (0.90, -0.32),
+    (0.10, 1.03),
+    (-1.36, 0.23),
+    (1.39, 0.23),
+]
+BLUE = {
+    2: [2],
+    3: [2],
+    4: [2, 3],
+    5: [2, 3],
+    6: [2, 3],
+    7: [2, 4, 7],
+    8: [2, 4, 7],
+    9: [2, 4, 7, 8],
+    10: [2, 4, 7, 8],
+    11: [2, 4, 7, 8],
+    12: [2, 4, 7, 8, 10],
+}
 
 
 def test_the_cluster_follows_the_growth_table_heart_last_and_the_rested_table(env):
     m = build(env)
     sp = m.ns.ShapePreview
     for n in range(2, 13):
-        pts = [(float(sp.Pattern(n, True)[i][1]), float(sp.Pattern(n, True)[i][2])) for i in range(1, n + 1)]
+        pts = [
+            (float(sp.Pattern(n, True)[i][1]), float(sp.Pattern(n, True)[i][2]))
+            for i in range(1, n + 1)
+        ]
         mx = sum(x for x, _ in GROWTH[:n]) / n
         my = sum(y for _, y in GROWTH[:n]) / n
         centred = [(x - mx, y - my) for x, y in GROWTH[:n]]
         for x, y in pts:  # every slot is one of the table's offsets, re-centred
-            assert any(math.isclose(x, cx, abs_tol=1e-6) and math.isclose(y, cy, abs_tol=1e-6) for cx, cy in centred)
+            assert any(
+                math.isclose(x, cx, abs_tol=1e-6) and math.isclose(y, cy, abs_tol=1e-6)
+                for cx, cy in centred
+            )
         heart = pts[-1]
         assert math.dist(heart, centred[0]) < 1e-6  # the heart is last: drawn on top
         dists = [math.hypot(x, y) for x, y in pts[:-1]]
@@ -1685,6 +1835,8 @@ def test_the_cluster_follows_the_growth_table_heart_last_and_the_rested_table(en
         blue = sorted(sp.RestedSlots(n, True).keys())
         assert n not in blue  # the heart is never rested
         got = sorted((round(pts[i - 1][0], 3), round(pts[i - 1][1], 3)) for i in blue)
-        want = sorted((round(centred[g - 1][0], 3), round(centred[g - 1][1], 3)) for g in BLUE[n])
+        want = sorted(
+            (round(centred[g - 1][0], 3), round(centred[g - 1][1], 3)) for g in BLUE[n]
+        )
         assert got == want
         assert len(blue) == sp.RestedCount(n)
