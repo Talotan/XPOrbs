@@ -1,6 +1,7 @@
 """The dev-only in-game benchmark (dev/Bench.lua): scripts, statistics, the saved run, and that settings always return."""
 
 import itertools
+import re
 
 from conftest import ROOT, TESTS, lua_list, lupa_rt
 from test_m5 import build
@@ -199,29 +200,30 @@ def check_stats(stats):
     assert stats["p50"] <= stats["p95"] <= stats["p99"] <= stats["max"]
 
 
-def check_phase(phase, overall):
+def check_phase(phase, profiler):
     assert set(phase) == (
         {"seconds", "frames", "addonMs", "frameMs"}
-        | ({"overallMs"} if overall else set())
+        | ({"profilerMs", "overallMs"} if profiler else set())
     )
     assert phase["seconds"] > 0 and phase["frames"] > 0
-    for key in ("addonMs", "frameMs", *(["overallMs"] if overall else [])):
+    for key in ("addonMs", "frameMs", *(["profilerMs", "overallMs"] if profiler else [])):
         check_stats(phase[key])
         assert phase[key]["n"] == phase["frames"]
 
 
-def check_run(run, scenario, rep, reps, source="internal"):
+def check_run(run, scenario, rep, reps, profiler=False):
     """Every SCHEMA.md field of a saved run, present and typed."""
     num = (int, float)
     for key, kind in {
         "id": str, "batch": str, "scenario": str, "date": str, "addonVersion": str, "build": str,
-        "buildNumber": str, "source": str, "scenarioVersion": num, "rep": num, "reps": num, "seed": num,
-        "interface": num, "screenW": num, "screenH": num, "uiScale": num, "kills": num, "orbs": num,
-        "peakLive": num, "peakTextures": num, "driverMs": num, "memStartKB": num, "memEndKB": num, "gcKB": num,
-        "maxFPS": str, "vsync": str, "settings": dict, "baseline": dict, "load": dict, "burstMs": dict,
-        "timeline": dict,
+        "buildNumber": str, "source": str, "schema": num, "scenarioVersion": num, "rep": num, "reps": num,
+        "seed": num, "interface": num, "screenW": num, "screenH": num, "uiScale": num, "kills": num,
+        "orbs": num, "peakLive": num, "peakTextures": num, "driverMs": num, "memStartKB": num, "memEndKB": num,
+        "vsync": str, "maxFPS": str, "useMaxFPS": str, "targetFPS": str, "useTargetFPS": str,
+        "settings": dict, "baseline": dict, "load": dict, "burstMs": dict, "timeline": dict,
     }.items():  # fmt: skip
         assert isinstance(run[key], kind), key
+    assert run["schema"] == 2 and "gcKB" not in run
     assert run["id"] == f"{run['batch']}-{scenario}-{rep}"
     assert (run["scenario"], run["rep"], run["reps"], run["scenarioVersion"]) == (
         scenario,
@@ -229,7 +231,8 @@ def check_run(run, scenario, rep, reps, source="internal"):
         reps,
         1,
     )
-    assert run["source"] == source
+    assert run["source"] == "internal"  # always XP Orbs' own timers
+    assert run.get("profilerMetric") == ("RecentAverageTime" if profiler else None)
     assert (
         run["addonVersion"],
         run["build"],
@@ -237,16 +240,15 @@ def check_run(run, scenario, rep, reps, source="internal"):
         run["interface"],
     ) == ("9.9.9", "1.16.1", "12345", 16001)
     assert run["date"].endswith("Z") and "T" in run["date"] and len(run["date"]) == 20
-    assert run["screenW"] == 1920 and run["screenH"] == 1080 and run["uiScale"] == 1
-    assert (run["maxFPS"], run["vsync"]) == ("0", "0")
+    assert run["screenW"] == 2560 and run["screenH"] == 1440 and run["uiScale"] == 1  # physical pixels
+    assert [run[k] for k in ("vsync", "maxFPS", "useMaxFPS", "targetFPS", "useTargetFPS")] == ["0"] * 5
     assert set(run["settings"]) == {
         "orbShape", "size", "density", "cap", "flightPath", "style", "popMode", "flightMode", "flightTime",
         "trail", "glowIntensity", "sound",
     }  # fmt: skip
     assert run["settings"]["sound"] is False
-    overall = source == "profiler"
-    check_phase(run["baseline"], overall)
-    check_phase(run["load"], overall)
+    check_phase(run["baseline"], profiler)
+    check_phase(run["load"], profiler)
     check_stats(run["burstMs"])
     assert run["burstMs"]["n"] == run["kills"] > 0
     assert (
@@ -288,19 +290,50 @@ def test_bench_typical_one_rep_saves_a_complete_run(env):
     assert any("1 run(s)" in line and "Stand still" in line for line in lines)
     assert any("done, settings restored" in line for line in lines)
     assert any("typical x1:" in line for line in lines)
-    assert e.db.bench.restore is None and e.db.bench.schema == 1
+    assert e.db.bench.restore is None and e.db.bench.schema == 2
 
 
-def test_bench_with_the_profiler_records_its_source_and_overall(env):
+def test_bench_with_the_profiler_adds_a_cross_check_but_never_replaces_the_timers(env):
     e = make(env)
     e.stub.profiler(True)
     bench(e, "typical 1")
     finish(e)
     run = to_py(runs(e)[0])
-    check_run(run, "typical", 1, 1, source="profiler")
-    assert (
-        run["load"]["addonMs"]["mean"] == 0.5 and run["load"]["overallMs"]["mean"] == 2
-    )
+    check_run(run, "typical", 1, 1, profiler=True)
+    load = run["load"]
+    assert load["profilerMs"]["mean"] == 0.5 and load["overallMs"]["mean"] == 2  # RecentAverageTime, not LastTime (0)
+    assert load["addonMs"]["mean"] != 0.5 and load["addonMs"]["mean"] > 0  # the internal timers
+    assert any("cross-check on" in line for line in chat(e))
+
+
+def test_a_profiler_that_cannot_answer_is_left_out(env):
+    e = make(env)
+    e.stub.profiler(True)
+    e.lua.execute("Enum.AddOnProfilerMetric.RecentAverageTime = nil")
+    bench(e, "typical 1")
+    finish(e)
+    check_run(to_py(runs(e)[0]), "typical", 1, 1)
+    assert any("cross-check off" in line for line in chat(e))
+    assert any("no cross-check figure" in line for line in chat(e))
+
+
+def test_screen_falls_back_to_the_resolution_cvars_then_to_nothing(env):
+    e = make(env)
+    e.stub.physical = None  # GetPhysicalScreenSize gives nothing: the resolution cvars
+    e.stub.cvars.gxFullscreenResolution = "1920x1080"
+    bench(e, "typical 1")
+    finish(e)
+    e.stub.cvars.gxFullscreenResolution = None
+    e.stub.cvars.gxWindowedResolution = "1600x900"
+    bench(e, "typical 1")
+    finish(e)
+    e.stub.cvars.gxWindowedResolution = None  # nothing at all: omitted, never a wrong number
+    bench(e, "typical 1")
+    finish(e)
+    first, second, third = (to_py(r) for r in runs(e))
+    assert (first["screenW"], first["screenH"]) == (1920, 1080)
+    assert (second["screenW"], second["screenH"]) == (1600, 900)
+    assert "screenW" not in third and "screenH" not in third and third["uiScale"] == 1
 
 
 def test_the_preset_is_applied_while_running_and_gone_after(env):
@@ -500,17 +533,161 @@ def test_refuses_while_running_or_in_combat_and_clamps_reps(env):
     bench(e, "stop")
 
 
-def test_usage_and_cap_warning(env):
+def test_usage(env):
     e = make(env)
     bench(e, "")
     bench(e, "help")
     bench(e, "bogus")
     assert sum("usage:" in line for line in chat(e)) == 3
-    e.stub.cvars.maxFPS = "144"
+
+
+def warnings_for(e, **cvars):
+    """The warning lines one start prints with these cvars set (the bench is stopped again)."""
+    for k, v in cvars.items():
+        setattr(e.stub.cvars, k, v)
+    before = len(chat(e))
     bench(e, "typical 1")
-    assert any("fps cap/vsync hides the real cost" in line for line in chat(e))
     bench(e, "stop")
-    e.stub.cvars.maxFPS, e.stub.cvars.gxVSync = "0", "1"
+    return [line for line in chat(e)[before:] if "warning:" in line]
+
+
+def test_each_fps_limiter_is_named_in_a_warning(env):
+    e = make(env)
+    assert warnings_for(e) == []
+    (line,) = warnings_for(e, maxFPS="144", useMaxFPS="1")
+    assert "Max FPS is on (144)" in line
+    assert warnings_for(e, useMaxFPS="0") == []  # a cap value with the switch off is no limiter
+    (line,) = warnings_for(e, useMaxFPS=None)  # no switch cvar at all: the old rule, a value above 0 counts
+    assert "Max FPS is on (144)" in line
+    e.stub.cvars.maxFPS = "0"
+    (line,) = warnings_for(e, targetFPS="90", useTargetFPS="1")
+    assert "Target FPS is on (90)" in line
+    assert warnings_for(e, useTargetFPS="0") == []
+    (line,) = warnings_for(e, vsync="1")
+    assert "vsync is on" in line
+    assert len(warnings_for(e, maxFPS="60", useMaxFPS="1", targetFPS="90", useTargetFPS="1")) == 3
+
+
+def test_the_limiter_cvars_are_recorded_on_the_run(env):
+    e = make(env)
+    e.stub.cvars.targetFPS, e.stub.cvars.useTargetFPS, e.stub.cvars.vsync = "90", "1", None
     bench(e, "typical 1")
-    assert sum("fps cap/vsync" in line for line in chat(e)) == 2
+    finish(e)
+    run = to_py(runs(e)[0])
+    assert (run["targetFPS"], run["useTargetFPS"], run["maxFPS"], run["useMaxFPS"]) == ("90", "1", "0", "0")
+    assert "vsync" not in run  # an unreadable cvar is left out
+
+
+# ---------------------------------------------------------------- the progress panel
+
+
+def panel(e):
+    return e.ns.Bench.panel
+
+
+def stage(e):
+    """The stage label without its numbers: Settling / Idle baseline / Load / Draining."""
+    return re.match(r"[A-Za-z ]+?(?=  |$)", str(panel(e).stageLine.text)).group(0)
+
+
+def stages_seen(e, limit=4000):
+    """Run to the end, noting each stage label the panel showed, in order."""
+    seen = []
+    for _ in range(limit):
+        if not running(e):
+            return seen
+        e.stub.tick(STEP)
+        if running(e) and (not seen or seen[-1] != stage(e)):
+            seen.append(stage(e))
+    raise AssertionError("the bench did not finish")
+
+
+def test_the_panel_appears_on_start_with_its_widgets(env):
+    e = make(env)
+    assert e.ns.Bench.panel is None  # lazily built
+    bench(e, "typical 2")
+    p = panel(e)
+    assert p.frame.shown is True and p.frame.calls.SetFrameStrata[1] == "DIALOG"
+    assert (p.frame.width, p.frame.height) == (280, 96)
+    assert p.frame.calls.RegisterForDrag[1] == "LeftButton" and p.frame.calls.SetMovable[1] is True
+    assert p.frame.scripts.OnDragStart is not None and p.frame.scripts.OnDragStop is not None
+    assert p.stageBar.kind == "StatusBar" and p.totalBar.kind == "StatusBar"
+    assert p.totalBar.calls.SetHeight[1] < p.stageBar.calls.SetHeight[1]  # the overall bar is the thinner one
+    tick(e, 1)
+    assert p.runLine.text == "Run 1/2  typical  (rep 1/2)"
+    assert str(p.stageLine.text).startswith("Settling  ") and " / " in str(p.stageLine.text)
+    assert str(p.totalText.text).startswith("Total  0:0") and " / ~" in str(p.totalText.text)
     bench(e, "stop")
+
+
+def test_the_panel_follows_settle_baseline_load_and_drain(env):
+    e = make(env)
+    bench(e, "max 1")  # 3 s of bursts at flight time 1.5: orbs are still flying when the script ends
+    seen = stages_seen(e)
+    assert seen == ["Settling", "Idle baseline", "Load", "Draining"]
+
+
+def test_the_panel_shows_kills_and_progress_in_the_load_stage(env):
+    e = make(env)
+    bench(e, "max 1")  # 120 scripted kills over a 3.0 s load at this test's time scale
+    p = panel(e)
+    kills = 0
+    for _ in range(4000):
+        e.stub.tick(STEP)
+        found = re.match(r"Load  [\d.]+ / 3\.0 s  \(kills (\d+)/120\)$", str(p.stageLine.text))
+        if found and int(found.group(1)) >= 50:
+            kills = int(found.group(1))
+            break
+    assert 50 <= kills < 120
+    assert 0.3 < p.stageBar.value < 0.7 and 0 < p.totalBar.value < 1
+    assert " / ~" in str(p.totalText.text)
+    bench(e, "stop")
+
+
+def test_the_panel_refreshes_at_most_four_times_a_second(env):
+    e = make(env)
+    bench(e, "typical 1")
+    tick(e, 3)
+    texts = set()
+    for _ in range(20):  # one second of 20 fps frames
+        e.stub.tick(STEP)
+        texts.add(str(panel(e).stageLine.text))
+    assert 1 <= len(texts) <= 5
+    bench(e, "stop")
+
+
+def test_the_panel_hides_on_finish_stop_error_and_combat(env):
+    e = make(env)
+    bench(e, "typical 1")
+    tick(e, 2)
+    assert panel(e).frame.shown is True
+    finish(e)
+    assert panel(e).frame.shown is False
+    bench(e, "typical 1")
+    tick(e, 2)
+    assert panel(e).frame.shown is True
+    bench(e, "stop")
+    assert panel(e).frame.shown is False
+    bench(e, "typical 1")
+    tick(e, 2)
+    e.ns.fire("PLAYER_REGEN_DISABLED")
+    assert panel(e).frame.shown is False
+    bench(e, "typical 1")
+    tick(e, 2)
+    e.lua.eval("function(o) o.BenchProbe = function() error('boom') end end")(e.orbs)
+    tick(e, 20)
+    assert not running(e) and panel(e).frame.shown is False
+
+
+def test_a_broken_panel_never_stops_the_bench(env):
+    e = make(env)
+    e.lua.execute(
+        "local base = CreateFrame; CreateFrame = function(kind, ...) "
+        "if kind == 'StatusBar' then error('no bars') end return base(kind, ...) end"
+    )
+    bench(e, "typical 1")
+    assert running(e)
+    finish(e)
+    check_run(to_py(runs(e)[0]), "typical", 1, 1)
+    assert any("progress panel disabled" in line and "no bars" in line for line in chat(e))
+    assert e.ns.Bench.panel is None

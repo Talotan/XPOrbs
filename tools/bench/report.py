@@ -40,7 +40,7 @@ DEFAULT_OUT_DIR = ROOT / "docs" / "performance"
 DEFAULT_DATA_DIR = DEFAULT_OUT_DIR / "data"
 DEFAULT_TOC = ROOT / "XPOrbs.toc"
 README_REL = "docs/performance/README.md"
-SCHEMA = 1
+SCHEMA = 2
 SV_ENV = "XPORBS_SV"
 
 SCENARIOS = ("typical", "aoe", "max")
@@ -81,13 +81,15 @@ SETTINGS_KEYS = (
 )
 TIMELINE_KEYS = ("addonMs", "addonMaxMs", "frameMs", "live")
 SAFE_TEXT = re.compile(r"^[\w .\-()]{1,40}$")
+LIMIT_KEYS = ("vsync", "maxFPS", "useMaxFPS", "targetFPS", "useTargetFPS")
+SAFE_CVAR = re.compile(r"^[\w.\-]{1,16}$")
 HEADLINE_HEADER = (
     "| Scenario | Average cost per frame | Worst 1% of frames | fps cost at 60 fps "
-    "| fps cost at 144 fps | Verdict |"
+    "| fps cost at 144 fps | Verdict | Game profiler (cross-check) |"
 )
 NOTES_HEADER = (
     "| Scenario | Average cost | Worst 1% | fps cost at 60 fps | Verdict "
-    "| Change vs previous |"
+    "| Game profiler (cross-check) | Change vs previous |"
 )
 
 
@@ -262,8 +264,13 @@ def rep_values(run: dict) -> dict:
     frame_base = _num(_get(run, "baseline", "frameMs", "mean"))
     mem_start = _num(run.get("memStartKB"))
     mem_end = _num(run.get("memEndKB"))
+    prof_load = _num(_get(run, "load", "profilerMs", "mean"))
+    prof_base = _num(_get(run, "baseline", "profilerMs", "mean"))
     return {
         "netMeanMs": max(0.0, load_mean - base_mean),
+        "profilerMeanMs": max(0.0, prof_load - prof_base)
+        if prof_load is not None and prof_base is not None
+        else None,
         "meanMs": load_mean,
         "baselineMeanMs": base_mean,
         "p95Ms": _num(_get(run, "load", "addonMs", "p95")),
@@ -284,7 +291,6 @@ def rep_values(run: dict) -> dict:
         "memDeltaKB": mem_end - mem_start
         if mem_start is not None and mem_end is not None
         else None,
-        "gcKB": _num(run.get("gcKB")),
         "shareOfAppPct": 100.0 * load_mean / frame_load if frame_load else None,
     }
 
@@ -385,6 +391,15 @@ def check_rig(rig: str) -> str:
     return rig
 
 
+def current_schema_runs(runs: list[dict]) -> tuple[list[dict], int]:
+    """(runs recorded with the current bench schema, how many older ones were left out).
+
+    A run without a schema field predates schema 2 (schema 1 timed XP Orbs through a
+    profiler call that read 0 on this client)."""
+    keep = [r for r in runs if r.get("schema") == SCHEMA]
+    return keep, len(runs) - len(keep)
+
+
 def select_runs(
     runs: list[dict], version: str, batch: str | None
 ) -> tuple[str, list[dict]]:
@@ -401,6 +416,15 @@ def select_runs(
     else:
         raise BenchError(f"runs for version {version} have no batch id")
     return chosen, [r for r in mine if r.get("batch") == chosen]
+
+
+def _clean_limits(run: dict) -> dict:
+    """The fps-limiter cvars of a run (short plain strings, else null)."""
+    out = {}
+    for key in LIMIT_KEYS:
+        v = run.get(key)
+        out[key] = v if isinstance(v, str) and SAFE_CVAR.match(v) else None
+    return out
 
 
 def build_dataset(runs: list[dict], version: str, rig: str) -> dict:
@@ -422,7 +446,6 @@ def build_dataset(runs: list[dict], version: str, rig: str) -> dict:
     if not re.match(r"^\d{4}-\d{2}-\d{2}$", date):
         b = str(newest.get("batch", ""))
         date = f"{b[0:4]}-{b[4:6]}-{b[6:8]}" if len(b) >= 8 else "unknown"
-    source = newest.get("source")
     scenarios = {}
     for name in SCENARIOS:
         if name in by_scen:
@@ -436,8 +459,9 @@ def build_dataset(runs: list[dict], version: str, rig: str) -> dict:
         "date": date,
         "rig": rig,
         "build": f"{build} ({build_no})" if build_no else build,
-        "screen": f"{int(sw)}x{int(sh)}" if sw and sh else "unknown",
-        "source": source if source in ("profiler", "internal") else "unknown",
+        "screen": f"{int(sw)}x{int(sh)}" if sw and sh else None,
+        "source": "internal",
+        "limits": _clean_limits(runs[0]),
         "scenarios": scenarios,
     }
 
@@ -470,6 +494,17 @@ def cmd_ingest(args) -> int:
     if out.exists() and not args.force:
         raise BenchError(f"{show(out)} already exists; use --force to overwrite")
     runs = load_runs(Path(sv))
+    runs, skipped = current_schema_runs(runs)
+    if skipped:
+        print(
+            f"skipped {skipped} run(s) from an older bench schema (their timing "
+            "was unreliable)"
+        )
+    if not runs:
+        raise BenchError(
+            f"no schema {SCHEMA} runs in the SavedVariables: run /xporbs bench in "
+            "game with this version of the bench"
+        )
     batch, chosen = select_runs(runs, version, args.batch)
     data = build_dataset(chosen, version, rig)
     write_json(out, data)
@@ -496,7 +531,9 @@ def load_data(data_dir: Path) -> list[dict]:
         ):
             sets.append(d)
         else:
-            print(f"warning: skipping {path.name} (not schema 1)", file=sys.stderr)
+            print(
+                f"warning: skipping {path.name} (not schema {SCHEMA})", file=sys.stderr
+            )
     if not sets:
         raise BenchError("no data files found; run the ingest command first")
     return sets
@@ -889,6 +926,44 @@ def chart_timeline(path: Path, scen: str, version: str, tl: dict):
 # --------------------------------------------------------------------------- README
 
 
+def profiler_cell(summary: dict) -> str:
+    """The game profiler's cross-check figure, or n/a when the run had none."""
+    ms = summary.get("profilerMeanMs")
+    return fmt_ms(ms) if ms is not None else "n/a"
+
+
+def _screen(ds: dict) -> str | None:
+    screen = ds.get("screen")
+    return (
+        screen if isinstance(screen, str) and re.match(r"^\d+x\d+$", screen) else None
+    )
+
+
+def _num_or_none(v):
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def active_limiters(limits) -> list[str]:
+    """Names of the fps limiters that were on, e.g. ['Target FPS (90)', 'vsync']."""
+    if not isinstance(limits, dict):
+        return []
+    on = ("1", "true")
+    out = []
+    max_fps = _num_or_none(limits.get("maxFPS"))
+    use_max = limits.get("useMaxFPS")
+    if max_fps and max_fps > 0 and (use_max is None or use_max in on):
+        out.append(f"Max FPS ({max_fps:g})")
+    target = _num_or_none(limits.get("targetFPS"))
+    if target and target > 0 and limits.get("useTargetFPS") in on:
+        out.append(f"Target FPS ({target:g})")
+    if limits.get("vsync") in on:
+        out.append("vsync")
+    return out
+
+
 def headline_rows(ds: dict) -> list[str]:
     rows = []
     for scen in SCENARIOS:
@@ -902,7 +977,7 @@ def headline_rows(ds: dict) -> list[str]:
             f"| {SCENARIO_LABEL[scen]} | {fmt_ms(net)} "
             f"| {fmt_ms(p99) if p99 is not None else 'n/a'} "
             f"| {fmt_fps(fps_cost(60, net))} | {fmt_fps(fps_cost(144, net))} "
-            f"| {verdict(net)} |"
+            f"| {verdict(net)} | {profiler_cell(sm)} |"
         )
     return rows
 
@@ -911,32 +986,36 @@ def _names(items: list[str]) -> str:
     return items[0] if len(items) == 1 else ", ".join(items[:-1]) + " and " + items[-1]
 
 
+def _capitalise(text: str) -> str:
+    return text[:1].upper() + text[1:]
+
+
 def summary_paragraph(ds: dict) -> str:
     sc = ds["scenarios"]
-    screen = ds["screen"]
-    height = screen.split("x")[-1]
-    rig_has_screen = screen in ds["rig"] or (
-        height != "unknown" and height in ds["rig"]
+    screen = _screen(ds)
+    rig_has_screen = screen is None or (
+        screen in ds["rig"] or screen.split("x")[-1] in ds["rig"]
     )
     head = f"**Version {ds['version']}**, measured on {ds['rig']} (game build {ds['build']}"
     head += ")." if rig_has_screen else f", {screen} screen)."
+    # lower-case: they are used mid-sentence; a sentence that starts with one capitalises it
     sentence_names = {
-        "typical": "Typical play",
+        "typical": "typical play",
         "aoe": "AoE farming",
-        "max": "The maximum-settings stress test (a worst case nobody plays in)",
+        "max": "the maximum-settings stress test (a worst case nobody plays in)",
     }
     nets = {s: sc[s]["summary"]["netMeanMs"] for s in SCENARIOS if s in sc}
     low = [s for s in nets if fps_cost(60, nets[s]) < 1]
     parts = []
     if low:
         ms = _names([f"{nets[s]:.2f}" for s in low])
-        names = _names([sentence_names[s] for s in low])
+        names = _capitalise(_names([sentence_names[s] for s in low]))
         verb = "each cost" if len(low) > 1 else "costs"
         parts.append(f"{names} {verb} under 1 fps at 60 fps ({ms} ms per frame).")
     for s, net in nets.items():
         if s not in low:
             parts.append(
-                f"{sentence_names[s]} costs about {fps_cost(60, net):.1f} fps at 60 fps "
+                f"{_capitalise(sentence_names[s])} costs about {fps_cost(60, net):.1f} fps at 60 fps "
                 f"({net:.2f} ms per frame)."
             )
     return head + " " + " ".join(parts)
@@ -1000,13 +1079,15 @@ def build_readme(sets: list[dict], img_scens: dict) -> str:
         f"### Version {newest['version']} at a glance",
         "",
         HEADLINE_HEADER,
-        "|---|---|---|---|---|---|",
+        "|---|---|---|---|---|---|---|",
         *headline_rows(newest),
         "",
         (
             "*Average cost* is what XP Orbs adds to a typical frame. *Worst 1%* is the cost "
             "of the slowest one frame in a hundred, which is what you'd feel as a hitch. "
-            "*fps cost* converts the average into frames per second lost at 60 and 144 fps."
+            "*fps cost* converts the average into frames per second lost at 60 and 144 fps. "
+            "*Game profiler (cross-check)* is the same average as the game's own addon "
+            "profiler reports it."
         ),
         "",
         "![Average cost per frame across releases](img/trends-overview.png)",
@@ -1067,21 +1148,40 @@ def build_readme(sets: list[dict], img_scens: dict) -> str:
         ),
         "",
     ]
-    if newest.get("source") == "internal":
+    has_profiler = any(
+        sc["summary"].get("profilerMeanMs") is not None
+        for sc in newest["scenarios"].values()
+    )
+    L += [
+        (
+            "The cost is measured by XP Orbs' own timers around its per-frame update and "
+            "every burst of orbs it creates, minus an idle baseline measured just before "
+            "the test, so only the work XP Orbs causes is counted."
+        ),
+        "",
+    ]
+    if has_profiler:
         L += [
             (
-                "The game's addon profiler was not available for this run, so the numbers "
-                "come from the addon's own timers instead. They are close but not "
-                "identical to profiler numbers."
+                "The game's own addon profiler (its recent average, the figure addon "
+                "profilers like Numy's show) is listed alongside as a cross-check."
             ),
             "",
         ]
     else:
         L += [
             (
-                "The cost is read from the game's own addon profiler (the same numbers "
-                "addon profilers like Numy's show), minus an idle baseline measured just "
-                "before the test, so only the work XP Orbs causes is counted."
+                "The game's own addon profiler was not available for this run, so there "
+                "is no cross-check figure."
+            ),
+            "",
+        ]
+    limiters = active_limiters(newest.get("limits"))
+    if limiters:
+        L += [
+            (
+                f"Frame rate was limited by {_names(limiters)} during this run, which "
+                "affects the fps figures but not the ms cost."
             ),
             "",
         ]
@@ -1090,7 +1190,7 @@ def build_readme(sets: list[dict], img_scens: dict) -> str:
         "",
         f"- Rig: {newest['rig']}",
         f"- Game build: {newest['build']}",
-        f"- Screen: {newest['screen']}",
+        *([f"- Screen: {_screen(newest)}"] if _screen(newest) else []),
         f"- Measured: {newest['date']}",
         "",
         "**Things to keep in mind**",
@@ -1189,7 +1289,7 @@ def notes_text(sets_all: list[dict], rig: str | None, version: str | None) -> st
             f"| {SCENARIO_LABEL[scen]} | {fmt_ms(net)} "
             f"| {fmt_ms(p99) if p99 is not None else 'n/a'} "
             f"| {fmt_fps(fps_cost(60, net))} | {verdict(net)} "
-            f"| {format_change(prev, net)} |"
+            f"| {profiler_cell(sm)} | {format_change(prev, net)} |"
         )
     return "\n".join(
         [
@@ -1199,7 +1299,7 @@ def notes_text(sets_all: list[dict], rig: str | None, version: str | None) -> st
             ),
             "",
             NOTES_HEADER,
-            "|---|---|---|---|---|---|",
+            "|---|---|---|---|---|---|---|",
             *rows,
             "",
             f"Full report: {README_REL}",

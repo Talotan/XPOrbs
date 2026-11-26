@@ -95,6 +95,7 @@ read_globals = {
     "C_AddOnProfiler",
     "Enum",
     "GetCVar",
+    "GetPhysicalScreenSize",
     "GetBuildInfo",
     "GetAddOnMetadata",
     "UnitAffectingCombat",

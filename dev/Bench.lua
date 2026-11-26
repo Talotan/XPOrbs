@@ -17,11 +17,12 @@ local Bench = {}
 ns.Bench = Bench
 Bench.durationScale = 1 -- tests shrink every duration with this; read when a bench starts
 
-local SCHEMA = 1
+local SCHEMA = 2
 local SCENARIO_VERSION = 1
 local MAX_RUNS = 30 -- saved runs kept, oldest dropped
 local SETTLE, BASELINE, DRAIN_MAX, DRAIN_GUESS = 2, 10, 8, 3 -- seconds (DRAIN_GUESS: only for the time estimate)
 local STEP = 0.5 -- timeline bucket, seconds
+local PANEL_W, PANEL_H, PANEL_PAD, PANEL_HZ = 280, 96, 10, 4 -- progress panel: size, padding, refreshes per second
 local CAP_FRAMES = 30000 -- samples kept per phase (68 s at 440 fps); the arrays are filled once, never grown per frame
 local OVER = { 1, 5, 10, 16.67 } -- Stats over1 / over5 / over10 / over16 thresholds, ms
 local ORDER = { "max", "aoe", "typical" }
@@ -295,18 +296,18 @@ local orbs -- ns.Orbs
 local eventFrame, sampleFrame
 local queue, qi, batch, repsTotal, done -- the planned runs, the current one, the batch id, reps, finished runs
 local scale = 1 -- Bench.durationScale at start
-local useProfiler, hasOverall, getMetric, getOverall, metricLast
+local useProfiler, hasOverall, getMetric, getOverall, metricRecent -- the game's addon profiler (cross-check only)
 local run -- the run record being built
 local phase, phaseT, loadT -- "settle" | "baseline" | "load"; seconds in the phase
 local events, nEvents, nextEv, scriptEnd
 local kills, orbsTotal, peakLive, peakTex
 local burstMs = {}
-local burstAcc = 0 -- Burst ms fired in the current frame (internal source: counted in the next frame's sample)
-local lastPerfTotal, perfFrames0, perfTotal0, gc0, mem0
+local burstAcc = 0 -- Burst ms fired in the current frame (counted in the next frame's sample)
+local lastPerfTotal, perfFrames0, perfTotal0, mem0
 local params = {} -- the Burst argument, reused for every kill
 local slots = {}
 -- per-frame samples of the phase being measured (filled in place: nothing is allocated in the sampling OnUpdate)
-local frameArr, addonArr, overallArr, timeArr, liveArr = {}, {}, {}, {}, {}
+local frameArr, addonArr, profilerArr, overallArr, timeArr, liveArr = {}, {}, {}, {}, {}, {}
 local arrN = 0
 
 local function say(msg)
@@ -319,6 +320,11 @@ local function fillArrays()
             frameArr[i], addonArr[i], timeArr[i], liveArr[i] = 0, 0, 0, 0
         end
     end
+    if useProfiler and profilerArr[CAP_FRAMES] == nil then
+        for i = 1, CAP_FRAMES do
+            profilerArr[i] = 0
+        end
+    end
     if hasOverall and overallArr[CAP_FRAMES] == nil then
         for i = 1, CAP_FRAMES do
             overallArr[i] = 0
@@ -327,7 +333,7 @@ local function fillArrays()
 end
 
 local function releaseArrays()
-    frameArr, addonArr, overallArr, timeArr, liveArr, burstMs = {}, {}, {}, {}, {}, {}
+    frameArr, addonArr, profilerArr, overallArr, timeArr, liveArr, burstMs = {}, {}, {}, {}, {}, {}, {}
 end
 
 local function placeSlots()
@@ -347,15 +353,16 @@ local function placeSlots()
     end
 end
 
--- C_AddOnProfiler when it works (a number comes back for LastTime), else the internal timers.
-local function pickSource()
-    useProfiler, hasOverall, getMetric, getOverall, metricLast = false, false, nil, nil, nil
+-- The game's addon profiler as a cross-check: only RecentAverageTime works on this client (LastTime reads 0). The
+-- bench's own timers are always the measurement; this just adds a second opinion per frame when it answers.
+local function pickProfiler()
+    useProfiler, hasOverall, getMetric, getOverall, metricRecent = false, false, nil, nil, nil
     local profiler = C_AddOnProfiler
     if not (profiler and profiler.GetAddOnMetric and Enum and Enum.AddOnProfilerMetric) then
         return
     end
-    metricLast = Enum.AddOnProfilerMetric.LastTime
-    if metricLast == nil then
+    metricRecent = Enum.AddOnProfilerMetric.RecentAverageTime
+    if metricRecent == nil then
         return
     end
     if profiler.IsEnabled then
@@ -364,7 +371,7 @@ local function pickSource()
             return
         end
     end
-    local ok, value = pcall(profiler.GetAddOnMetric, ADDON, metricLast)
+    local ok, value = pcall(profiler.GetAddOnMetric, ADDON, metricRecent)
     if ok and type(value) == "number" then
         useProfiler, getMetric = true, profiler.GetAddOnMetric
         if profiler.GetOverallMetric then
@@ -381,6 +388,23 @@ local function cvar(name)
         end
     end
     return nil
+end
+
+-- Physical pixels: GetPhysicalScreenSize, else the resolution cvars ("2560x1440"), else nothing.
+local function screenSize()
+    if GetPhysicalScreenSize then
+        local ok, w, h = pcall(GetPhysicalScreenSize)
+        if ok and type(w) == "number" and type(h) == "number" and w > 0 and h > 0 then
+            return floor(w + 0.5), floor(h + 0.5)
+        end
+    end
+    for _, name in ipairs({ "gxFullscreenResolution", "gxWindowedResolution" }) do
+        local w, h = string.match(cvar(name) or "", "^(%d+)x(%d+)")
+        if w and tonumber(w) > 0 and tonumber(h) > 0 then
+            return tonumber(w), tonumber(h)
+        end
+    end
+    return nil, nil
 end
 
 local function addonVersion()
@@ -426,11 +450,11 @@ local function newRun(item)
             build, buildNumber, interface = tostring(version or build), tostring(number or buildNumber), toc or 0
         end
     end
-    local width = tonumber(UIParent:GetWidth()) or 0
-    local height = tonumber(UIParent:GetHeight()) or 0
+    local screenW, screenH = screenSize()
     local okScale, uiScale = pcall(UIParent.GetEffectiveScale, UIParent)
     uiScale = okScale and tonumber(uiScale) or 1
     return {
+        schema = SCHEMA,
         id = batch .. "-" .. item.scenario .. "-" .. item.rep,
         batch = batch,
         scenario = item.scenario,
@@ -443,15 +467,169 @@ local function newRun(item)
         buildNumber = buildNumber,
         interface = interface,
         date = stamp("!%Y-%m-%dT%H:%M:%SZ"),
-        -- physical pixels: UIParent's size is in UI units, its effective scale converts
-        screenW = floor(width * uiScale + 0.5),
-        screenH = floor(height * uiScale + 0.5),
+        screenW = screenW, -- physical pixels (nil when the client will not say)
+        screenH = screenH,
         uiScale = round(uiScale, 4),
+        vsync = cvar("vsync"), -- the fps limiters, as the client reports them (strings)
         maxFPS = cvar("maxFPS"),
-        vsync = cvar("gxVSync"),
-        source = useProfiler and "profiler" or "internal",
+        useMaxFPS = cvar("useMaxFPS"),
+        targetFPS = cvar("targetFPS"),
+        useTargetFPS = cvar("useTargetFPS"),
+        source = "internal", -- XP Orbs' own timers (driver + Burst); the game profiler is run.profilerMetric
+        profilerMetric = useProfiler and "RecentAverageTime" or nil,
         settings = summarySettings(),
     }
+end
+
+-- ---------------------------------------------------------------- progress panel (dev-only, shown while a bench runs)
+
+local panel, panelAcc, panelOff = nil, 0, false -- the widgets, seconds since the last refresh, "it broke: stay away"
+local estTotal, elapsedTotal = 0, 0 -- seconds the whole batch is planned to take / has really taken
+
+local function clock(seconds)
+    seconds = max(0, floor(seconds + 0.5))
+    return format("%d:%02d", floor(seconds / 60), seconds % 60)
+end
+
+local function newText(parent, template, point, x, y)
+    local fs = parent:CreateFontString(nil, "OVERLAY", template)
+    fs:SetPoint(point, parent, point, x, y)
+    fs:SetJustifyH(point == "TOPRIGHT" and "RIGHT" or "LEFT")
+    return fs
+end
+
+-- A StatusBar spanning the panel's width at depth y, with a dim track behind it.
+local function newBar(parent, y, height, r, g, b)
+    local bar = CreateFrame("StatusBar", nil, parent)
+    bar:SetPoint("TOPLEFT", parent, "TOPLEFT", PANEL_PAD, y)
+    bar:SetPoint("TOPRIGHT", parent, "TOPRIGHT", -PANEL_PAD, y)
+    bar:SetHeight(height)
+    bar:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
+    bar:SetStatusBarColor(r, g, b, 1)
+    bar:SetMinMaxValues(0, 1)
+    bar:SetValue(0)
+    local track = bar:CreateTexture(nil, "BACKGROUND")
+    track:SetAllPoints(bar)
+    track:SetColorTexture(1, 1, 1, 0.12)
+    return bar
+end
+
+local function buildPanel()
+    local frame = CreateFrame("Frame", nil, UIParent)
+    frame:Hide()
+    frame:SetFrameStrata("DIALOG")
+    frame:SetSize(PANEL_W, PANEL_H)
+    frame:SetPoint("TOP", UIParent, "TOP", 0, -140)
+    frame:SetClampedToScreen(true)
+    frame:EnableMouse(true)
+    frame:SetMovable(true)
+    frame:RegisterForDrag("LeftButton")
+    frame:SetScript("OnDragStart", function(self)
+        self:StartMoving()
+    end)
+    frame:SetScript("OnDragStop", function(self)
+        self:StopMovingOrSizing()
+    end)
+    local back = frame:CreateTexture(nil, "BACKGROUND")
+    back:SetAllPoints(frame)
+    back:SetColorTexture(0, 0, 0, 0.75)
+    local function edge(from, to, width, height) -- the 1 px border: four thin textures
+        local line = frame:CreateTexture(nil, "BORDER")
+        line:SetColorTexture(1, 1, 1, 0.25)
+        line:SetPoint(from, frame, from)
+        line:SetPoint(to, frame, to)
+        if width then
+            line:SetWidth(width)
+        end
+        if height then
+            line:SetHeight(height)
+        end
+    end
+    edge("TOPLEFT", "TOPRIGHT", nil, 1)
+    edge("BOTTOMLEFT", "BOTTOMRIGHT", nil, 1)
+    edge("TOPLEFT", "BOTTOMLEFT", 1, nil)
+    edge("TOPRIGHT", "BOTTOMRIGHT", 1, nil)
+    local pad = PANEL_PAD
+    newText(frame, "GameFontNormal", "TOPLEFT", pad, -8):SetText("XP Orbs benchmark")
+    local hint = newText(frame, "GameFontHighlightSmall", "TOPRIGHT", -pad, -9)
+    hint:SetTextColor(0.6, 0.6, 0.6)
+    hint:SetText("/xporbs bench stop")
+    return {
+        frame = frame,
+        runLine = newText(frame, "GameFontHighlightSmall", "TOPLEFT", pad, -26),
+        stageLine = newText(frame, "GameFontHighlightSmall", "TOPLEFT", pad, -40),
+        stageBar = newBar(frame, -55, 10, 0.2, 0.5, 0.9),
+        totalBar = newBar(frame, -71, 5, 0.3, 0.75, 0.35),
+        totalText = newText(frame, "GameFontHighlightSmall", "TOPLEFT", pad, -80),
+    }
+end
+
+-- The panel is dev tooling: whatever goes wrong in it switches it off and never touches the bench.
+local function disablePanel(err)
+    panelOff = true
+    if panel then
+        pcall(panel.frame.Hide, panel.frame)
+    end
+    say("progress panel disabled: " .. tostring(err))
+end
+
+local function showPanel()
+    panelOff = false
+    local ok, err = pcall(function()
+        if not panel then
+            panel = buildPanel()
+            Bench.panel = panel
+        end
+        panel.frame:Show()
+        panelAcc = 1 -- the first frame fills it in
+    end)
+    if not ok then
+        disablePanel(err)
+    end
+end
+
+local function hidePanel()
+    if panel then
+        pcall(panel.frame.Hide, panel.frame)
+    end
+end
+
+-- Text and bars from the run state, PANEL_HZ times a second. Runs the same way in baseline and load, so whatever it
+-- costs a frame cancels in the net figure.
+local function panelUpdate(dt)
+    if not panel or panelOff then
+        return
+    end
+    panelAcc = panelAcc + dt
+    if panelAcc < 1 / PANEL_HZ then
+        return
+    end
+    panelAcc = 0
+    local item = queue and queue[qi]
+    if not item then
+        return
+    end
+    local text, frac
+    if phase == "settle" then
+        local total = SETTLE * scale
+        text, frac = format("Settling  %.1f / %.1f s", min(phaseT, total), total), phaseT / total
+    elseif phase == "baseline" then
+        local total = BASELINE * scale
+        text, frac = format("Idle baseline  %.1f / %.1f s", min(phaseT, total), total), phaseT / total
+    elseif phase == "load" and nextEv > nEvents and loadT >= scriptEnd then
+        local drained = loadT - scriptEnd
+        text, frac = format("Draining  %.1f s (max %d s)", drained, DRAIN_MAX), drained / DRAIN_MAX
+    elseif phase == "load" then
+        text = format("Load  %.1f / %.1f s  (kills %d/%d)", min(loadT, scriptEnd), scriptEnd, kills, nEvents)
+        frac = loadT / scriptEnd
+    else
+        return
+    end
+    panel.runLine:SetText(format("Run %d/%d  %s  (rep %d/%d)", qi, #queue, item.scenario, item.rep, repsTotal))
+    panel.stageLine:SetText(text)
+    panel.stageBar:SetValue(max(0, min(1, frac)))
+    panel.totalText:SetText(format("Total  %s / ~%s", clock(elapsedTotal), clock(estTotal)))
+    panel.totalBar:SetValue(estTotal > 0 and min(1, elapsedTotal / estTotal) or 0)
 end
 
 -- ---------------------------------------------------------------- sampling (the hot path: allocates nothing)
@@ -464,17 +642,16 @@ local function sample(dt, burstPrev, t)
     arrN = i
     frameArr[i] = dt * 1000
     timeArr[i] = t
+    local _, _, _, total = orbs:BenchProbe()
+    addonArr[i] = (total - lastPerfTotal) + burstPrev
+    lastPerfTotal = total
     if useProfiler then
-        local ok, value = pcall(getMetric, ADDON, metricLast)
-        addonArr[i] = (ok and type(value) == "number") and value or 0
+        local ok, value = pcall(getMetric, ADDON, metricRecent)
+        profilerArr[i] = (ok and type(value) == "number") and value or 0
         if hasOverall then
-            local okAll, all = pcall(getOverall, metricLast)
+            local okAll, all = pcall(getOverall, metricRecent)
             overallArr[i] = (okAll and type(all) == "number") and all or 0
         end
-    else
-        local _, _, _, total = orbs:BenchProbe()
-        addonArr[i] = (total - lastPerfTotal) + burstPrev
-        lastPerfTotal = total
     end
 end
 
@@ -509,6 +686,7 @@ local function makePhase(seconds)
         seconds = round(seconds, 3),
         frames = arrN,
         addonMs = Bench.Stats(addonArr, arrN),
+        profilerMs = useProfiler and Bench.Stats(profilerArr, arrN) or nil,
         overallMs = hasOverall and Bench.Stats(overallArr, arrN) or nil,
         frameMs = Bench.Stats(frameArr, arrN),
     }
@@ -557,6 +735,7 @@ end
 
 local function resetState()
     running = false
+    hidePanel()
     phase, run, queue, events, done = nil, nil, nil, nil, nil
     releaseArrays()
     arrN = 0
@@ -597,7 +776,6 @@ local function beginLoad()
     local _, _, frames, total = orbs:BenchProbe()
     perfFrames0, perfTotal0, lastPerfTotal = frames, total, total
     mem0 = readMem()
-    gc0 = collectgarbage("count")
 end
 
 local function startRun(index)
@@ -652,7 +830,6 @@ end
 -- Closes the load phase: measures first (memory, heap), then the statistics, then saves the run at once.
 local function finishRun()
     local memEnd = readMem()
-    local gcRise = collectgarbage("count") - gc0
     local _, _, frames, total = orbs:BenchProbe()
     run.load = makePhase(loadT)
     run.kills, run.orbs = kills, orbsTotal
@@ -661,7 +838,6 @@ local function finishRun()
     local driverFrames = frames - perfFrames0
     run.driverMs = driverFrames > 0 and round((total - perfTotal0) / driverFrames, 4) or 0
     run.memStartKB, run.memEndKB = mem0, memEnd
-    run.gcKB = round(gcRise, 1)
     run.timeline = buildTimeline()
     local runs = ensureStore().runs
     runs[#runs + 1] = run
@@ -725,9 +901,16 @@ local function tick(dt)
 end
 
 local function onUpdate(_, dt)
-    local ok, err = pcall(tick, type(dt) == "number" and dt or 0)
+    dt = type(dt) == "number" and dt or 0
+    local ok, err = pcall(tick, dt)
     if not ok then
         abort("error: " .. tostring(err))
+    elseif running then
+        elapsedTotal = elapsedTotal + dt
+        local okPanel, errPanel = pcall(panelUpdate, dt)
+        if not okPanel then
+            disablePanel(errPanel)
+        end
     end
 end
 
@@ -753,15 +936,28 @@ local function usage()
     say("/xporbs bench list - the last 10 saved runs")
 end
 
+local function isOn(value)
+    return value == "1" or value == "true"
+end
+
+-- The fps limiters hide the real frame rate (the ms cost is timed inside the addon, so it is unaffected): name each.
 local function warnings()
+    local hint = "turn it off so the fps figures are comparable"
     local maxFps = tonumber(cvar("maxFPS"))
-    local vsync = cvar("gxVSync")
-    if (maxFps and maxFps > 0) or vsync == "1" or vsync == "true" then
-        say("warning: an fps cap/vsync hides the real cost: turn it off for comparable numbers")
+    local useMax = cvar("useMaxFPS")
+    if maxFps and maxFps > 0 and (useMax == nil or isOn(useMax)) then
+        say(format("warning: Max FPS is on (%d): %s", maxFps, hint))
+    end
+    local target = tonumber(cvar("targetFPS"))
+    if target and target > 0 and isOn(cvar("useTargetFPS")) then
+        say(format("warning: Target FPS is on (%d): %s", target, hint))
+    end
+    if isOn(cvar("vsync")) then
+        say("warning: vsync is on: " .. hint)
     end
     if not useProfiler then
-        say("note: C_AddOnProfiler is off or missing, timing with the internal counters (see /console "
-            .. "addonProfilerEnabled 1)")
+        say("note: C_AddOnProfiler is off or missing, so there is no cross-check figure (timing is unaffected; see "
+            .. "/console addonProfilerEnabled 1)")
     end
 end
 
@@ -780,7 +976,7 @@ local function startBench(list, count)
         return
     end
     recover() -- never snapshot a half-applied preset
-    pickSource()
+    pickProfiler()
     local store = ensureStore()
     store.restore = {}
     for k, v in pairs(ns.db) do
@@ -793,6 +989,7 @@ local function startBench(list, count)
         scale = 1
     end
     queue, qi, repsTotal, done = {}, 0, count, {}
+    elapsedTotal = 0
     local seconds = 0
     for _, name in ipairs(list) do
         for rep = 1, count do
@@ -800,16 +997,18 @@ local function startBench(list, count)
             seconds = seconds + (SETTLE + BASELINE + SCENARIOS[name].duration + DRAIN_GUESS) * scale
         end
     end
+    estTotal = seconds
     batch = stamp("!%Y%m%dT%H%M%S")
     fillArrays()
     if not sampleFrame then
         sampleFrame = CreateFrame("Frame")
         Bench.frame = sampleFrame
     end
-    say(format("%d run(s), about %d min %02d s (source: %s). Stand still, do not touch the camera or mouse.", #queue,
-        floor(seconds / 60), floor(seconds % 60), useProfiler and "profiler" or "internal"))
+    say(format("%d run(s), about %d min %02d s (own timers; game profiler cross-check %s). Stand still, do not touch "
+        .. "the camera or mouse.", #queue, floor(seconds / 60), floor(seconds % 60), useProfiler and "on" or "off"))
     warnings()
     running = true
+    showPanel()
     local ok, err = pcall(startRun, 1)
     if not ok then
         abort("error: " .. tostring(err))
