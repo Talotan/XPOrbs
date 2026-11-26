@@ -48,7 +48,7 @@ local GHOST_KEY = { "ghost1", "ghost2", "ghost3", "ghost4" }
 -- shading, so orbs layer over each other instead of adding up. The underlay and the trails move below the bodies:
 -- every underlay, then every trail, then every body, then the glint / bolts / twinkle. The drawn sizes are the Natural
 -- ones: the solid discs were cut to sit where each Natural body is seen. Trails stay additive except for dark orbs
--- (BLEND, see SHAPES.trailBlend). Natural keeps its own.
+-- (BLEND, see SHAPES.trailTint). Natural keeps its own.
 local SOLID_LIFT = 0.06 -- BLEND shows the raw vertex colour (ADD brightens), so it is lightened by this much
 local CRACKLE_SOLID_UNDER, CRACKLE_SOLID_UNDER_ALPHA = 1.25, 0.40 -- x body, alpha (Natural: CRACKLE_UNDER, _ALPHA)
 local SUB_NATURAL = { under = -1, trail = 0, body = 0, top = 1 } -- ARTWORK sublayers
@@ -215,12 +215,13 @@ function RETRO.setup(under, body, spark, st, red, green, blue)
     st.sparkle = ns.db.sparkle ~= false -- fixed at set-up: a shape switch mid-flight must not change a flying orb
 end
 
--- A trail square: a colour texture (no art), ADD (BLEND for a dark orb, see SHAPES.trailBlend), tinted by the orb
--- colour.
+-- A trail square: a colour texture (no art), ADD (BLEND and darker for a dark orb, see SHAPES.trailTint), tinted by the
+-- orb colour.
 local function newSquare(red, green, blue, subLayer)
     local tex = take()
-    tex:SetColorTexture(red, green, blue, 1)
-    style(tex, subLayer, SHAPES.trailBlend(red, green, blue), 1, 1, 1)
+    local blend, ghostRed, ghostGreen, ghostBlue = SHAPES.trailTint(red, green, blue)
+    tex:SetColorTexture(ghostRed, ghostGreen, ghostBlue, 1)
+    style(tex, subLayer, blend, 1, 1, 1)
     ready(tex)
     return tex
 end
@@ -294,11 +295,11 @@ end
 function BUBBLE.build(orb, trail, red, green, blue)
     buildSlots(BUBBLE, orb, red, green, blue, true)
     if trail then
-        local blend = SHAPES.trailBlend(red, green, blue)
+        local blend, ghostRed, ghostGreen, ghostBlue = SHAPES.trailTint(red, green, blue)
         for i = 1, 4 do
             local tex = take()
             tex:SetTexture(BUBBLE_TEX)
-            style(tex, (orb.solid and SUB_SOLID or SUB_NATURAL).trail, blend, red, green, blue)
+            style(tex, (orb.solid and SUB_SOLID or SUB_NATURAL).trail, blend, ghostRed, ghostGreen, ghostBlue)
             ready(tex)
             orb[GHOST_KEY[i]] = tex
         end
@@ -371,11 +372,11 @@ end
 function CRACKLE.build(orb, trail, red, green, blue)
     buildSlots(CRACKLE, orb, red, green, blue, true)
     if trail then
-        local blend = SHAPES.trailBlend(red, green, blue)
+        local blend, ghostRed, ghostGreen, ghostBlue = SHAPES.trailTint(red, green, blue)
         for i = 1, 3 do
             local tex = take()
             tex:SetTexture(CRACKLE_CORE_TEX)
-            style(tex, (orb.solid and SUB_SOLID or SUB_NATURAL).trail, blend, red, green, blue)
+            style(tex, (orb.solid and SUB_SOLID or SUB_NATURAL).trail, blend, ghostRed, ghostGreen, ghostBlue)
             ready(tex)
             orb[GHOST_KEY[i]] = tex
         end

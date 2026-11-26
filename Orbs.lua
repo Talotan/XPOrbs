@@ -206,6 +206,7 @@ local SHAPES = { by = {}, host = {}, k = { glow = GLOW, ghostStep = GHOST_STEP, 
     ghostGapK = 0.3, ghost1Alpha = GHOST1_ALPHA,
     ghost1Size = GHOST1_SIZE, ghost2Alpha = GHOST2_ALPHA, ghost2Size = GHOST2_SIZE, ghost3Alpha = GHOST3_ALPHA,
     ghost3Size = GHOST3_SIZE, underK = UNDER_K, darkTrailLum = 0.25,
+    darkTrailShade = 0.45,
     sparkleWhite = SPARKLE_WHITE, extras = EXTRAS, underSize = UNDER_SIZE, underAlpha = UNDER_ALPHA,
     sparkle = SPARKLE, sparkleAlpha = SPARKLE_ALPHA, restedSize = RESTED_SIZE } }
 ns.OrbShapes = SHAPES
@@ -1351,12 +1352,16 @@ end
 
 -- The blend mode of an orb's trail ghosts, decided once at spawn from the orb's own colour: additive ghosts add nothing
 -- over a black or very dark orb, so a dark colour (relative luminance under SHAPES.k.darkTrailLum) draws them with
--- plain alpha blending, a dark smear. Bright colours stay additive.
-function SHAPES.trailBlend(red, green, blue)
-    if 0.2126 * red + 0.7152 * green + 0.0722 * blue < SHAPES.k.darkTrailLum then
-        return "BLEND"
+-- plain alpha blending, a dark smear. Bright colours stay additive with the orb's own colour. The BLEND ghosts are
+-- tinted darker than the orb (each channel x SHAPES.k.darkTrailShade) so the smear reads as a shadow behind it, not
+-- the same colour as the ground. Returns the blend mode and the ghost tint.
+function SHAPES.trailTint(red, green, blue)
+    local k = SHAPES.k
+    if 0.2126 * red + 0.7152 * green + 0.0722 * blue < k.darkTrailLum then
+        local shade = k.darkTrailShade
+        return "BLEND", red * shade, green * shade, blue * shade
     end
-    return "ADD"
+    return "ADD", red, green, blue
 end
 
 -- Gets the textures of one flying orb from the pool: the Starlight art here (underlay, orb, sparkle, 3 ghosts), or
@@ -1370,10 +1375,10 @@ function SHAPES.build(orb, shape, trail, red, green, blue)
     orb.spark = acquire(SPARKLE_TEX, 1, lighten(red), lighten(green), lighten(blue))
     orb.spark.xoDirty = true -- it spins (SetRotation)
     if trail then
-        local blend = SHAPES.trailBlend(red, green, blue)
-        orb.ghost1 = acquire(ORB_TEX, 0, red, green, blue, blend)
-        orb.ghost2 = acquire(ORB_TEX, 0, red, green, blue, blend)
-        orb.ghost3 = acquire(ORB_TEX, 0, red, green, blue, blend)
+        local blend, ghostRed, ghostGreen, ghostBlue = SHAPES.trailTint(red, green, blue)
+        orb.ghost1 = acquire(ORB_TEX, 0, ghostRed, ghostGreen, ghostBlue, blend)
+        orb.ghost2 = acquire(ORB_TEX, 0, ghostRed, ghostGreen, ghostBlue, blend)
+        orb.ghost3 = acquire(ORB_TEX, 0, ghostRed, ghostGreen, ghostBlue, blend)
     end
 end
 

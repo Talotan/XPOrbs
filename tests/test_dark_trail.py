@@ -83,7 +83,11 @@ def test_threshold_boundary(env):
     g = make(env, trail=True)
     limit = float(g.ns.OrbShapes.k.darkTrailLum)
     assert limit == pytest.approx(0.25)
-    blend = g.ns.OrbShapes.trailBlend
+    tint = g.ns.OrbShapes.trailTint
+
+    def blend(r, gr, b):
+        return tint(r, gr, b)[0]
+
     # grey of luminance just under / at / over the limit (the weights sum to 1)
     assert str(blend(limit - 0.001, limit - 0.001, limit - 0.001)) == "BLEND"
     assert str(blend(limit, limit, limit)) == "ADD"
@@ -94,6 +98,37 @@ def test_threshold_boundary(env):
     assert lum([0, 0.34, 0]) < limit < lum([0, 0.35, 0])
     assert str(blend(0, 0.34, 0)) == "BLEND" and str(blend(0, 0.35, 0)) == "ADD"
     assert str(blend(1, 0, 0)) == "BLEND"  # pure red is dark by luminance (0.2126)
+
+
+def ghost_rgb(shape, tex):
+    """The colour a ghost is drawn in: retro squares are colour textures, the others use the vertex colour."""
+    call = "SetColorTexture" if shape == "retro" else "SetVertexColor"
+    return [float(v) for v in tex.calls[call].values()][:3]
+
+
+@pytest.mark.parametrize("shape", SHAPES)
+@pytest.mark.parametrize(
+    ("colour", "mode", "scale"),
+    [
+        ([0.1, 0.07, 0.02], "BLEND", 0.45),
+        (NAVY, "BLEND", 0.45),
+        (BLACK, "BLEND", 0.45),
+        (PURPLE, "ADD", 1.0),
+    ],
+)
+def test_dark_ghosts_are_a_shadow_bright_ones_unchanged(
+    env, shape, colour, mode, scale
+):
+    g = make(env, trail=True)
+    assert float(g.ns.OrbShapes.k.darkTrailShade) == pytest.approx(0.45)
+    set_colours(g, colour)
+    go(g, shape)
+    recs = flying(g)
+    assert recs
+    for o in recs:
+        assert ghosts_of(o) and blends(o) == {mode}
+        for t in ghosts_of(o):
+            assert ghost_rgb(shape, t) == pytest.approx([c * scale for c in colour])
 
 
 def test_dark_ghosts_keep_the_same_alphas(env):
