@@ -205,12 +205,14 @@ never swaps the art on orbs already in the air. Hover an option in the dropdown 
 quantity and opacity are remembered per shape: tune Retro and Starlight keeps its own values.
 
 - **Starlight** (default): soft glowing orbs with a spinning sparkle and a fading trail.
-- **Bubble**: smooth, solid, glossy orbs with a small highlight up and to the left, breathing slightly (untick
-  **Pulsing**, or `/xporbs pulse off`, to keep them steady), with a long four-ghost tail.
+- **Bubble**: smooth, solid, glossy orbs with a small highlight up and to the left and a long four-ghost tail. Tick
+  **Pulsing** (or `/xporbs pulse on`) and they breathe slightly; it is off by default.
 - **Retro**: chunky pixel-art orbs on an 8 x 8 grid that move in blocky steps, with a blinking twinkle and a trail of
   two square pixels. Its size is **Pixel size**, 1 to 5 screen px per art pixel.
 - **Crackle**: a steady bright core with a bolt of lightning crackling round its edge that jumps to a new shape and
   angle about every 80 ms. **Crackle speed** (50 to 200 %) makes the lightning change slower or faster.
+
+![The four orb shapes, Starlight, Bubble, Retro and Crackle, as the options preview shows them](docs/images/orb-shapes.gif)
 
 **Overlap Type** (Retro, Bubble and Crackle): Glow is a soft glowing edge, so orbs brighten where they overlap;
 Solid is an opaque orb with a dark outline that stacks in front of its neighbours and keeps its colour on bright ground.
@@ -231,6 +233,11 @@ the arrival glow don't change. Hover an option in the dropdown for a short descr
   orbs land.
 
 The trail follows the same path.
+
+![The three flight pathings, Smooth, Chaos and Helix, side by side](docs/images/flight-paths.gif)
+
+(The animation uses Relative speed with a 1.0 s flight time, so each path has time to show its shape on a short
+flight.)
 
 **Zoom-scaled spread** (on by default): the pops and the stream's start spread wider when you zoom the camera in and
 tighter when you zoom out, because the mob looks bigger or smaller on screen. At the default zoom nothing changes. It
