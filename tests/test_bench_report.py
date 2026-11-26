@@ -717,3 +717,22 @@ def test_timeline_is_net_of_baseline_and_tolerates_old_files(tmp_path, ingested)
         del s["timeline"]["baselineMs"]
     (ingested / "1.4.2.json").write_text(json.dumps(d), encoding="utf-8")
     assert run_main("render", "--data-dir", ingested, "--out-dir", tmp_path / "o") == 0
+
+
+def test_profiler_reading_zero_against_real_load_is_no_cross_check():
+    # in game the profiler can answer 0 for XP Orbs while our own timers see real cost: that is no cross-check
+    dead = make_run("1.4.2", "B", "max", 1, 1.6, 0.0)
+    dead["load"]["profilerMs"], dead["baseline"]["profilerMs"] = (
+        stats(0.0004),
+        stats(0.0),
+    )
+    assert report.rep_values(dead)["profilerMeanMs"] is None
+    live = make_run("1.4.2", "B", "max", 1, 1.6, 0.0)
+    live["load"]["profilerMs"], live["baseline"]["profilerMs"] = stats(1.2), stats(0.1)
+    assert report.rep_values(live)["profilerMeanMs"] == pytest.approx(1.1)
+    idle = make_run("1.4.2", "B", "typical", 1, 0.0002, 0.0)
+    idle["load"]["profilerMs"], idle["baseline"]["profilerMs"] = (
+        stats(0.0001),
+        stats(0.0),
+    )
+    assert report.rep_values(idle)["profilerMeanMs"] == pytest.approx(0.0001)

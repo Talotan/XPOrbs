@@ -42,6 +42,7 @@ DEFAULT_TOC = ROOT / "XPOrbs.toc"
 README_REL = "docs/performance/README.md"
 SCHEMA = 2
 SV_ENV = "XPORBS_SV"
+PROFILER_DEAD_MS = 0.005  # a profiler mean under this, against real measured load, is treated as missing
 
 SCENARIOS = ("typical", "aoe", "max")
 SCENARIO_LABEL = {
@@ -266,6 +267,13 @@ def rep_values(run: dict) -> dict:
     mem_end = _num(run.get("memEndKB"))
     prof_load = _num(_get(run, "load", "profilerMs", "mean"))
     prof_base = _num(_get(run, "baseline", "profilerMs", "mean"))
+    if (
+        prof_load is not None
+        and prof_load < PROFILER_DEAD_MS
+        and load_mean >= PROFILER_DEAD_MS * 4
+    ):
+        # the profiler answered but never saw XP Orbs work (reads ~0 while our timers see real cost): no cross-check
+        prof_load = prof_base = None
     return {
         "netMeanMs": max(0.0, load_mean - base_mean),
         "profilerMeanMs": max(0.0, prof_load - prof_base)
@@ -1171,8 +1179,8 @@ def build_readme(sets: list[dict], img_scens: dict) -> str:
     else:
         L += [
             (
-                "The game's own addon profiler was not available for this run, so there "
-                "is no cross-check figure."
+                "The game's own addon profiler was not available or did not report XP "
+                "Orbs' time for this run, so there is no cross-check figure."
             ),
             "",
         ]
