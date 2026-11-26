@@ -4,16 +4,19 @@ local _, ns = ...
 -- Orb preview window: a framed window like the "Test target" one (Preview.lua), docked to the right of the settings
 -- panel with the test target window hung under it (anchored to its bottom edge, so it follows when the window grows).
 -- A header row holds the "Preview" title (top left) and the Cluster tickbox (top right). It shows a cluster of
--- stationary orbs of the current shape: the count follows Quantity (n = round(6 * density / 100), 2..12; 6 at the
--- default 100%) in a fixed pattern (pair, triangle, 2 x 2, pentagon, honeycomb rows; fewer per row when big orbs
--- don't fit the width), the last 2/5 of them rested when Rested tint is on. The orbs are spaced so their visible
+-- stationary orbs of the current shape: the count follows Quantity (n = round(8 * density / 100), 2..24; 8 at the
+-- default 100%) in a fixed pattern (pair, triangle, 2 x 2, pentagon, pentagon with a centre orb, hexagon with a
+-- centre orb, then from 8 up a "compass star" that grows ring by ring; rows with fewer per row when big orbs don't
+-- fit the width), about the bottom 2/5 of them rested when Rested tint is on (whole rows of the layout, from the
+-- bottom up, so the blue ones stay mirror-symmetric). The orbs are spaced so their visible
 -- discs just do not touch; the "Cluster" tickbox (db.previewCluster) packs them into an overlapping
 -- cloud instead, like orbs piled up after a kill, with the rested ones mixed in. The shape's own animation runs
 -- (Starlight's spinning sparkle, Retro's blinking twinkle on its grid,
 -- Bubble's breathing and glint, Crackle's bolt swaps), no trail. It is drawn by the same shape code as real orbs (the
--- shape's setup and draw with the orb area as the frame), from 36 textures of its own, and follows the shape, size,
+-- shape's setup and draw with the orb area as the frame), from 72 textures of its own, and follows the shape, size,
 -- quantity, blend, opacity, pulsing and colour settings as they change. The spacing scales with the orb's size, and
--- the window grows taller (never wider) so the orbs get the spacing they want and nothing is clipped (AreaHeightFor).
+-- the window grows taller (never wider, and never past MAX_WINDOW_H, then the orbs overlap a little) so the orbs get
+-- the spacing they want and nothing is clipped (AreaHeightFor).
 --
 -- The window is built on first need and shown and hidden with the options panel (Options.lua calls Sync(true) from the
 -- panel's OnShow, Sync() after every change and Sync(false) from OnHide); its OnUpdate runs only while it is up. Every
@@ -29,7 +32,12 @@ local CLUSTER_TIP = "Pile the orbs up, overlapping, as they look right after a k
 local CHECK = 20 -- px: the Cluster tickbox
 local PAD, TITLE_H = 8, 28 -- px: the window's side/bottom padding and the header row (title, Cluster) above the area
 local AREA_W, AREA_H = WINDOW_W - 2 * PAD, WINDOW_H - TITLE_H - PAD -- the area's width, and its least height
-local MIN_ORBS, MAX_ORBS, SLOTS = 2, 12, 36 -- 12 orbs x 3 textures
+-- The window never grows taller than this: the test target window hangs under the preview, so past this the orbs are
+-- spaced tighter (overlapping a little) instead of the window growing.
+local MAX_WINDOW_H = 400 -- px
+local MAX_AREA_H = MAX_WINDOW_H - TITLE_H - PAD -- px: the tallest the orb area gets
+local MIN_ORBS, MAX_ORBS, SLOTS = 2, 24, 72 -- 24 orbs x 3 textures
+local ORBS_AT_FULL = 8 -- orbs shown at the default Quantity (100 %)
 -- The visible disc's diameter per px of orb size, per shape: the drawn quad times the share of it that is seen (about
 -- 0.6 of Starlight's 2 x quad once the glow is discounted, the Bubble body's plateau is 0.72 of its 1.5 x quad,
 -- Crackle's core 0.4 of its 2.3 x quad plus a little for the bolts). Retro's disc is 8 cells.
@@ -42,18 +50,35 @@ local RETRO_GAP = 2 -- cells between neighbouring Retro discs (the grid snap eat
 -- underlay) plus the half cell its grid snap can move it.
 local HALF = { starlight = 1.0, bubble = 0.8, crackle = 1.3 }
 local RETRO_HALF_CELLS, RETRO_MIN_CELLS = 5.5, 9 -- drawn Retro centres stay at least the disc (8) plus one cell apart
-local ROW_H = math.sqrt(3) / 2 -- honeycomb row height, in neighbour distances
-local ROWS = { [6] = { 3, 3 }, [7] = { 2, 3, 2 }, [8] = { 3, 2, 3 }, [9] = { 3, 3, 3 }, [10] = { 3, 4, 3 },
-    [11] = { 4, 3, 4 }, [12] = { 4, 4, 4 } }
+local ROW_H = math.sqrt(3) / 2 -- honeycomb row height, in neighbour distances (rowsLayout, and the 7-orb hexagon)
+local LEVEL_TOL = 0.05 -- units: points whose y differs by no more than this are one row of the layout
+-- The tidy layout from 8 orbs up, in neighbour distances (x right, y up), in fill order: rings of 4, 4, 8 and 8
+-- staggered, so 8 is a compass star (a square with a tip on each side) and 16, 20 and 24 are complete stars. A +2
+-- step only adds orbs at the rim. Nobody is closer than one unit to anybody else. Pattern takes the first n and
+-- re-centres them on their bounding box.
+local STAR = { { -0.5, 0.5 }, { -0.5, -0.5 }, { 0.5, -0.5 }, { 0.5, 0.5 }, { -1.3671, 0 }, { 0, -1.3671 },
+    { 1.3671, 0 }, { 0, 1.3671 }, { -0.8100, -1.9554 }, { 0.8100, -1.9554 }, { 1.9554, 0.8100 }, { -1.9554, 0.8100 },
+    { 0.8100, 1.9554 }, { -0.8100, 1.9554 }, { -1.9554, -0.8100 }, { 1.9554, -0.8100 }, { 1.7979, 1.7979 },
+    { -1.7979, 1.7979 }, { -1.7979, -1.7979 }, { 1.7979, -1.7979 }, { 0, -2.5426 }, { 0, 2.5426 }, { 2.5426, 0 },
+    { -2.5426, 0 } }
 -- The cluster: a loose overlapping pile in the manner of the cloud piles in the art sheets, in units of a NORMAL
 -- orb's visible diameter (y up), in growth order: n orbs are the first n entries, re-centred on their mean. The
--- first is the heart of the pile. CLUSTER_SCALE stretches it per shape (Starlight's glow reads tighter).
+-- first is the heart of the pile; entries 13..24 keep the pile round as it grows around the rim.
+-- CLUSTER_SCALE stretches it per shape (Starlight's glow reads tighter).
 local CLUSTER = { { 0, 0 }, { 0.75, 0.34 }, { -0.15, 0.49 }, { 0.30, -0.19 }, { -0.75, -0.04 }, { 0.39, 0.70 },
-    { -0.72, 0.65 }, { -0.39, -0.54 }, { 0.90, -0.32 }, { 0.10, 1.03 }, { -1.36, 0.23 }, { 1.39, 0.23 } }
+    { -0.72, 0.65 }, { -0.39, -0.54 }, { 0.90, -0.32 }, { 0.10, 1.03 }, { -1.36, 0.23 }, { 1.39, 0.23 },
+    { -0.28, -1.28 }, { -0.16, 1.46 }, { 0.10, -0.66 }, { 0.60, -0.72 }, { -0.90, -0.52 }, { 0.88, 0.84 },
+    { -0.54, 1.12 }, { 0.56, 1.24 }, { 0.30, -1.12 }, { -0.68, -0.98 }, { -1.22, 0.72 }, { -1.34, -0.28 } }
 local CLUSTER_SCALE = { starlight = 1.3 }
 -- Which growth indices of a pile of n are rested (blue), when Rested tint is on; the heart (1) is always purple.
+-- About 2/5 of the pile, scattered through it.
 local CLUSTER_RESTED = { [2] = { 2 }, [3] = { 2 }, [4] = { 2, 3 }, [5] = { 2, 3 }, [6] = { 2, 3 }, [7] = { 2, 4, 7 },
-    [8] = { 2, 4, 7 }, [9] = { 2, 4, 7, 8 }, [10] = { 2, 4, 7, 8 }, [11] = { 2, 4, 7, 8 }, [12] = { 2, 4, 7, 8, 10 } }
+    [8] = { 2, 4, 7 }, [9] = { 2, 4, 7, 8 }, [10] = { 2, 4, 7, 8 }, [11] = { 2, 4, 7, 8 }, [12] = { 2, 4, 7, 8, 10 },
+    [13] = { 2, 4, 7, 8, 10 }, [14] = { 2, 4, 7, 8, 10, 13 }, [15] = { 2, 4, 7, 8, 10, 13 },
+    [16] = { 2, 4, 7, 8, 10, 13, 15 }, [17] = { 2, 4, 7, 8, 10, 13, 15 }, [18] = { 2, 4, 7, 8, 10, 13, 15 },
+    [19] = { 2, 4, 7, 8, 10, 13, 15, 18 }, [20] = { 2, 4, 7, 8, 10, 13, 15, 18 },
+    [21] = { 2, 4, 7, 8, 10, 13, 15, 18 }, [22] = { 2, 4, 7, 8, 10, 13, 15, 18, 20 },
+    [23] = { 2, 4, 7, 8, 10, 13, 15, 18, 20 }, [24] = { 2, 4, 7, 8, 10, 13, 15, 18, 20, 23 } }
 local ORB_TEX = "Interface\\AddOns\\XPOrbs\\media\\orb"
 local SPARKLE_TEX = "Interface\\AddOns\\XPOrbs\\media\\sparkle"
 local TWO_PI = math.pi * 2
@@ -64,7 +89,7 @@ ShapePreview.VISIBLE, ShapePreview.HALF = VISIBLE, HALF
 ShapePreview.TITLE_H, ShapePreview.PAD, ShapePreview.AREA_W = TITLE_H, PAD, AREA_W
 ShapePreview.CLUSTER_SCALE = CLUSTER_SCALE
 
-local window, box -- the window, and the orb area inside it (box.tex holds the 36 textures, box.st the per-orb state)
+local window, box -- the window, and the orb area inside it (box.tex holds the 72 textures, box.st the per-orb state)
 local looks -- what the orbs are currently set up with (see signature), to spot a change
 local buildFailed = false -- build threw once: do not try again this session (every attempt would leak a frame)
 local errSeen = false
@@ -81,13 +106,8 @@ end
 
 -- Orbs shown for a Quantity setting (percent).
 function ShapePreview.Count(density)
-    local n = round(6 * (tonumber(density) or 100) / 100)
+    local n = round(ORBS_AT_FULL * (tonumber(density) or 100) / 100)
     return math.max(MIN_ORBS, math.min(MAX_ORBS, n))
-end
-
--- How many of the n orbs are rested when Rested tint is on.
-function ShapePreview.RestedCount(n)
-    return round(n * 2 / 5)
 end
 
 -- The growth index of the orb in each slot of a pile of n, and the pile's offsets by growth index re-centred on the
@@ -116,9 +136,12 @@ local function clusterOrder(n)
     return order, centred
 end
 
--- Which slots (1..n) are rested, as a table of booleans. Tidy layout: the last ones, so they form the bottom row.
--- Cluster: CLUSTER_RESTED by growth index, so blue is mixed into the pile.
-function ShapePreview.RestedSlots(n, cluster)
+-- Which slots (1..n) are rested, as a table of booleans. Tidy layout: whole rows of the layout (points whose y is
+-- within LEVEL_TOL), from the bottom up, as many as bring the blue total nearest 2/5 of n (a tie goes to fewer blue
+-- orbs), at least 1 and at most n - 1 of them; the pair has no such row, so its right orb is blue. `points` is the
+-- layout actually drawn (Layout may have fallen back to rows); it defaults to Pattern(n, false). Cluster:
+-- CLUSTER_RESTED by growth index, so blue is mixed into the pile.
+function ShapePreview.RestedSlots(n, cluster, points)
     local rested = {}
     if cluster then
         local order = clusterOrder(n)
@@ -131,9 +154,42 @@ function ShapePreview.RestedSlots(n, cluster)
         end
         return rested
     end
-    local count = ShapePreview.RestedCount(n)
-    for j = 1, count do
-        rested[n - count + j] = true
+    points = points or ShapePreview.Pattern(n, false)
+    local slots = {}
+    for i = 1, n do
+        slots[i] = i
+    end
+    table.sort(slots, function(a, b)
+        if points[a][2] ~= points[b][2] then
+            return points[a][2] < points[b][2]
+        end
+        return a < b
+    end)
+    local want, best, bestTotal, total, levelY = n * 2 / 5, nil, nil, 0, nil
+    for k, slot in ipairs(slots) do
+        local y = points[slot][2]
+        if not levelY or y - levelY > LEVEL_TOL then
+            levelY = y
+            if k > 1 and total >= 1 and total <= n - 1 then -- a row ends here: the bottom rows hold `total` orbs
+                if not best or math.abs(total - want) < math.abs(bestTotal - want) - 1e-9 then
+                    best, bestTotal = total, total
+                end
+            end
+        end
+        total = k
+    end
+    if not best then -- one row holds them all (the pair): the rightmost orb
+        local pick = 1
+        for i = 2, n do
+            if points[i][1] > points[pick][1] then
+                pick = i
+            end
+        end
+        rested[pick] = true
+        return rested
+    end
+    for k = 1, best do
+        rested[slots[k]] = true
     end
     return rested
 end
@@ -143,22 +199,6 @@ local function ring(points, count, radius)
         local angle = math.pi / 2 - TWO_PI * k / count -- from the top, clockwise
         points[#points + 1] = { radius * math.cos(angle), radius * math.sin(angle) }
     end
-end
-
--- The honeycomb rows for 6-12 orbs as unit offsets (1 = the neighbour distance): every neighbour is one unit away
--- (three equal rows are shifted +-0.25 so they interlock; 6 is a plain 3 x 2 grid), rows centred on y = 0, top row
--- first.
-local function honeycomb(rows)
-    local points = {}
-    local equal = rows[1] == rows[2] and rows[2] == (rows[3] or rows[2])
-    local pitch = #rows == 2 and 1 or ROW_H -- two rows of three sit on a grid, a pitch of one unit
-    for r, count in ipairs(rows) do
-        local shift = equal and #rows > 2 and (r % 2 == 1 and 0.25 or -0.25) or 0
-        for c = 1, count do
-            points[#points + 1] = { c - (count + 1) / 2 + shift, ((#rows + 1) / 2 - r) * pitch }
-        end
-    end
-    return points
 end
 
 -- The cluster for n orbs as offsets in normal visible diameters, in slot order (see clusterOrder).
@@ -172,9 +212,10 @@ local function clusterPoints(n)
 end
 
 -- The layout for n orbs as offsets from the centre (x right, y up). Tidy (the default): unit 1 = the neighbour
--- distance, no two closer than 1: 2 a pair, 3 a triangle, 4 a 2 x 2 square, 5 a pentagon, 6-12 honeycomb rows (6 is
--- two rows of three, then three rows). The slots run top row first, so the last ones (the rested orbs) form the bottom
--- row. Cluster: unit 1 = the visible diameter, a fixed overlapping pile (see CLUSTER).
+-- distance, no two closer than 1: 2 a pair, 3 a triangle, 4 a 2 x 2 square, 5 a pentagon, 6 a pentagon round a
+-- centre orb, 7 a hexagon (rows of 2, 3, 2) round a centre orb, 8-24 the first n of STAR, re-centred on their bounding
+-- box. Which orbs are rested is chosen by position (RestedSlots), so the slot order does not matter. Cluster: unit 1
+-- = the visible diameter, a fixed overlapping pile (see CLUSTER).
 function ShapePreview.Pattern(n, cluster)
     local points = {}
     if cluster then
@@ -187,8 +228,25 @@ function ShapePreview.Pattern(n, cluster)
         points = { { -0.5, 0.5 }, { 0.5, 0.5 }, { -0.5, -0.5 }, { 0.5, -0.5 } }
     elseif n == 5 then
         ring(points, 5, 1 / (2 * math.sin(math.pi / 5)))
+    elseif n == 6 then
+        ring(points, 5, 1) -- the centre orb needs the ring a full unit out
+        points[6] = { 0, 0 }
+    elseif n == 7 then
+        points = { { -0.5, ROW_H }, { 0.5, ROW_H }, { -1, 0 }, { 0, 0 }, { 1, 0 }, { -0.5, -ROW_H }, { 0.5, -ROW_H } }
     else
-        points = honeycomb(ROWS[n])
+        for i = 1, n do
+            points[i] = { STAR[i][1], STAR[i][2] }
+        end
+    end
+    if n == 6 or n >= 8 then -- centre the box round the points
+        local lowX, highX, lowY, highY = math.huge, -math.huge, math.huge, -math.huge
+        for _, p in ipairs(points) do
+            lowX, highX = math.min(lowX, p[1]), math.max(highX, p[1])
+            lowY, highY = math.min(lowY, p[2]), math.max(highY, p[2])
+        end
+        for _, p in ipairs(points) do
+            p[1], p[2] = p[1] - (lowX + highX) / 2, p[2] - (lowY + highY) / 2
+        end
     end
     return points
 end
@@ -267,16 +325,22 @@ local function wantFor(points, db, cluster)
     return spacingFor(db)
 end
 
--- The unit in px for a layout. Tidy: the wanted one (Pattern / Layout choose rows that fit the width). Cluster: the
--- wanted one, shrunk to fit the width if the pile is too wide (Retro on whole cells).
+-- The unit in px for a layout: the wanted one (Pattern / Layout choose tidy rows that fit the width), shrunk to fit the
+-- width in the cluster, and in both layouts to fit MAX_AREA_H so the window stays at most MAX_WINDOW_H tall (the orbs
+-- then overlap a little). Retro keeps its whole-cell spacing: it is exempt from the height squeeze (it peaks at 395).
 local function radiusFor(points, db, cluster)
     local want = wantFor(points, db, cluster)
-    if not cluster then
-        return want
+    local retro = db.orbShape == "retro"
+    local reachX, reachY = reachOf(points)
+    local radius = want
+    if cluster then
+        radius = math.min(radius, (AREA_W / 2 - halfFor(db)) / reachX)
     end
-    local fit = (AREA_W / 2 - halfFor(db)) / (reachOf(points))
-    local radius = math.max(0, math.min(want, fit))
-    if db.orbShape == "retro" and radius < want then
+    if not retro then
+        radius = math.min(radius, (MAX_AREA_H / 2 - halfFor(db)) / reachY)
+    end
+    radius = math.max(0, radius)
+    if retro and radius < want then
         radius = math.floor(radius / db.size + 1e-6) * db.size
     end
     return radius
@@ -284,7 +348,7 @@ end
 ShapePreview.RadiusFor = radiusFor -- (exposed for tests)
 
 -- The orb area's height in px: tall enough for the layout at its unit plus the orbs' half-extent at the top and
--- bottom, at least AREA_H.
+-- bottom, at least AREA_H. radiusFor keeps it within MAX_AREA_H (Retro, exempt, stays under it by itself).
 local function areaHeightFor(points, db, cluster)
     local _, reachY = reachOf(points)
     return math.max(AREA_H, math.ceil(2 * (reachY * radiusFor(points, db, cluster) + halfFor(db))))
@@ -297,7 +361,8 @@ local function heightFor(points, db, cluster)
 end
 ShapePreview.HeightFor = heightFor
 
--- n orbs in rows of at most k, honeycomb-interlocked like the ROWS layouts, top row first, centred, in unit offsets.
+-- n orbs in rows of at most k, honeycomb-interlocked (rows a row height apart), top row first, centred, in unit
+-- offsets.
 -- Alternating k and k-1 when that tiles n exactly, else balanced rows (the extra orbs on the top rows). Adjacent rows
 -- are offset by half a unit sideways (one is shifted when both rows' counts have the same parity).
 local function rowsLayout(n, k)
@@ -384,11 +449,24 @@ local function starlightDraw(st, t, rel, under, body, spark, x, y, size, alpha)
 end
 
 -- What the orbs' set-up depends on: when it changes the orbs are set up again.
+-- The rested slots are part of it, as a compact list of slot indices (they follow the layout, which follows the
+-- look).
 local function signature(db, red, green, blue)
     local rested = db.restedColor
-    return table.concat({ db.orbShape, db.size, ns.OrbSize(db), ShapePreview.Count(db.density), tostring(db.blend),
-        tostring(db.sparkle), tostring(db.pulse), tostring(db.crackleSpeed), db.restedTint and 1 or 0,
-        db.previewCluster and 1 or 0, red, green, blue, rested[1], rested[2], rested[3] }, "|")
+    local n = ShapePreview.Count(db.density)
+    local cluster = db.previewCluster == true
+    local slots = {}
+    if db.restedTint then
+        local flags = ShapePreview.RestedSlots(n, cluster, ShapePreview.Layout(n, cluster, db))
+        for i = 1, n do
+            if flags[i] then
+                slots[#slots + 1] = i
+            end
+        end
+    end
+    return table.concat({ db.orbShape, db.size, ns.OrbSize(db), n, tostring(db.blend), tostring(db.sparkle),
+        tostring(db.pulse), tostring(db.crackleSpeed), db.restedTint and 1 or 0, db.previewCluster and 1 or 0, red,
+        green, blue, rested[1], rested[2], rested[3], table.concat(slots, ",") }, "|")
 end
 
 -- ---------------------------------------------------------------- the window
@@ -468,7 +546,8 @@ local function configure(db, red, green, blue)
     local setup = shape and shape.setup or starlightSetup
     local n = ShapePreview.Count(db.density)
     local cluster = db.previewCluster == true
-    local rested = db.restedTint and ShapePreview.RestedSlots(n, cluster) or {}
+    local pattern = ShapePreview.Layout(n, cluster, db)
+    local rested = db.restedTint and ShapePreview.RestedSlots(n, cluster, pattern) or {}
     local restedColour = db.restedColor
     box.n = n
     for i = 1, MAX_ORBS do
@@ -493,7 +572,7 @@ local function configure(db, red, green, blue)
             box.st[i] = nil
         end
     end
-    box.pattern, box.rested, box.cluster = ShapePreview.Layout(n, cluster, db), rested, cluster
+    box.pattern, box.rested, box.cluster = pattern, rested, cluster
     window:SetSize(WINDOW_W, heightFor(box.pattern, db, cluster)) -- grows to fit (the test target hangs under it)
 end
 

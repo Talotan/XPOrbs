@@ -13,8 +13,8 @@ SIZES = {
     "crackle": (8, 14, 20, 26, 32),
     "retro": (1, 2, 3, 4, 5),
 }
-DENSITIES = (50, 100, 150, 200)
-TITLE_H, PAD, MIN_H = 28, 8, 120
+DENSITIES = (50, 100, 150, 200, 300)
+TITLE_H, PAD, MIN_H, MAX_H = 28, 8, 120, 400
 
 
 def look(m, shape, size, density, cluster, rested):
@@ -79,11 +79,33 @@ def test_the_window_grows_with_size(env, shape):
             for size in SIZES[shape]:
                 sp = look(m, shape, size, density, cluster, False)
                 heights.append(float(sp.window.height))
-            assert heights == sorted(heights) and min(heights) >= MIN_H
+            assert min(heights) >= MIN_H
+            if cluster:  # (the tidy layout changes its row count with the size: the star, then fewer per row)
+                assert heights == sorted(heights)
             if (
                 density >= 100
             ):  # (two or three orbs sit in a row and never need the height)
-                assert heights[-1] > heights[0]
+                assert (
+                    heights[-1] > heights[0]
+                )  # grows until the cap (MAX_H), then plateaus there
+            assert max(heights) <= MAX_H
+
+
+@pytest.mark.parametrize("shape", list(SIZES))
+def test_the_window_never_gets_taller_than_the_cap(env, shape):
+    m = build(env)
+    up(m)
+    for size, density, cluster, rested in combos(shape):
+        sp = look(m, shape, size, density, cluster, rested)
+        assert float(sp.window.height) <= MAX_H, (shape, size, density, cluster, rested)
+
+
+def test_retro_at_its_biggest_size_fits_the_cap_without_the_squeeze(env):
+    m = build(env)
+    up(m)
+    for cluster in (False, True):
+        sp = look(m, "retro", 5, 300, cluster, False)
+        assert float(sp.window.height) <= MAX_H, cluster
 
 
 def test_retro_neighbours_stay_a_cell_apart_after_the_snap_in_the_tidy_layout(env):
@@ -144,7 +166,7 @@ def test_the_window_resizes_live_and_the_test_target_follows_its_bottom(env):
     up(m)
     sp = m.ns.ShapePreview
     small = float(sp.window.height)
-    assert small == MIN_H
+    assert small == 128  # the default star of 8 orbs, a little over the least
     look(m, "crackle", 32, 200, False, True)
     tall = float(sp.window.height)
     assert tall > small
@@ -152,5 +174,5 @@ def test_the_window_resizes_live_and_the_test_target_follows_its_bottom(env):
     assert (pt[1], pt[3]) == ("TOP", "BOTTOM") and m.lua.eval("rawequal")(
         pt[2], sp.window
     )
-    look(m, "starlight", 14, 100, False, False)
+    look(m, "starlight", 14, 100, False, True)  # the defaults again
     assert float(sp.window.height) == small

@@ -268,7 +268,7 @@ def look(m, shape, blend, density):
 def test_the_preview_draws_the_overlay_for_twelve_solid_retro_orbs(env):
     m = build(env)
     up(m)
-    sp = look(m, "retro", "solid", 200)
+    sp = look(m, "retro", "solid", 150)  # 12 orbs
     assert int(sp.box.n) == 12
     for i in range(12):
         body = sp.box.tex[i * 3 + 2]
