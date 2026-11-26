@@ -57,8 +57,24 @@ local function wanted()
     return okDestination and found == false
 end
 
+-- False while the whole UI is hidden (an intro cinematic, a movie, Alt+Z): every bar is invisible then, which says
+-- nothing about whether one exists. An unreadable UIParent counts as showing, so it can never block the prompt.
+local function uiShowing()
+    if type(UIParent) ~= "table" or not UIParent.IsVisible then
+        return true
+    end
+    local ok, visible = pcall(UIParent.IsVisible, UIParent)
+    return not ok or visible ~= false
+end
+
+local scheduleEntryCheck -- defined below; offerWindow uses it to look again once the UI is back
+
 local function offerWindow()
     if shownThisSession or waitingForCombat then
+        return
+    end
+    if not uiShowing() then
+        pcall(scheduleEntryCheck) -- look again in ENTRY_DELAY seconds; without C_Timer the next burst asks again
         return
     end
     if InCombatLockdown and InCombatLockdown() then
@@ -82,7 +98,7 @@ local function onEntryDelay()
     pcall(offerWindow)
 end
 
-local function scheduleEntryCheck()
+function scheduleEntryCheck()
     if shownThisSession or entryPending or not (C_Timer and C_Timer.After) then
         return
     end

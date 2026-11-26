@@ -124,6 +124,34 @@ def test_a_bar_that_shows_up_during_combat_cancels_the_prompt(m):
     assert window(m) is None
 
 
+def test_waits_while_the_ui_is_hidden_and_skips_if_the_bar_comes_back(m):
+    # an intro cinematic (or Alt+Z) hides UIParent, so no bar is visible: that is not "no bar"
+    m.G.UIParent.shown = False
+    no_bar(m)
+    world(m)
+    m.stub.runTimers()
+    assert window(m) is None
+    assert len(m.stub.timers) == 1  # looks again later instead of giving up or opening
+    m.slash("test 5")  # a burst's no-bar notice waits too
+    assert window(m) is None
+    m.G.UIParent.shown = True
+    m.G.MainStatusTrackingBarContainer.shown = True
+    m.stub.runTimers()
+    assert window(m) is None
+
+
+def test_opens_once_the_ui_is_back_if_there_is_still_no_bar(m):
+    m.G.UIParent.shown = False
+    no_bar(m)
+    world(m)
+    m.stub.runTimers()
+    m.stub.runTimers()  # still hidden: keeps waiting
+    assert window(m) is None
+    m.G.UIParent.shown = True
+    m.stub.runTimers()
+    assert window(m) is not None and window(m).shown
+
+
 def test_the_burst_time_trigger(m):
     no_bar(m)
     m.slash("test 5")  # a burst whose destination is the bottom-centre fallback
@@ -293,8 +321,12 @@ def test_the_window_is_unnamed_movable_and_draggable(m):
 
 def test_a_plain_frame_stands_in_when_the_backdrop_template_is_missing(env):
     def break_backdrop(e):
-        e.lua.execute("local fm = getmetatable(UIParent).__index; fm.SetBackdrop = function() error('no backdrop') end")
-        no_template("TooltipBackdropTemplate", "BackdropTemplate")(e)  # neither window template exists
+        e.lua.execute(
+            "local fm = getmetatable(UIParent).__index; fm.SetBackdrop = function() error('no backdrop') end"
+        )
+        no_template("TooltipBackdropTemplate", "BackdropTemplate")(
+            e
+        )  # neither window template exists
 
     m = build(env, pre=break_backdrop)
     win = open_now(m)
@@ -388,4 +420,6 @@ def test_a_junk_dismissed_value_loads_as_false(env):
 def test_setup_is_in_the_toc_after_options():
     toc = (ROOT / "XPOrbs.toc").read_text(encoding="utf-8").splitlines()
     names = [line.strip() for line in toc]
-    assert names.index("Setup.lua") > names.index("Options.lua")  # Preview.lua sits between them
+    assert names.index("Setup.lua") > names.index(
+        "Options.lua"
+    )  # Preview.lua sits between them
