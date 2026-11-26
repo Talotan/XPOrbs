@@ -76,7 +76,7 @@ def test_bad_numbers_load_to_sane_values(env):
     assert db.flightTime == 0.4  # clamped to the slider minimum
     assert db.cap == 40  # not a number: the default
     assert db.size == 32 and db.density == 25
-    assert db.glowOffsetX == 100 and db.glowIntensity == 100
+    assert db.glowOffsetX == 200 and db.glowIntensity == 100
 
 
 def test_cap_over_range_is_clamped(env):

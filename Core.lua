@@ -99,8 +99,8 @@ ns.ranges = {
     trailOpacity = { 0, 100, 5 },
     flightTime = { 0.4, 1.5, 0.05 },
     flightSpeed = { 50, 250, 10 },
-    glowOffsetX = { -100, 100, 1 },
-    glowOffsetY = { -100, 100, 1 },
+    glowOffsetX = { -200, 200, 1 },
+    glowOffsetY = { -200, 200, 1 },
     glowIntensity = { 25, 200, 5 },
     soundVolume = { 100, 250, 25 }, -- one folder of chime files per step: media/chime/<volume>/
 }

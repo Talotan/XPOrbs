@@ -223,7 +223,7 @@ def test_offset_sliders_write_the_db_with_ranges_from_ns_ranges(m):
     assert c.glowOffsetX_value.text == "-20 px" and c.glowOffsetY_value.text == "35 px"
     assert m.opt.controls["glowOffsetX"].value == -20  # the options panel followed
     m.stub.slide(c.glowOffsetX, 500)  # clamped to the range
-    assert m.db.glowOffsetX == 100
+    assert m.db.glowOffsetX == 200
 
 
 def test_the_window_reads_the_db_when_it_opens(m):

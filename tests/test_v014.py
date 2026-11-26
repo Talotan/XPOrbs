@@ -54,6 +54,16 @@ def test_stored_new_values_survive_a_reload(env):
     assert (m.db.glowIntensity, m.db.glowOffsetX, m.db.glowOffsetY) == (50, -7, 12)
 
 
+def test_wide_offsets_survive_a_reload_and_typing_accepts_them(env):
+    env.G.XPOrbsDB = env.lua.table_from({"version": 7, "glowOffsetX": 150, "glowOffsetY": -200})
+    m = build(env)
+    assert (m.db.glowOffsetX, m.db.glowOffsetY) == (150, -200)  # inside the 1.4.2 range: kept, not clamped to 100
+    show(m)
+    right_click(m, "glowOffsetX")
+    m.stub.enterText(m.opt.editBoxes["glowOffsetX"], "-200")  # a typed minus sign fits the 8-letter box and parses
+    assert m.db.glowOffsetX == -200 and ctl(m, "glowOffsetX").value == -200
+
+
 # ---------------------------------------------------------------- OrbMath helpers
 
 
@@ -284,8 +294,8 @@ def test_new_rows_follow_the_grid(m, key, y, h):
 def test_new_sliders_use_the_slider_columns_and_ranges(m):
     for key, lo, hi, step in (
         ("glowIntensity", 25, 200, 5),
-        ("glowOffsetX", -100, 100, 1),
-        ("glowOffsetY", -100, 100, 1),
+        ("glowOffsetX", -200, 200, 1),
+        ("glowOffsetY", -200, 200, 1),
     ):
         s = ctl(m, key)
         assert (s.minV, s.maxV, s.step) == (lo, hi, step)
@@ -325,8 +335,8 @@ def test_typed_offsets_snap_and_clamp(m):
     show(m)
     for key, typed, expect in (
         ("glowOffsetX", "-37.4", -37),
-        ("glowOffsetX", "150", 100),
-        ("glowOffsetY", "-150", -100),
+        ("glowOffsetX", "500", 200),
+        ("glowOffsetY", "-500", -200),
         ("glowOffsetY", "12 px", 12),
         ("glowIntensity", "300", 200),
         ("glowIntensity", "2", 25),
@@ -349,7 +359,7 @@ def test_edit_box_shows_a_negative_number(m):
 def test_hover_tip_names_the_negative_range(m):
     show(m)
     m.stub.hover(m.opt.valueButtons["glowOffsetX"])
-    assert m.stub.tooltip.text == "Right-click to type a value (-100–100 px)"
+    assert m.stub.tooltip.text == "Right-click to type a value (-200–200 px)"
 
 
 # ---------------------------------------------------------------- per-row resets
