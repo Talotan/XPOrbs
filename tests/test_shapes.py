@@ -142,7 +142,8 @@ def test_orb_shape_dropdown_in_the_look_section(env):
     dropdown = m.opt.shapeDropdown
     assert (
         dropdown.kind == "DropdownButton"
-        and dropdown.template == "WowStyle1DropdownTemplate"
+        and dropdown.template == "WowStyle2DropdownTemplate"
+        and dropdown.xpHost.template == "XPOrbsDropdownWithSteppersTemplate"
     )
     assert m.lua.eval("rawequal")(m.opt.controls["orbShape"], dropdown)
     assert "Orb shape" in texts(m)
@@ -1088,7 +1089,8 @@ def test_solid_body_is_the_solid_texture_blended_in_a_lifted_colour(env, shape):
         colour = [float(g.db.color[i]) for i in (1, 2, 3)]
         rested = [float(g.db.restedColor[i]) for i in (1, 2, 3)]
         want = rested if o.rested else colour
-        assert tint_of(o.body) == pytest.approx([c + (1 - c) * SOLID_LIFT for c in want])
+        lift = 0.0 if shape == "retro" else SOLID_LIFT  # Retro's Solid is cut for the plain orb colour
+        assert tint_of(o.body) == pytest.approx([c + (1 - c) * lift for c in want])
 
 
 @pytest.mark.parametrize("shape", ["retro", "bubble", "crackle"])

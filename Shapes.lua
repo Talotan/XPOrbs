@@ -26,6 +26,7 @@ local RETRO_TEX = "Interface\\AddOns\\XPOrbs\\media\\retro" -- 64x64: the 8 x 8 
 local RETRO_UNDER_TEX = "Interface\\AddOns\\XPOrbs\\media\\retro_under" -- 128x128: 10 x 10 cell art, top left
 local RETRO_TWINKLE_TEX = "Interface\\AddOns\\XPOrbs\\media\\retro_twinkle" -- 32x32: 3 x 3 cell "+", top left
 local RETRO_SOLID_TEX = "Interface\\AddOns\\XPOrbs\\media\\retro_solid" -- the octagon, shading in RGB, alpha 1
+local RETRO_SHINE_TEX = "Interface\\AddOns\\XPOrbs\\media\\retro_shine_add" -- 64x64: just the two shine cells
 local BUBBLE_SOLID_TEX = "Interface\\AddOns\\XPOrbs\\media\\bubble_solid" -- an opaque lit sphere with a dark rim
 local CRACKLE_CORE_SOLID_TEX = "Interface\\AddOns\\XPOrbs\\media\\crackle_core_solid" -- an opaque core, dark rim
 local BUBBLE_TEX = "Interface\\AddOns\\XPOrbs\\media\\bubble"
@@ -49,7 +50,8 @@ local GHOST_KEY = { "ghost1", "ghost2", "ghost3", "ghost4" }
 -- every underlay, then every trail, then every body, then the glint / bolts / twinkle. The drawn sizes are the Natural
 -- ones: the solid discs were cut to sit where each Natural body is seen. Trails stay additive except for dark orbs
 -- (BLEND, see SHAPES.trailTint). Natural keeps its own.
-local SOLID_LIFT = 0.06 -- BLEND shows the raw vertex colour (ADD brightens), so it is lightened by this much
+local SOLID_LIFT = 0.06 -- BLEND shows the raw vertex colour (ADD brightens), so it is lightened by this much (a
+-- shape may set its own: shape.solidLift, Retro 0)
 local CRACKLE_SOLID_UNDER, CRACKLE_SOLID_UNDER_ALPHA = 1.25, 0.40 -- x body, alpha (Natural: CRACKLE_UNDER, _ALPHA)
 local SUB_NATURAL = { under = -1, trail = 0, body = 0, top = 1 } -- ARTWORK sublayers
 local SUB_SOLID = { under = -2, trail = -1, body = 0, top = 1 }
@@ -62,6 +64,7 @@ local RETRO_CELLS_MIN = 1 -- px per cell at the smallest
 local RETRO_UNDER_ALPHA = 0.9
 local RETRO_UNDER_UV = 80 / 128 -- the 10-cell art in the 128 px texture
 local RETRO_TWINKLE_UV = 24 / 32 -- the 3-cell art in the 32 px texture
+local RETRO_SHINE_ALPHA = 0.225 -- Solid: the shine cells drawn again, ADD, vertex colour = the orb colour, alpha this
 local RETRO_TWINKLE_WHITE = 0.5 -- twinkle tint = lerp(colour, white, this)
 local RETRO_BLINK = 0.25 -- seconds on, then seconds off
 local RETRO_TWINKLE_OFF = 2.5 -- cells from the orb centre (x left, y up): the middle of art cell (1, 1)
@@ -130,9 +133,12 @@ end
 
 -- Styles the body texture of a shape: Solid draws `solidPath` with BLEND in the lifted colour, Natural `naturalPath`
 -- with ADD (`filter`, if given, sets the texture). Notes the choice in st.solid and returns the sublayers in use.
-local function styleBody(body, st, naturalPath, solidPath, red, green, blue, filter)
+local function styleBody(body, st, naturalPath, solidPath, red, green, blue, filter, lift)
     local solid = ns.db.blend == "solid"
     st.solid = solid
+    if body.xoShine then
+        ready(body.xoShine) -- a body reused from a Retro Solid orb: its overlay stays hidden until drawn again
+    end
     local sl = solid and SUB_SOLID or SUB_NATURAL
     local path = solid and solidPath or naturalPath
     if filter then
@@ -141,7 +147,8 @@ local function styleBody(body, st, naturalPath, solidPath, red, green, blue, fil
         body:SetTexture(path)
     end
     if solid then
-        style(body, sl.body, "BLEND", lerp(red, 1, SOLID_LIFT), lerp(green, 1, SOLID_LIFT), lerp(blue, 1, SOLID_LIFT))
+        lift = lift or SOLID_LIFT
+        style(body, sl.body, "BLEND", lerp(red, 1, lift), lerp(green, 1, lift), lerp(blue, 1, lift))
     else
         style(body, sl.body, "ADD", red, green, blue)
     end
@@ -167,23 +174,35 @@ local function behind(orb, progress, gap, dx, dy, control2X, control2Y, orbX, or
     return flightPoint(orb, earlier, dx, dy, control2X, control2Y)
 end
 
--- Builds a flying orb of `shape`: the 3 slot textures (the third only when withThird), configured by shape.setup.
+-- Builds a flying orb of `shape`: the 3 slot textures (the third only when withThird) plus the shape's extra one when
+-- shape.extra() says so (Retro in Solid), configured by shape.setup.
 local function buildSlots(shape, orb, red, green, blue, withThird)
     orb.under, orb.body = take(), take()
     if withThird then
         orb.spark = take()
     end
-    shape.setup(orb.under, orb.body, orb.spark, orb, red, green, blue)
+    if shape.extra and shape.extra() then
+        orb.shine = take()
+    end
+    shape.setup(orb.under, orb.body, orb.spark, orb, red, green, blue, orb.shine)
     ready(orb.under)
     ready(orb.body)
     if withThird then
         ready(orb.spark)
     end
+    if orb.shine then
+        ready(orb.shine)
+    end
 end
 
 -- ---------------------------------------------------------------- Retro
 
-local RETRO = { needTrail = 5, needPlain = 3, timeMul = 1, adjust = identity }
+-- needTrail / needPlain: pool textures per orb; extra() says whether the orb takes one more (the shine overlay, Solid).
+local RETRO = { needTrail = 5, needPlain = 3, timeMul = 1, adjust = identity, solidLift = 0 }
+
+function RETRO.extra()
+    return ns.db ~= nil and ns.db.blend == "solid"
+end
 
 -- Where a pop or bloom is `progress` (0..1, of the pop) between RETRO_GROW_FROM and 1 of the flight size. Called by
 -- Orbs.lua for every shape (only Retro uses what it gets).
@@ -199,9 +218,31 @@ local function retroCell(base)
     return max(RETRO_CELLS_MIN, floor(base * RETRO_K / 8 + 0.5))
 end
 
-function RETRO.setup(under, body, spark, st, red, green, blue)
+-- Retro Solid's shine overlay: the two shine cells again, ADD in the top sublayer, tinted by the orb colour. Its alpha
+-- (RETRO_SHINE_ALPHA x the body's) is set every frame, so dst + colour x 0.225 x alpha.
+local function configureShine(shine, st)
+    setNearest(shine, RETRO_SHINE_TEX)
+    style(shine, SUB_SOLID.top, "ADD", st.sr, st.sg, st.sb)
+    shine.xoSt, shine.xoCfg = st, st.cfg
+end
+
+-- The overlay of an orb in a pop group or the preview: made on the first draw, parented to the body's frame and kept
+-- on the body texture (the body outlives the orb). A flying orb has its own, from the pool (orb.shine).
+local function makeShine(body, rel)
+    local shine = rel:CreateTexture(nil, "ARTWORK")
+    ready(shine)
+    body.xoShine = shine
+    return shine
+end
+
+-- `shine`: the pooled overlay of a flying Solid orb, else nil (a group or the preview finds it on the body).
+function RETRO.setup(under, body, spark, st, red, green, blue, shine)
     st.flightCell = retroCell(st.base or ns.db.size)
-    local sl = styleBody(body, st, RETRO_TEX, RETRO_SOLID_TEX, red, green, blue, setNearest)
+    local sl = styleBody(body, st, RETRO_TEX, RETRO_SOLID_TEX, red, green, blue, setNearest, RETRO.solidLift)
+    st.sr, st.sg, st.sb, st.cfg = red, green, blue, (st.cfg or 0) + 1
+    if shine and st.solid then
+        configureShine(shine, st)
+    end
     setNearest(under, RETRO_UNDER_TEX)
     under:SetTexCoord(0, RETRO_UNDER_UV, 0, RETRO_UNDER_UV)
     under.xoDirty = true
@@ -239,7 +280,7 @@ end
 -- least 1), whatever `size` is (rested orbs and pops are drawn at the same cell); a pop or bloom (`grow` below 1)
 -- draws smaller whole pixels. The underlay is the octagon grown by one cell all round; the twinkle is a 3-cell "+" on
 -- the top left cut corner that blinks.
-function RETRO.draw(st, t, rel, under, body, spark, x, y, size, alpha, grow)
+function RETRO.draw(st, t, rel, under, body, spark, x, y, size, alpha, grow, shine)
     local cell = st.flightCell or retroCell(size)
     if grow and grow < 1 then
         cell = max(1, floor(cell * grow + 0.5))
@@ -248,6 +289,20 @@ function RETRO.draw(st, t, rel, under, body, spark, x, y, size, alpha, grow)
     local gridX, gridY = floor(x / cell + 0.5) * cell, floor(y / cell + 0.5) * cell
     putAt(under, rel, gridX, gridY, 10 * cell, alpha * RETRO_UNDER_ALPHA)
     putAt(body, rel, gridX, gridY, 8 * cell, alpha)
+    shine = shine or body.xoShine
+    if st.solid then
+        if not shine and rel then
+            shine = makeShine(body, rel)
+        end
+        if shine then
+            if shine.xoSt ~= st or shine.xoCfg ~= st.cfg then
+                configureShine(shine, st)
+            end
+            putAt(shine, rel, gridX, gridY, 8 * cell, alpha * RETRO_SHINE_ALPHA)
+        end
+    elseif shine then
+        hideTex(shine)
+    end
     if st.sparkle and (t + st.phase) % (2 * RETRO_BLINK) < RETRO_BLINK then
         putAt(spark, rel, gridX - RETRO_TWINKLE_OFF * cell, gridY + RETRO_TWINKLE_OFF * cell, 3 * cell, alpha)
     else

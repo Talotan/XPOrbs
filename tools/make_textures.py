@@ -219,6 +219,11 @@ def retro_under():
     return cell_image({cell: 1.0 for cell in grown}, 128)
 
 
+def retro_shine_add():
+    """Just the two shine cells, white, alpha 1: variant I draws it ADD at 0.225 above its Solid body."""
+    return cell_image({(2, 2): 1.0, (3, 2): 1.0}, 64)
+
+
 def retro_twinkle():
     """A 3 x 3 cell "+" (centre 1.0, arms 0.55). 32 px, art 24 px."""
     cells = {(1, 1): 1.0}
@@ -706,7 +711,7 @@ def orb_ops(
             )
         )
     elif kind == "Retro":
-        cell = retro_cell()
+        cell = opt.get("cell") or retro_cell()
 
         def snap(v):
             return math.floor(v / cell + 0.5) * cell
@@ -753,6 +758,15 @@ def orb_ops(
                     sl["body"],
                     lambda c: add_layer(
                         c, tex["retro"], col, gx, gy, 8 * cell, 1.0, True
+                    ),
+                )
+            )
+        if solid and opt.get("shine_add"):  # variant I: the two shine cells again, ADD, in the top sublayer
+            ops.append(
+                (
+                    sl["top"],
+                    lambda c: add_layer(
+                        c, tex["retro_shine_add"], col, gx, gy, 8 * cell, opt["shine_add"], True
                     ),
                 )
             )
@@ -1093,8 +1107,7 @@ def preview_blend(imgs):
 
 
 # --- Solid look variants (dev comparison sheet; nothing here writes media/) --------------------------------------------
-# One parameterised shading family per shape. Variant "B" is the shipped bake (these tables ARE the Solid textures and
-# the sheet asserts it); "A" is the old baseline kept for reference. To adopt another variant, point _default_solid at
+# One parameterised shading family per shape. Variant "B" (Retro: "I") is the shipped bake (SHIPPED_VARIANT; the sheet asserts it); "A" is the old baseline kept for reference. To adopt another variant, point _default_solid at
 # it and copy its lift (SOLID_LIFT here and in Shapes.lua) and underlay/extra alphas.
 # Per-variant "opt" feeds orb_ops: lift, under (x underlay alpha), extra (x additive glint / bolts / twinkle alpha).
 
@@ -1127,11 +1140,12 @@ CRACKLE_VARIANTS = {
               lift=0.18, under=1.0, extra=1.0),
 }  # fmt: skip
 # Retro: levels = (core 4x4, ring, outer); core2 = optional brighter 2x2 core inside the 4x4; drop_outer removes the
-# outer cells (the underlay alone outlines it). The two shine cells are always 1.0.
+# outer cells (the underlay alone outlines it). The two shine cells are 1.0 unless "shine" says otherwise.
+# G and H aim at a lone Glow orb on black (see retro_glow_on_black); they need lift 0 (Shapes.lua SOLID_LIFT is 0.06).
 RETRO_VARIANTS = {
     "A": dict(name="old", levels=(1.00, 0.78, 0.50), core2=None, drop_outer=False,
               lift=0.06, under=1.0, extra=1.0),
-    "B": dict(name="softer steps (DEFAULT)", levels=(1.00, 0.88, 0.72), core2=None, drop_outer=False,
+    "B": dict(name="softer steps (previous default)", levels=(1.00, 0.88, 0.72), core2=None, drop_outer=False,
               lift=0.06, under=1.0, extra=1.0),
     "C": dict(name="no outer level", levels=(1.00, 0.78, 0.78), core2=None, drop_outer=True,
               lift=0.06, under=1.0, extra=1.0),
@@ -1141,6 +1155,12 @@ RETRO_VARIANTS = {
               lift=0.06, under=0.8, extra=1.3),
     "F": dict(name="higher lift, gentle", levels=(1.00, 0.90, 0.80), core2=None, drop_outer=False,
               lift=0.18, under=1.0, extra=1.0),
+    "G": dict(name="matches Glow on black", levels=(0.90, 0.825, 0.575), core2=None, drop_outer=False, shine=1.0,
+              lift=0.0, under=1.0, extra=1.0),
+    "H": dict(name="G, lifted outer ring", levels=(0.90, 0.84, 0.66), core2=None, drop_outer=False, shine=1.0,
+              lift=0.0, under=1.0, extra=1.0),
+    "I": dict(name="Glow on black, exact (+ ADD shine overlay) (DEFAULT)", levels=(1.0, 0.825, 0.575), core2=None,
+              drop_outer=False, shine=1.0, shine_add=0.225, lift=0.0, under=1.0, extra=1.0),
 }  # fmt: skip
 
 
@@ -1190,7 +1210,7 @@ def retro_variant(p):
         else:
             lv = outer
         if (c, r) in ((2, 2), (3, 2)):
-            lv = 1.0  # shine
+            lv = p.get("shine", 1.0)  # shine
         g = round(lv * 255)
         img.paste((g, g, g, 255), (c * CELL, r * CELL, (c + 1) * CELL, (r + 1) * CELL))
     return img
@@ -1200,6 +1220,8 @@ def variant_imgs(kind, p, imgs):
     out = dict(imgs)
     if kind == "Retro":
         out["retro_solid"] = retro_variant(p)
+        if p.get("shine_add"):
+            out["retro_shine_add"] = retro_shine_add()
     elif kind == "Bubble":
         fn, R = bubble_variant_shade(p)
         out["bubble_solid"] = build_shaded((64, 64), fn, R, p["ramp"])
@@ -1216,6 +1238,10 @@ def _params_line(kind, p):
         if p["core2"]:
             lv = f"2x2 {p['core2']:.2f}, " + lv
         s = f"levels {lv}"
+        if p.get("shine", 1.0) != 1.0:
+            s += f", shine {p['shine']:.2f}"
+        if p.get("shine_add"):
+            s += f", ADD shine overlay {p['shine_add']:g}"
     elif kind == "Bubble":
         if "radial" in p:
             t, d, e = p["radial"]
@@ -1272,8 +1298,9 @@ def solid_variants_sheet(imgs, out):
     """Per shape: a Natural reference row then A-F (B = the shipped default)."""
     tables = {"Retro": RETRO_VARIANTS, "Bubble": BUBBLE_VARIANTS, "Crackle": CRACKLE_VARIANTS}
     for kind, key in (("Retro", "retro_solid"), ("Bubble", "bubble_solid"), ("Crackle", "crackle_core_solid")):
-        b = variant_imgs(kind, tables[kind]["B"], imgs)[key]  # variant B must equal the shipped bake
-        assert b.tobytes() == imgs[key].tobytes(), f"{kind} variant B differs from the shipped Solid bake"
+        v = SHIPPED_VARIANT[kind]
+        b = variant_imgs(kind, tables[kind][v], imgs)[key]  # the shipped variant must equal the shipped bake
+        assert b.tobytes() == imgs[key].tobytes(), f"{kind} variant {v} differs from the shipped Solid bake"
     out = Path(out)
     for kind, table in tables.items():
         rows = [("Natural (Glow)", "reference: the additive look", "natural", imgs, None)]
@@ -1296,10 +1323,110 @@ def bubble_rim_compare(imgs, out):
     _render_rows("Bubble", "Bubble Solid B: rim 0.6 vs 0.8", rows, Path(out))
 
 
+def _retro_lone(mode, imgs, col, p, cell, pad=2):
+    """A lone Retro orb centred on black, twinkle off: (image, centre x, centre y)."""
+    w = (8 + 2 * (pad + 1)) * cell
+    img = Image.new("RGB", (w, w), (0, 0, 0))
+    ops = orb_ops("Retro", mode, imgs, col, w / 2, w / 2, 1.0, 0.0, 0.2, random.Random(7), trail=False, opt=p)
+    for _, fn in sorted(ops, key=lambda o: o[0]):
+        fn(img)
+    return img, w / 2
+
+
+def retro_glow_on_black(imgs, p):
+    """Print per-cell RGB of a lone purple orb on black, Glow vs a Solid variant, and the worst channel error (/255)."""
+    cell = retro_cell()
+    g_img, mid = _retro_lone("natural", imgs, PURPLE, None, cell)
+    s_img, _ = _retro_lone("solid", variant_imgs("Retro", p, imgs), PURPLE, p, cell)
+    probes = [("core", (4, 4)), ("ring", (1, 3)), ("outer", (0, 3)), ("shine", (2, 2)), ("outline", (3, -1))]
+    print(f"cell {cell}px, lone purple {PURPLE} on black: Glow vs Solid ({p['name']}), RGB 0-255")
+    worst = 0
+    for name, (c, r) in probes:
+        xy = (round(mid + (c - 3.5) * cell), round(mid + (r - 3.5) * cell))
+        a, b = g_img.getpixel(xy), s_img.getpixel(xy)
+        e = max(abs(x - y) for x, y in zip(a, b))
+        worst = max(worst, e)
+        print(f"  {name:8s} Glow {a}  Solid {b}  max err {e}")
+    print(f"  worst error {worst}/255")
+
+
+def retro_solid_compare(imgs, out):
+    """Glow, Solid B, G, H, I: lone orbs and a purple-over-blue pair on black / grass / stone at 2 px and 4 px cells,
+    plus a 3x zoom of the lone purple orb at the default cell."""
+    V = RETRO_VARIANTS
+    cols = [("Glow", "natural", imgs, None)]
+    cols += [(f"Solid {k}", "solid", variant_imgs("Retro", V[k], imgs), V[k]) for k in "BGHI"]
+    grounds = {"black": (0, 0, 0), "grass": (0x2E, 0x3A, 0x22), "stone": (0x4A, 0x46, 0x40)}
+    cells = (retro_cell(), 4)
+    Z = 3
+
+    def panel(cell, mode, im, p, ground, orbs):
+        pw, ph = 14 * cell, 12 * cell
+        img = Image.new("RGB", (pw, ph), grounds[ground])
+        opt = dict(p or {}, cell=cell)
+        ops = []  # layer-wide order as in game (SUB_SOLID): all underlays, then bodies, then shine overlays
+        for col, dx in orbs:
+            ops += orb_ops("Retro", mode, im, col, pw / 2 + dx * cell, ph / 2, 1.0, 0.0, 0.2, random.Random(7),
+                           trail=False, opt=opt)
+        for _, fn in sorted(ops, key=lambda o: o[0]):  # stable: later orbs draw over earlier ones
+            fn(img)
+        return img
+
+    pair = [(BLUE, -2), (PURPLE, 2)]  # purple over blue, half a disc (4 cells) apart
+    ink, dim = (240, 240, 244), (165, 165, 178)
+    font, small = _font(16), _font(13)
+    gut, left, top = 10, 150, 40
+    rows = []  # (label, cell, kinds)
+    for cell in cells:
+        rows += [(f"{cell}px: lone on black", cell, ["purple", "blue"]),
+                 (f"{cell}px: pair on black", cell, ["pair"]),
+                 (f"{cell}px: pair grass | stone", cell, ["grass", "stone"])]
+    rows.insert(1, (f"3x zoom, purple, {cells[0]}px", cells[0], ["zoom"]))
+    def row_h(cell, kinds):
+        return 12 * cell * (Z if kinds == ["zoom"] else 1)
+    colw = max(sum(14 * c * (Z if k == ["zoom"] else 1) for _ in k) + gut * (len(k) - 1) for _, c, k in rows)
+    W = left + len(cols) * (colw + 14) + 6
+    H = top + sum(row_h(c, k) + 24 for _, c, k in rows) + 26
+    sheet = Image.new("RGB", (W, H), (30, 30, 36))
+    dr = ImageDraw.Draw(sheet)
+    for ci, (name, *_rest) in enumerate(cols):
+        dr.text((left + ci * (colw + 14), 10), name, fill=ink, font=font)
+    y = top
+    for label, cell, kinds in rows:
+        dr.text((6, y + 4), label, fill=ink, font=small)
+        for ci, (name, mode, im, p) in enumerate(cols):
+            x = left + ci * (colw + 14)
+            for k in kinds:
+                if k in ("purple", "zoom"):
+                    pn = panel(cell, mode, im, p, "black", [(PURPLE, 0)])
+                    if k == "zoom":
+                        pn = pn.resize((pn.width * Z, pn.height * Z), Image.Resampling.NEAREST)
+                elif k == "blue":
+                    pn = panel(cell, mode, im, p, "black", [(BLUE, 0)])
+                elif k == "pair":
+                    pn = panel(cell, mode, im, p, "black", pair)
+                else:
+                    pn = panel(cell, mode, im, p, k, pair)
+                sheet.paste(pn, (x, y))
+                x += pn.width + gut
+        y += row_h(cell, kinds) + 24
+    dr.text((6, H - 20), "twinkle off; Solid G/H/I use lift 0 (B uses 0.06); I = Solid body + ADD shine overlay (top sublayer)",
+            fill=dim, font=small)
+    out = Path(out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    sheet.save(out)
+    print(f"wrote {out} {sheet.size}")
+    for letter in ("B", "G", "H", "I"):
+        retro_glow_on_black(imgs, V[letter])
+
+
+SHIPPED_VARIANT = {"Retro": "I", "Bubble": "B", "Crackle": "B"}
+
+
 def _default_solid(kind, key):
-    """The shipped Solid texture: variant B of the tables above."""
+    """The shipped Solid texture: SHIPPED_VARIANT of the tables above (Retro I, Bubble and Crackle B)."""
     table = {"Retro": RETRO_VARIANTS, "Bubble": BUBBLE_VARIANTS, "Crackle": CRACKLE_VARIANTS}[kind]
-    return variant_imgs(kind, table["B"], {})[key]
+    return variant_imgs(kind, table[SHIPPED_VARIANT[kind]], {})[key]
 
 
 def build_imgs():
@@ -1320,6 +1447,7 @@ def build_imgs():
         "bubble_solid": _default_solid("Bubble", "bubble_solid"),
         "crackle_core_solid": _default_solid("Crackle", "crackle_core_solid"),
         "retro_solid": _default_solid("Retro", "retro_solid"),
+        "retro_shine_add": retro_shine_add(),  # Retro Solid's ADD shine overlay (variant I), 64 px like retro.tga
         "bolt1": bolt_ring(301, 2, 1),
         "bolt2": bolt_ring(302, 1, 1),
         "bolt3": bolt_ring(303, 2, 0),
@@ -1333,6 +1461,12 @@ def main():
         if i + 1 >= len(sys.argv):
             sys.exit("usage: make_textures.py --solid-variants <out.png>")
         solid_variants_sheet(build_imgs(), Path(sys.argv[i + 1]))
+        return
+    if "--retro-solid-compare" in sys.argv:  # dev sheet only: never writes media/
+        i = sys.argv.index("--retro-solid-compare")
+        if i + 1 >= len(sys.argv):
+            sys.exit("usage: make_textures.py --retro-solid-compare <out.png>")
+        retro_solid_compare(build_imgs(), Path(sys.argv[i + 1]))
         return
     if "--bubble-rim-compare" in sys.argv:
         i = sys.argv.index("--bubble-rim-compare")

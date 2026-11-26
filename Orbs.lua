@@ -299,7 +299,7 @@ end
 -- (the per-orb need is the largest of the current shape's and the Starlight 1 + EXTRAS)
 local function ceiling()
     local shape = SHAPES.by[settings().orbShape]
-    local perOrb = shape and max(1 + EXTRAS, shape.needTrail) or 1 + EXTRAS
+    local perOrb = shape and max(1 + EXTRAS, shape.needTrail + (shape.extra and shape.extra() and 1 or 0)) or 1 + EXTRAS
     return settings().cap * perOrb * 2 + 8
 end
 
@@ -543,6 +543,10 @@ local function freeOrb(orb)
     if orb.spark then
         release(orb.spark)
     end
+    if orb.shine then -- Retro Solid's shine overlay
+        release(orb.shine)
+        orb.shine = nil
+    end
     if orb.ghost1 then
         release(orb.ghost1)
     end
@@ -563,6 +567,10 @@ local function freeOrb(orb)
         for j = 1, 3 do
             hideTex(group.tex[orb.slotBase + j])
         end
+        local shine = group.tex[orb.slotBase + 2].xoShine
+        if shine then
+            hideTex(shine)
+        end
         group.refs = group.refs - 1
         if group.refs <= 0 then
             dropCrossfade(group)
@@ -580,6 +588,9 @@ local function drawA(orb, group, posX, posY, size, alpha, grow)
         hideTex(tex[slotBase + 1])
         hideTex(tex[slotBase + 2])
         hideTex(tex[slotBase + 3])
+        if tex[slotBase + 2].xoShine then
+            hideTex(tex[slotBase + 2].xoShine)
+        end
         return
     end
     local frame, ox, oy = group.frame, posX - orb.px, posY - orb.py
@@ -613,6 +624,9 @@ local function hideB(orb)
     hideTex(orb.body)
     if orb.spark then
         hideTex(orb.spark)
+    end
+    if orb.shine then
+        hideTex(orb.shine)
     end
     if orb.ghost1 then
         hideTex(orb.ghost1)
@@ -667,7 +681,7 @@ local function drawSpHold(orb, age)
     local shape = orb.shape
     if shape then
         shape.draw(orb, orb.elapsed, nil, orb.under, orb.body, orb.spark, x, y, size, alpha,
-            SHAPES.grow(age / orb.bloom))
+            SHAPES.grow(age / orb.bloom), orb.shine)
         return
     end
     place(orb.under, x, y, size * GLOW * UNDER_SIZE, alpha * UNDER_ALPHA)
@@ -734,7 +748,8 @@ local function drawOrb(orb, progress, dx, dy)
     local group = orb.group
     local shape = orb.shape
     if shape then
-        shape.draw(orb, orb.elapsed, nil, orb.under, orb.body, orb.spark, orbX, orbY, size * sizeMul, alpha * alphaMul)
+        shape.draw(orb, orb.elapsed, nil, orb.under, orb.body, orb.spark, orbX, orbY, size * sizeMul, alpha * alphaMul,
+            nil, orb.shine)
         if shape.trail then -- a trail of its own (Retro, Bubble); Crackle keeps the Starlight ghosts below
             if orb.ghost1 then
                 shape.trail(orb, progress, dx, dy, control2X, control2Y, orbX, orbY,
@@ -818,6 +833,10 @@ function releasePop(group)
         local texture = tex[i]
         texture:Hide()
         texture.xoShown = false
+        if texture.xoShine then -- Retro Solid's overlay lives on the body texture
+            texture.xoShine:Hide()
+            texture.xoShine.xoShown = false
+        end
     end
     group.used, group.plate, group.isCrossfade, group.refs, group.shape = 0, nil, false, 0, nil
     pcall(group.frame.ClearAllPoints, group.frame)
@@ -1520,6 +1539,9 @@ function Orbs:Burst(params)
     local needTrail, needPlain = 1 + EXTRAS, 3 -- orb + underlay + sparkle (+ 3 ghosts)
     if shape then
         needTrail, needPlain = shape.needTrail, shape.needPlain
+        if shape.extra and shape.extra() then -- one more texture per orb (Retro Solid's shine overlay)
+            needTrail, needPlain = needTrail + 1, needPlain + 1
+        end
     end
     local need = trail and needTrail or needPlain
     local limit = ceiling() - 1 -- the arrival flash holds one slot
