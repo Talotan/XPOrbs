@@ -11,6 +11,10 @@ kill the burst starts at the mob. The orbs match the game's XP bar: purple norma
 The number of orbs grows with the share of the current level that the gain gave, so a big kill looks bigger than a
 trivial one.
 
+Benchmark metrics and a performance report are available in the
+[performance report](https://github.com/Talotan/XPOrbs/blob/main/docs/performance/README.md), and are updated with
+every feature release.
+
 ## Focus
 
 XP Orbs does one thing and tries to do it as well as possible: the best, most efficient and most beautiful XP orbs it
