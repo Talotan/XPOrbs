@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.4.3 (2026-11-27)
+
+### Fixed
+
+- The XP bar setup window no longer opens by itself after a new character's intro cutscene (or with the UI hidden by
+  Alt+Z) when the XP bar is there.
+
 ## 1.4.2 (2026-11-27)
 
 ### Changed

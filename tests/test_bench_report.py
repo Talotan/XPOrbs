@@ -17,6 +17,16 @@ _spec.loader.exec_module(report)
 FORBIDDEN = ["SECRET", "WTF", "Account", ":\\", "C:/", "/Users"]
 
 
+@pytest.fixture(autouse=True)
+def fixture_toc(tmp_path, monkeypatch):
+    """The fixture runs are version 1.4.2; without this, ingest's default reads the real XPOrbs.toc, which moves on
+    every release."""
+    toc = tmp_path / "fixture.toc"
+    toc.write_text("## Interface: 16001\n## Version: 1.4.2\n", encoding="utf-8")
+    monkeypatch.setattr(report, "DEFAULT_TOC", toc)
+    return toc
+
+
 # --------------------------------------------------------------------------- fixture
 
 

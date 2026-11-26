@@ -628,7 +628,7 @@ wheels = [
 
 [[package]]
 name = "xporbs"
-version = "1.4.2"
+version = "1.4.3"
 source = { virtual = "." }
 
 [package.dev-dependencies]
