@@ -5,8 +5,9 @@ local ADDON, ns = ...
 -- panel with the test target window hung under it (anchored to its bottom edge, so it follows when the window grows).
 -- A header row holds the "Preview" title (top left) and the Cluster tickbox (top right). It shows a cluster of
 -- stationary orbs of the current shape: the count follows Quantity (n = round(6 * density / 100), 2..12; 6 at the
--- default 100%) in a fixed pattern (pair, triangle, 2 x 2, pentagon, honeycomb rows), the last 2/5 of them rested when Rested tint is on. The orbs are spaced
--- so their visible discs just do not touch; the "Cluster" tickbox (db.previewCluster) packs them into an overlapping
+-- default 100%) in a fixed pattern (pair, triangle, 2 x 2, pentagon, honeycomb rows; fewer per row when big orbs
+-- don't fit the width), the last 2/5 of them rested when Rested tint is on. The orbs are spaced so their visible
+-- discs just do not touch; the "Cluster" tickbox (db.previewCluster) packs them into an overlapping
 -- cloud instead, like orbs piled up after a kill, with the rested ones mixed in. The shape's own animation runs
 -- (Starlight's spinning sparkle, Retro's blinking twinkle on its grid,
 -- Bubble's breathing and glint, Crackle's bolt swaps), no trail. It is drawn by the same shape code as real orbs (the
