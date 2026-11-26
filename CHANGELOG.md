@@ -1,15 +1,24 @@
 # Changelog
 
+## 1.4.2 (2026-11-27)
+
+### Changed
+
+- Target offset X and Y now go from -200 to 200 px, for wide XP targets.
+
+### Fixed
+
+- Opening the options in combat (minimap button, addon compartment or `/xporbs`) no longer errors; they open when
+  combat ends. Outside combat they open through a safer route that avoids blocked-action errors.
+- Closing the options with the minimap button no longer causes an error or brings back the game menu when they were
+  opened from the game menu.
+
 ## 1.4.1 (2026-11-26)
 
 ### Changed
 
 - Relative speed (orbs always arrive after the set flight time) is the default Speed type again. Settings from 1.4.0
   switch back to it once; pick Constant speed in the Flight tab if you prefer it.
-
-### Fixed
-
-- Development only: a test that could fail at random on the build server is fixed. Nothing changes in game.
 
 ## 1.4.0 (2026-11-26)
 
