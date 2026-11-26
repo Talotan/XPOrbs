@@ -311,12 +311,12 @@ def test_scroll_frame_without_any_template_still_scrolls(env):
         ("restedTint", 338),
         ("restedColor", 338),
         ("flightPath", 8),
-        ("style_popstream", 134),
-        ("popMode_nameplate", 176),
-        ("popMode_direct", 218),
-        ("style_crossfade", 270),
-        ("style_stream", 316),
-        ("zoomSpread", 370),
+        ("style_popstream", 144),
+        ("popMode_nameplate", 186),
+        ("popMode_direct", 228),
+        ("style_crossfade", 280),
+        ("style_stream", 326),
+        ("zoomSpread", 380),
         ("targetFrame", 8),
         ("glowShape", 108),
         ("glow", 208),
@@ -433,14 +433,14 @@ def test_style_radios_use_the_radio_template_and_each_has_a_description(m):
 def test_style_description_positions(m):
     d = m.opt.descs
     for st, y in (
-        ("popstream", 134 + 24),
-        ("crossfade", 270 + 24),
-        ("stream", 316 + 24),
+        ("popstream", 10 + 24),
+        ("crossfade", 146 + 24),
+        ("stream", 192 + 24),
     ):
         pt = d[st].points[1]
-        assert (pt[4], pt[5]) == (72, -y) and d[
+        assert (pt[4], pt[5]) == (72 - 32, -y) and d[
             st
-        ].width == 474  # flush with the label (x + 24), indented 16 px under Kill style
+        ].width == 474  # flush with the label (x + 24), inside the kill style box; coordinates are box-relative
         assert [d[st].textColor[i] for i in (1, 2, 3)] == pytest.approx([0.7, 0.7, 0.7])
 
 

@@ -84,7 +84,7 @@ def test_content_height_fits_the_last_row_exactly(env):
     # CONTENT_H is the tallest tab
     assert row_y(m, "debug") == row_y(m, "minimap") + 28 + 12 == 160
     assert m.opt.tabHeights.General == row_y(m, "debug") + 28 + 16 == 204
-    assert m.opt.CONTENT_H == max(m.opt.tabHeights.values()) == 430
+    assert m.opt.CONTENT_H == max(m.opt.tabHeights.values()) == 446
     assert m.opt.child.height == m.opt.tabHeights.General
 
 

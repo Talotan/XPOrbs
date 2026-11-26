@@ -283,16 +283,16 @@ def test_style_section_rows_and_sub_radios(env):
         o.rows[k].points[1][5]
         for k in ("style_popstream", "popMode_nameplate", "popMode_direct")
     ] == [
-        -134,
-        -176,
-        -218,  # per-tab y: the Flight tab's first row is 8
+        -144,
+        -186,
+        -228,  # per-tab y: the Flight tab's first row is 8
     ]
     for pm, x in (("nameplate", 70), ("direct", 70)):
         rb = ctl(m5, "popMode_" + pm)
         assert (
             rb.template == "UIRadioButtonTemplate" and rb.points[1][4] == x
         )  # indented one step under Kill style (LABEL_X + 16 + 24 - 2)
-        assert o.descs[pm].points[1][4] == 96 and o.descs[pm].width == 450
+        assert o.descs[pm].points[1][4] == 96 - 32 and o.descs[pm].width == 450
     assert (
         o.descs["direct"].text
         == "Pop and stream from the estimated position. No nameplate needed."
@@ -335,8 +335,8 @@ def test_spread_checkbox_label_position_and_reset(env):
     assert "Zoom-scaled spread" in texts and "Wide start" not in texts
     assert m5.opt.descs["zoomSpread"].text == "Wider when zoomed in, tighter when zoomed out."
     cb = ctl(m5, "zoomSpread")
-    assert cb.checked is True and m5.opt.rows["zoomSpread"].points[1][5] == -370
-    assert m5.opt.descs["zoomSpread"].points[1][5] == -(370 + 28)
+    assert cb.checked is True and m5.opt.rows["zoomSpread"].points[1][5] == -380
+    assert m5.opt.descs["zoomSpread"].points[1][5] == -(380 - 134 + 28)  # box-relative
     m5.stub.click(cb)
     assert m5.db.zoomSpread is False and cb.checked is False
     btn = m5.opt.resets["zoomSpread"]

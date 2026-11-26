@@ -394,6 +394,7 @@ local function checkbox(y, key, labelStr, opts)
     local row = newRow(y, 28)
     label(row, labelStr, opts.labelX or LABEL_X)
     local cb = newCheck(row, CTRL_X - 3)
+    local resetX = opts.resetX
     local get = opts.get or function()
         return settings()[key]
     end
@@ -410,7 +411,7 @@ local function checkbox(y, key, labelStr, opts)
     if not opts.set then
         addReset(row, key, { key }, function()
             return onOff(ns.defaults[key])
-        end)
+        end, nil, resetX)
     end
     if opts.tip then
         cb:SetScript("OnEnter", function(self)
@@ -1291,18 +1292,25 @@ local function isRetro()
     return currentShape() == "retro"
 end
 
--- Draws the box and fills it with size, quantity, opacity and the two option rows. Returns the y under it.
-local function buildShapeBox(y)
+-- A bordered, faintly filled frame of height h at y on the current tab (the Look tab's shape box, the Flight tab's
+-- kill style box).
+local function boxFrame(y, h)
     local box = CreateFrame("Frame", nil, child)
-    box:SetSize(BOX_W, BOX_H)
+    box:SetSize(BOX_W, h)
     box:SetPoint("TOPLEFT", child, "TOPLEFT", BOX_X, -y)
     local fill = box:CreateTexture(nil, "BACKGROUND")
     fill:SetAllPoints(box)
     fill:SetColorTexture(1, 1, 1, 0.04)
     boxEdge(box, "TOPLEFT", "TOPRIGHT", BOX_W, 1)
     boxEdge(box, "BOTTOMLEFT", "BOTTOMRIGHT", BOX_W, 1)
-    boxEdge(box, "TOPLEFT", "BOTTOMLEFT", 1, BOX_H)
-    boxEdge(box, "TOPRIGHT", "BOTTOMRIGHT", 1, BOX_H)
+    boxEdge(box, "TOPLEFT", "BOTTOMLEFT", 1, h)
+    boxEdge(box, "TOPRIGHT", "BOTTOMRIGHT", 1, h)
+    return box
+end
+
+-- Draws the box and fills it with size, quantity, opacity and the two option rows. Returns the y under it.
+local function buildShapeBox(y)
+    local box = boxFrame(y, BOX_H)
     Options.shapeBox = box
     local caption = box:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
     caption:SetPoint("TOPLEFT", box, "TOPLEFT", BOX_LABEL_X - BOX_X, -8)
@@ -1422,7 +1430,7 @@ end
 -- group: three radios (row 24 + its description) indented 16 px under the header, Popstream's two sub-radios indented
 -- under it at a tighter 42 px pitch with a wider gap after the group (dimmed unless Popstream is picked; clicking one
 -- also picks Popstream), then the Zoom-scaled spread checkbox and its description (back on the label column).
-local KILL_X = LABEL_X + 16
+local KILL_PAD = 10 -- above the first radio inside the kill style box (the box has no caption row)
 local function buildFlight(y)
     y = flightStyleRow(y)
     y = choiceRow(SPEED_TYPE_DROPDOWN, y)
@@ -1442,6 +1450,15 @@ local function buildFlight(y)
     text(child, "GameFontHighlight", "Kill style", LABEL_X, -y)
     Options.killStyleLabelY = y
     y = y + 22
+    -- their settings sit in a box like the Look tab's (no caption: the header above is its title); rows hang off it
+    local boxY = y
+    local box = boxFrame(boxY, KILL_PAD + 278 + BOX_BOTTOM_PAD)
+    Options.killBox = box
+    rowParent = box
+    y = y + KILL_PAD
+    local function boxText(str, x, ty, width)
+        return text(box, "GameFontHighlight", str, x - BOX_X, -(ty - boxY), width)
+    end
     local radios, subs = {}, {}
     local function tipOn(w, title, body)
         w:SetScript("OnEnter", function(self)
@@ -1451,14 +1468,14 @@ local function buildFlight(y)
     end
     local function styleRadio(st, ry)
         local row = newRow(ry, 24)
-        local radio = newRadio(row, KILL_X, STYLE_NAME[st])
+        local radio = newRadio(row, BOX_LABEL_X, STYLE_NAME[st])
         radio:SetScript("OnClick", function()
             radioClick("style", st)
         end)
         radios[st] = radio
         Options.controls["style_" .. st] = radio
         Options.rows["style_" .. st] = row
-        local desc = text(child, "GameFontHighlight", STYLE_DESC[st], KILL_X + 24, -(ry + 24), 474)
+        local desc = boxText(STYLE_DESC[st], BOX_LABEL_X + 24, ry + 24, 474)
         desc:SetTextColor(GREY, GREY, GREY)
         Options.descs[st] = desc
         return row
@@ -1466,11 +1483,11 @@ local function buildFlight(y)
     local prow = styleRadio("popstream", y)
     addReset(prow, "style", { "style", "popMode" }, function()
         return ns.StyleLabel(ns.defaults)
-    end)
+    end, nil, BOX_RESET_X)
     for i, pm in ipairs(POPMODES) do
         local ry = y + i * 42
         local row = newRow(ry, 24)
-        local radio = newRadio(row, KILL_X + 24, POPMODE_NAME[pm])
+        local radio = newRadio(row, BOX_LABEL_X + 24, POPMODE_NAME[pm])
         radio:SetScript("OnClick", function()
             settings().style = "popstream" -- a sub-choice only means something under Popstream
             radioClick("popMode", pm)
@@ -1478,7 +1495,7 @@ local function buildFlight(y)
         subs[pm] = radio
         Options.controls["popMode_" .. pm] = radio
         Options.rows["popMode_" .. pm] = row
-        local desc = text(child, "GameFontHighlight", POPMODE_DESC[pm], KILL_X + 48, -(ry + 24), 450)
+        local desc = boxText(POPMODE_DESC[pm], BOX_LABEL_X + 48, ry + 24, 450)
         desc:SetTextColor(GREY, GREY, GREY)
         Options.descs[pm] = desc
     end
@@ -1496,9 +1513,9 @@ local function buildFlight(y)
     -- Zoom-scaled spread (db.zoomSpread, /xporbs wide): applies to every style, so it never dims. The unknown-position
     -- oval (db.unknownOrigin) is separate and has no control here.
     y = y + 236
-    local _, scb = checkbox(y, "zoomSpread", "Zoom-scaled spread")
+    local _, scb = checkbox(y, "zoomSpread", "Zoom-scaled spread", { labelX = BOX_LABEL_X, resetX = BOX_RESET_X })
     tipOn(scb, "Zoom-scaled spread", SPREAD_TIP)
-    local spreadDescText = text(child, "GameFontHighlight", SPREAD_DESC, LABEL_X, -(y + 28), 490)
+    local spreadDescText = boxText(SPREAD_DESC, BOX_LABEL_X, y + 28, 474)
     spreadDescText:SetWordWrap(true)
     spreadDescText:SetTextColor(GREY, GREY, GREY)
     Options.descs.zoomSpread = spreadDescText
@@ -1510,7 +1527,8 @@ local function buildFlight(y)
             Options.descs[pm]:SetAlpha(on and 1 or DESC_DIM)
         end
     end
-    return y + 44
+    rowParent = nil
+    return boxY + KILL_PAD + 278 + BOX_BOTTOM_PAD
 end
 
 -- Arrival: where the orbs land. The XP bar row (what was found, plus the picker) comes first, then the target frame's

@@ -306,19 +306,40 @@ def test_tab_is_named_flight_and_look_has_no_flight_rows(env):
         assert m.lua.eval("rawequal")(m.opt.rows[key].createdParent, m.opt.tabChildren.Flight), key
     # pathing, speed type, the slider row, then the kill style group (header y = Options.killStyleLabelY)
     assert [row_y(m, k) for k in ("flightPath", "flightMode", "flightSpeed")] == [8, 42, 76]
-    assert m.opt.killStyleLabelY == 112 and row_y(m, "style_popstream") == 134
+    assert m.opt.killStyleLabelY == 112 and row_y(m, "style_popstream") == 144
 
 
 def test_kill_style_group_is_indented_under_its_header(env):
     m = build(env)
     for key in ("style_popstream", "style_crossfade", "style_stream"):
         assert ctl(m, key).points[1][4] == 32 + 16 - 2, key  # radio box sits 2 px left of its x
+    # descriptions hang off the box, so their x is box-relative (the box starts on the label column, x 32)
     for pm in ("nameplate", "direct"):
         assert ctl(m, "popMode_" + pm).points[1][4] == 32 + 16 + 24 - 2
-        assert m.opt.descs[pm].points[1][4] == 32 + 16 + 48
-    assert m.opt.descs["crossfade"].points[1][4] == 32 + 16 + 24
-    assert ctl(m, "zoomSpread").points[1][4] != 48  # the spread checkbox is back on the label column
-    assert m.opt.descs["zoomSpread"].points[1][4] == 32
+        assert m.opt.descs[pm].points[1][4] == 16 + 48
+    assert m.opt.descs["crossfade"].points[1][4] == 16 + 24
+    assert m.opt.descs["zoomSpread"].points[1][4] == 16  # inside the box like the radios, not on the border
+
+
+def test_kill_style_box_encloses_its_rows(env):
+    m = build(env)
+    box = m.opt.killBox
+    pt = box.points[1]
+    assert (pt[1], pt[4], pt[5]) == ("TOPLEFT", 32, -(m.opt.killStyleLabelY + 22))  # right under the header
+    assert (box.width, box.height) == (m.opt.shapeBox.width, 10 + 278 + 8)
+    top, bottom = -pt[5], -pt[5] + box.height
+    keys = ["style_popstream", "popMode_nameplate", "popMode_direct", "style_crossfade", "style_stream", "zoomSpread"]
+    for key in keys:
+        assert m.lua.eval("rawequal")(m.opt.rows[key].createdParent, box), key
+        y = row_y(m, key)
+        assert top + 8 <= y and y + m.opt.rows[key].height <= bottom - 8, key
+    # the last description (one 14 px line) also fits, with the bottom pad under it
+    assert row_y(m, "zoomSpread") + 28 + 14 + 8 <= bottom
+    assert top + 8 <= row_y(m, "style_popstream")
+    # nothing sits below it: the tab ends 16 px under the box
+    assert m.opt.tabHeights.Flight == bottom + 16
+    for key in ("flightPath", "flightMode", "flightSpeed"):
+        assert row_y(m, key) + 32 <= top
 
 
 def ctl(m, key):

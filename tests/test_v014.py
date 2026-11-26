@@ -396,7 +396,7 @@ def test_picker_hint_fontstring(m):
 
 def test_content_height_grew_and_rows_below_moved(m):
     assert m.opt.tabHeights.General == 204 and m.opt.rows["debug"].points[1][5] == -160
-    assert m.opt.CONTENT_H == max(m.opt.tabHeights.values()) == 430
+    assert m.opt.CONTENT_H == max(m.opt.tabHeights.values()) == 446
     # the picker hint (one line) clears the shape row
     assert 78 + 30 <= 108
 

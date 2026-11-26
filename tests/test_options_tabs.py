@@ -109,7 +109,7 @@ def test_heights_and_content_h(m):
     assert o.CONTENT_H == max(h.values())
     for n in NAMES:
         assert o.tabChildren[n].height == h[n] and o.tabChildren[n].width == 584
-    assert h["General"] == 204 and h["Sound"] == 112 and h["Look"] == 422 and h["Flight"] == 430 and o.CONTENT_H == h["Flight"]
+    assert h["General"] == 204 and h["Sound"] == 112 and h["Look"] == 422 and h["Flight"] == 446 and o.CONTENT_H == h["Flight"]
 
 
 def test_refresh_updates_a_control_on_a_hidden_tab(m):
@@ -200,15 +200,15 @@ def test_scroll_bar_hides_when_the_tab_fits(m):
     o = m.opt
     bar = m.lua.eval("CreateFrame")("Frame")
     o.scroll.ScrollBar = bar
-    # General is 204 px tall, Flight 430
+    # General is 204 px tall, Flight 446
     o.scroll.SetSize(o.scroll, 600, 500)
     o.SelectTab(o, "General")
     assert not bar.IsShown(bar)
-    o.SelectTab(o, "Flight")  # 430 <= 500: still fits
+    o.SelectTab(o, "Flight")  # 446 <= 500: still fits
     assert not bar.IsShown(bar)
     o.scroll.SetSize(o.scroll, 600, 300)
     o.scroll.scripts.OnSizeChanged(o.scroll)
-    assert bar.IsShown(bar)  # 430 > 300
+    assert bar.IsShown(bar)  # 446 > 300
     o.SelectTab(o, "Sound")
     assert not bar.IsShown(bar)
     o.scroll.SetSize(o.scroll, 600, 0)  # unknown size: never hide on a guess
