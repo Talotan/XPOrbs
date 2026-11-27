@@ -27,6 +27,7 @@ logic\Engaged.lua
 logic\Chime.lua
 Plates.lua
 Target.lua
+Picker.lua
 Mouseover.lua
 Orbs.lua
 Shapes.lua
