@@ -80,10 +80,11 @@ def test_sections_and_rows_run_in_the_agreed_order(env):
 
 def test_content_height_fits_the_last_row_exactly(env):
     m = build(env)
-    # General ends at its last row (Debug log, 28 tall, 12 px under the minimap row) plus the 16 px margin;
-    # CONTENT_H is the tallest tab
+    # General ends at its last row (Bug report, 26 tall, 30 px under the Debug log row, which is 12 px under the minimap
+    # row) plus the 16 px margin; CONTENT_H is the tallest tab
     assert row_y(m, "debug") == row_y(m, "minimap") + 28 + 12 == 160
-    assert m.opt.tabHeights.General == row_y(m, "debug") + 28 + 16 == 204
+    assert row_y(m, "copyStatus") == row_y(m, "debug") + 30
+    assert m.opt.tabHeights.General == row_y(m, "copyStatus") + 28 + 16 == 234
     assert m.opt.CONTENT_H == max(m.opt.tabHeights.values()) == 446
     assert m.opt.child.height == m.opt.tabHeights.General
 

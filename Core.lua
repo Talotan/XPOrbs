@@ -154,7 +154,7 @@ ns.PATH_LABEL = { smooth = "Smooth", chaos = "Chaos", helix = "Helix" } -- the v
 ns.STRATA_ORDER = { "BACKGROUND", "LOW", "MEDIUM", "HIGH", "DIALOG", "FULLSCREEN", "FULLSCREEN_DIALOG" }
 ns.STRATA_LABEL = {
     BACKGROUND = "Background", LOW = "Low", MEDIUM = "Medium", HIGH = "High", DIALOG = "Dialog",
-    FULLSCREEN = "Fullscreen", FULLSCREEN_DIALOG = "Fullscreen Dialog",
+    FULLSCREEN = "Fullscreen", FULLSCREEN_DIALOG = "Fullscreen dialog",
 }
 -- the points the "Aim at" setting can name, in the order the options grid draws them (WoW anchor point names)
 ns.AIM_POINTS = { "TOPLEFT", "TOP", "TOPRIGHT", "LEFT", "CENTER", "RIGHT", "BOTTOMLEFT", "BOTTOM", "BOTTOMRIGHT" }

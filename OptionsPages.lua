@@ -385,23 +385,46 @@ local function buildFlight(y)
     return boxY + KILL_PAD + KILL_ROWS_H + BOX_BOTTOM_PAD
 end
 
--- "Aim at" (db.targetAnchor): an Auto radio (the fill edge on a bar, the centre of a round frame) and, right of it, a
--- 3 x 3 grid of small radios laid out like the points they name (corners, edges, centre). One reset for the row. It
--- stays live whatever the other settings say: the portrait that max-level bursts aim at is automatic, not a setting.
+-- "Landing point" (db.targetAnchor): an Auto radio (the fill edge on a bar, the centre of a round frame) and, right of
+-- it, a 3 x 3 grid of small radios laid out like the points they name (corners, edges, centre). The grid sits on a
+-- little bar (an outline and a part-filled purple rect through the radio centres) so it reads as the XP bar frame. One
+-- reset for the row. It stays live whatever the other settings say: the portrait that max-level bursts aim at is
+-- automatic, not a setting.
 local AIM_ROW_H = 62 -- three grid rows of 20 px, with a pixel or so of air
-local AIM_GRID_X = 90 -- px right of CTRL_X: past the "Auto" radio and its caption
-local AIM_TIP = "The XP fill edge on a bar, the centre of a round frame."
+local AIM_GRID_X = 100 -- px right of CTRL_X: past the "Auto" radio and its caption
+local AIM_COL, AIM_LINE = 50, 20 -- px between grid columns and between grid lines
+local AIM_TIP = "Auto: the XP fill edge on a bar, the centre of a round frame."
+local AIM_BAR_FILL = 0.58 -- the part of the little bar drawn filled
+local AIM_BAR_RGB = { 0.447, 0.196, 0.518 } -- the XP bar purple, #723284
+local function aimBar(row, left, top, w, h)
+    local function rect(r, g, b, a, x1, y1, x2, y2)
+        local tex = row:CreateTexture(nil, "BACKGROUND")
+        tex:SetPoint("TOPLEFT", row, "TOPLEFT", x1, y1)
+        tex:SetPoint("BOTTOMRIGHT", row, "TOPLEFT", x2, y2)
+        tex:SetColorTexture(r, g, b, a)
+        return tex
+    end
+    rect(AIM_BAR_RGB[1], AIM_BAR_RGB[2], AIM_BAR_RGB[3], 0.55, left, top, left + w * AIM_BAR_FILL, top - h)
+    -- the 1 px outline, white at 30%: four thin rects (they are textures, so they never take the mouse)
+    rect(1, 1, 1, 0.30, left, top, left + w, top - 1)
+    rect(1, 1, 1, 0.30, left, top - h + 1, left + w, top - h)
+    rect(1, 1, 1, 0.30, left, top, left + 1, top - h)
+    rect(1, 1, 1, 0.30, left + w - 1, top, left + w, top - h)
+end
 local function buildAimRow(y)
     local row = newRow(y, AIM_ROW_H)
     Options.rows.targetAnchor = row
-    label(row, "Aim at", LABEL_X)
+    label(row, "Landing point", LABEL_X)
+    -- the radio centres: a radio is 20 px, placed at x - 2, -1 - line * AIM_LINE, so its centre is at x + 8, -11 - line
+    local gridX = CTRL_X + AIM_GRID_X
+    aimBar(row, gridX + 8, -11, 2 * AIM_COL, 2 * AIM_LINE)
     local radios = {}
     local function addRadio(value, x, rowIndex, caption, tip)
         local radio = newRadio(row, x, caption)
         if rowIndex then
             -- a grid cell: no caption, so no hit area past the radio itself, and placed on its own line of the row
             radio:ClearAllPoints()
-            radio:SetPoint("TOPLEFT", row, "TOPLEFT", x - 2, -1 - rowIndex * 20)
+            radio:SetPoint("TOPLEFT", row, "TOPLEFT", x - 2, -1 - rowIndex * AIM_LINE)
             pcall(radio.SetHitRectInsets, radio, 0, 0, 0, 0)
         end
         radio:SetScript("OnClick", function()
@@ -416,7 +439,8 @@ local function buildAimRow(y)
     end
     addRadio("fill", CTRL_X, nil, "Auto", AIM_TIP)
     for i, point in ipairs(ns.AIM_POINTS) do
-        addRadio(point, CTRL_X + AIM_GRID_X + ((i - 1) % 3) * 20, math.floor((i - 1) / 3), "", ns.AIM_LABEL[point])
+        addRadio(point, gridX + ((i - 1) % 3) * AIM_COL, math.floor((i - 1) / 3), "",
+            ns.AIM_LABEL[point] .. " of the XP bar frame")
     end
     refreshers[#refreshers + 1] = function()
         local current = settings().targetAnchor
@@ -502,7 +526,7 @@ local function buildArrival(y)
     postRefresh[#postRefresh + 1] = function()
         setDim(Options.rows.glowIntensity, { Options.controls.glowIntensity }, settings().glow ~= false)
     end
-    return choiceRow(ORB_LAYER_DROPDOWN, y + 32)
+    return choiceRow(ORB_LAYER_DROPDOWN, y + 40) -- a group gap above it
 end
 
 local function buildSound(y)
@@ -518,10 +542,13 @@ local function buildSound(y)
     return y + 32
 end
 
--- The Debug log row also holds the Copy status button: both are for bug reports, and the row costs the tab no height.
+-- The Debug log row, then the Copy status button on a row of its own: both are for bug reports.
 local function buildDebug(y)
-    local row = checkbox(y, "debug", "Debug log")
-    local copyStatus = button(row, "Copy status", CTRL_X + 44, 110, function()
+    checkbox(y, "debug", "Debug log")
+    local row = newRow(y + 30, 26)
+    label(row, "Bug report", LABEL_X)
+    Options.rows.copyStatus = row
+    local copyStatus = button(row, "Copy status", CTRL_X, 110, function()
         ns.StatusWindow:Show()
     end)
     copyStatus:SetScript("OnEnter", function(self)
@@ -529,7 +556,7 @@ local function buildDebug(y)
     end)
     copyStatus:SetScript("OnLeave", hideTip)
     Options.controls.copyStatus = copyStatus
-    return y + 28
+    return y + 58
 end
 
 -- The Debug log row closes the General tab after a 12 px gap.

@@ -129,7 +129,113 @@ def test_the_hint_names_ctrl_c(m):
         for f in lua_list(m.stub.frames)
         if f.kind == "FontString" and f.text and "Ctrl+C" in f.text
     ]
-    assert hints == ["Press Ctrl+C to copy, then paste it into your bug report"]
+    assert hints == [
+        "The report is selected: press Ctrl+C to copy it, then paste it into your bug report."
+    ]
+
+
+def test_the_hint_is_the_normal_font_in_grey_under_the_box(m):
+    m.slash("status")
+    hint = next(
+        f
+        for f in lua_list(m.stub.frames)
+        if f.kind == "FontString" and f.text and "Ctrl+C" in f.text
+    )
+    assert [hint.textColor[i] for i in (1, 2, 3)] == [0.7, 0.7, 0.7]
+    assert hint.points[1][1] == "BOTTOMLEFT"
+    # the box leaves room for it: its bottom inset is bigger than the hint's line
+    box = next(
+        f for f in lua_list(m.stub.frames) if f.template == "ScrollingEditBoxTemplate"
+    )
+    bottom_right = box.points[2]
+    assert bottom_right[1] == "BOTTOMRIGHT" and bottom_right[5] >= 38 + 8
+
+
+def test_the_window_is_460_tall_and_the_attic_is_hidden(m):
+    m.slash("status")
+    assert window(m).height == 460
+    assert window(m).atticHidden is True
+
+
+def test_a_scroll_bar_is_registered_with_the_scroll_box(m):
+    m.slash("status")
+    regs = lua_list(m.stub.scrollRegistrations)
+    assert len(regs) == 1
+    host = next(
+        f for f in lua_list(m.stub.frames) if f.template == "ScrollingEditBoxTemplate"
+    )
+    bar = regs[0].bar
+    assert same(m, regs[0].box, host.GetScrollBox(host))
+    assert bar.template == "MinimalScrollBar" and bar.width == 8
+    assert same(m, bar.createdParent, window(m))
+    assert bar.points[1][1] == "TOPRIGHT" and bar.points[2][1] == "BOTTOMRIGHT"
+    # the text box's right edge is pulled in to clear it
+    assert host.points[2][4] == -(8 + 14)
+
+
+def test_no_scroll_util_means_no_bar_and_a_normal_box(m):
+    m.G.ScrollUtil = None
+    m.slash("status")
+    assert window(m).shown
+    assert not any(f.template == "MinimalScrollBar" for f in lua_list(m.stub.frames))
+    host = next(
+        f for f in lua_list(m.stub.frames) if f.template == "ScrollingEditBoxTemplate"
+    )
+    assert host.points[2][4] == -8
+    assert window_text(m)
+
+
+def test_a_missing_scroll_bar_template_just_means_no_bar(m):
+    m.stub.missingTemplates["MinimalScrollBar"] = True
+    m.slash("status")
+    assert window(m).shown and window_text(m)
+    assert len(lua_list(m.stub.scrollRegistrations)) == 0
+    host = next(
+        f for f in lua_list(m.stub.frames) if f.template == "ScrollingEditBoxTemplate"
+    )
+    assert host.points[2][4] == -8
+
+
+def test_a_failing_registration_hides_the_bar_and_keeps_the_window(m):
+    m.stub.scrollRegisterFails = True
+    m.slash("status")
+    assert window(m).shown
+    bar = next(f for f in lua_list(m.stub.frames) if f.template == "MinimalScrollBar")
+    assert not bar.shown
+    host = next(
+        f for f in lua_list(m.stub.frames) if f.template == "ScrollingEditBoxTemplate"
+    )
+    assert host.points[2][4] == -8
+
+
+def test_a_client_without_hide_attic_still_builds(m):
+    m.G.ButtonFrameTemplate_HideAttic = None
+    m.slash("status")
+    assert window(m).shown and not window(m).atticHidden
+
+
+def test_focus_gained_and_a_mouse_up_reselect_everything(m):
+    m.slash("status")
+    box = edit_box(m)
+    box.highlightCount = 0
+    box.scripts.OnEditFocusGained(box)
+    assert box.highlightCount == 1
+    assert (
+        box.highlightRange[1] is None and box.highlightRange[2] is None
+    )  # no range: select all
+    box.scripts.OnMouseUp(box, "LeftButton")
+    assert box.highlightCount == 2
+
+
+def test_the_read_only_restore_reselects_the_report(m):
+    m.slash("status")
+    box = edit_box(m)
+    box.highlightCount = 0
+    box.text = "typed over it"
+    box.scripts.OnTextChanged(box, True)
+    assert window_text(m) != "typed over it" and box.highlightCount == 1
+    box.scripts.OnTextChanged(box, False)  # not the player: no reselect
+    assert box.highlightCount == 1
 
 
 def test_the_title_strip_moves_the_window(m):

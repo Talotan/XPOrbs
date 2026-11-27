@@ -1,7 +1,8 @@
-"""db.targetAnchor ("Aim at"): the fill edge by default, or a corner, edge or the centre of the bar frame; the
+"""db.targetAnchor ("Landing point"): the fill edge by default, or a corner, edge or the centre of the bar frame; the
 Target.lastRect it exposes; the Arrival tab's Auto radio and 3 x 3 grid."""
 
 import pytest
+from conftest import lua_list
 from test_m5 import build, ctl, show
 from test_v013 import run_until_flash
 
@@ -287,12 +288,61 @@ def test_the_grid_is_laid_out_like_the_points_it_names(m):
     for i, point in enumerate(POINTS):
         assert cells[point] == (xs[i % 3], ys[i // 3])
     assert xs[0] > auto.points[1][4]  # the grid sits to the right of Auto
-    assert xs[1] - xs[0] == xs[2] - xs[1] == 20
+    assert xs[1] - xs[0] == xs[2] - xs[1] == 50  # columns span a 100 px wide little bar
     assert ys[0] - ys[1] == ys[1] - ys[2] == 20
 
 
-def test_each_radio_has_a_tooltip_naming_it(m):
+def test_the_grid_sits_on_a_little_bar_through_the_radio_centres(m):
     show(m)
+    row = m.opt.rows["targetAnchor"]
+    # a radio is 20 px and its point is its top left corner: the centre is 10 px in and 10 px down
+    first = ctl(m, "targetAnchor_TOPLEFT").points[1]
+    last = ctl(m, "targetAnchor_BOTTOMRIGHT").points[1]
+    left, top = first[4] + 10, first[5] - 10
+    right, bottom = last[4] + 10, last[5] - 10
+    assert (right - left, top - bottom) == (100, 40)
+    textures = [
+        f
+        for f in lua_list(m.stub.frames)
+        if f.kind == "Texture" and f.parentFrame and same(m, f.parentFrame, row)
+    ]
+    assert len(textures) == 5  # the fill and the four outline edges
+    assert all(
+        t.layer == "BACKGROUND" for t in textures
+    )  # behind the radios, which are child frames
+    fill = [t for t in textures if t.calls.SetColorTexture[4] == pytest.approx(0.55)]
+    edges = [t for t in textures if t.calls.SetColorTexture[4] == pytest.approx(0.30)]
+    assert len(fill) == 1 and len(edges) == 4
+    colour = fill[0].calls.SetColorTexture
+    assert (colour[1], colour[2], colour[3]) == pytest.approx(
+        (0.447, 0.196, 0.518)
+    )  # #723284
+    assert all(
+        [t.calls.SetColorTexture[i] for i in (1, 2, 3)] == [1, 1, 1] for t in edges
+    )
+    a, b = (
+        fill[0].points[1],
+        fill[0].points[2],
+    )  # TOPLEFT and BOTTOMRIGHT, relative to the row's top left
+    assert (a[4], a[5]) == (left, top)
+    assert (b[4], b[5]) == pytest.approx((left + 58, bottom))  # the left 58% filled
+    corners = {
+        (t.points[1][4], t.points[1][5], t.points[2][4], t.points[2][5]) for t in edges
+    }
+    assert corners == {
+        (left, top, right, top - 1),
+        (left, bottom + 1, right, bottom),
+        (left, top, left + 1, bottom),
+        (right - 1, top, right, bottom),
+    }
+
+
+def test_the_row_label_and_tooltips(m):
+    show(m)
+    labels = [
+        f.text for f in lua_list(m.stub.frames) if f.kind == "FontString" and f.text
+    ]
+    assert "Landing point" in labels and "Aim at" not in labels
     names = {
         "TOPLEFT": "Top left corner",
         "TOP": "Top edge",
@@ -307,12 +357,12 @@ def test_each_radio_has_a_tooltip_naming_it(m):
     for point, name in names.items():
         radio = ctl(m, "targetAnchor_" + point)
         m.stub.hover(radio)
-        assert str(m.stub.tooltip.text) == name
+        assert str(m.stub.tooltip.text) == name + " of the XP bar frame"
         m.stub.unhover(radio)
     m.stub.hover(ctl(m, "targetAnchor_fill"))
     assert (
         str(m.stub.tooltip.text)
-        == "The XP fill edge on a bar, the centre of a round frame."
+        == "Auto: the XP fill edge on a bar, the centre of a round frame."
     )
 
 

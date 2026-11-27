@@ -31,8 +31,9 @@ end
 function fm:GetHeight()
     return self.height
 end
-function fm:CreateTexture()
+function fm:CreateTexture(_, layer)
     local t = CreateFrame("Texture")
+    t.layer = layer -- the draw layer it was made on
     t.parentFrame = self
     return t
 end

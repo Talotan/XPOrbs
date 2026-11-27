@@ -94,6 +94,8 @@ read_globals = {
     "UISpecialFrames",
     "ButtonFrameTemplate_HidePortrait",
     "ButtonFrameTemplate_HideButtonBar",
+    "ButtonFrameTemplate_HideAttic",
+    "ScrollUtil",
     -- dev/Bench.lua only (the in-game benchmark, never packaged)
     "C_AddOnProfiler",
     "Enum",

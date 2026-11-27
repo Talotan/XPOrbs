@@ -133,7 +133,7 @@ def test_the_dropdown_lists_the_seven_layers_with_the_default_marked(m):
         "High",
         "Dialog",
         "Fullscreen",
-        "Fullscreen Dialog (default)",
+        "Fullscreen dialog (default)",
     ]
     assert [bool(e["selected"]) for e in entries] == [False] * 6 + [True]
 

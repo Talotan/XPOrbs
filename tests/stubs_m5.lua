@@ -191,6 +191,21 @@ end
 function ButtonFrameTemplate_HideButtonBar(f)
     f.buttonBarHidden = true
 end
+function ButtonFrameTemplate_HideAttic(f)
+    f.atticHidden = true
+end
+-- ScrollUtil: RegisterScrollBoxWithScrollBar records the pair (stub.scrollRegistrations); stub.scrollRegisterFails
+-- makes it raise. Setting the global ScrollUtil to nil gives the client without it.
+stub.scrollRegistrations = {}
+stub.scrollRegisterFails = false
+ScrollUtil = {
+    RegisterScrollBoxWithScrollBar = function(box, bar)
+        if stub.scrollRegisterFails then
+            error("bad scroll box")
+        end
+        stub.scrollRegistrations[#stub.scrollRegistrations + 1] = { box = box, bar = bar }
+    end,
+}
 UISpecialFrames = {}
 
 -- Blizzard's ScrollingEditBoxTemplate: a host with GetEditBox (a real EditBox stub that records HighlightText's range),
@@ -201,7 +216,12 @@ function stub.buildScrollingEditBox(f)
     eb.parentFrame = f
     function eb:HighlightText(from, to)
         self.highlighted = true
+        self.highlightCount = (self.highlightCount or 0) + 1
         self.highlightRange = { from, to }
+    end
+    f.scrollBox = baseCreate("Frame")
+    function f:GetScrollBox()
+        return self.scrollBox
     end
     function f:GetEditBox()
         return eb

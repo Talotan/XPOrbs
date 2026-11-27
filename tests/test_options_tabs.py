@@ -109,7 +109,7 @@ def test_heights_and_content_h(m):
     assert o.CONTENT_H == max(h.values())
     for n in NAMES:
         assert o.tabChildren[n].height == h[n] and o.tabChildren[n].width == 584
-    assert h["General"] == 204 and h["Sound"] == 112 and h["Look"] == 422 and h["Flight"] == 446 and o.CONTENT_H == h["Flight"]
+    assert h["General"] == 234 and h["Sound"] == 112 and h["Look"] == 422 and h["Flight"] == 446 and o.CONTENT_H == h["Flight"]
 
 
 def test_refresh_updates_a_control_on_a_hidden_tab(m):

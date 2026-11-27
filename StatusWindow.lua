@@ -9,14 +9,15 @@ local StatusWindow = {}
 ns.StatusWindow = StatusWindow
 
 local FRAME_NAME = "XPOrbsStatusFrame" -- named so UISpecialFrames can close it with Esc
-local WIDTH, HEIGHT = 560, 420
+local WIDTH, HEIGHT = 560, 460
 local PAD = 8 -- inside the inset, around the text box
-local HINT_H = 22 -- the hint line under the text box
+local HINT_H = 38 -- the hint under the text box: room for two lines of the normal-size font
+local BAR_W, BAR_GAP = 8, 14 -- the scroll bar's width, and how far it pushes the text box's right edge in
 local TITLE_H = 24 -- the strip you drag the window by
 local CLOSE_W = 26 -- the close button's corner, left clear of the drag strip
-local GREY = 0.6
+local GREY = 0.7
 local TITLE = "XP Orbs status"
-local HINT = "Press Ctrl+C to copy, then paste it into your bug report"
+local HINT = "The report is selected: press Ctrl+C to copy it, then paste it into your bug report."
 
 local frame, box
 local buildFailed = false
@@ -56,6 +57,9 @@ local function build()
     if ButtonFrameTemplate_HideButtonBar then
         pcall(ButtonFrameTemplate_HideButtonBar, f)
     end
+    if ButtonFrameTemplate_HideAttic then
+        pcall(ButtonFrameTemplate_HideAttic, f) -- moves the inset up under the title
+    end
     if f.SetTitle then
         pcall(f.SetTitle, f, TITLE)
     elseif f.TitleText then
@@ -78,18 +82,43 @@ local function build()
 
     -- the text fills the inset (the frame itself when a template lacks one), with the hint under it
     local inset = f.Inset or f
+    local rightGap = PAD
+    -- a scroll bar inside the inset's right edge, when this client has the pieces; without them the wheel still scrolls
+    if ScrollUtil and ScrollUtil.RegisterScrollBoxWithScrollBar and scroll.GetScrollBox then
+        local madeBar, scrollBar = pcall(CreateFrame, "EventFrame", nil, f, "MinimalScrollBar")
+        if madeBar and scrollBar then
+            scrollBar:SetPoint("TOPRIGHT", inset, "TOPRIGHT", -PAD / 2, -PAD)
+            scrollBar:SetPoint("BOTTOMRIGHT", inset, "BOTTOMRIGHT", -PAD / 2, PAD + HINT_H)
+            pcall(scrollBar.SetWidth, scrollBar, BAR_W)
+            if pcall(ScrollUtil.RegisterScrollBoxWithScrollBar, scroll:GetScrollBox(), scrollBar) then
+                rightGap = PAD + BAR_GAP
+            else
+                pcall(scrollBar.Hide, scrollBar)
+            end
+        end
+    end
     scroll:SetPoint("TOPLEFT", inset, "TOPLEFT", PAD, -PAD)
-    scroll:SetPoint("BOTTOMRIGHT", inset, "BOTTOMRIGHT", -PAD, PAD + HINT_H)
-    local hint = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    scroll:SetPoint("BOTTOMRIGHT", inset, "BOTTOMRIGHT", -rightGap, PAD + HINT_H)
+    local hint = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     hint:SetPoint("BOTTOMLEFT", inset, "BOTTOMLEFT", PAD + 2, PAD)
+    hint:SetWidth(WIDTH - 4 * PAD - 8)
+    hint:SetJustifyH("LEFT")
+    hint:SetWordWrap(true)
     hint:SetTextColor(GREY, GREY, GREY)
     hint:SetText(HINT)
 
-    -- read-only: whatever the player types or pastes is put straight back
+    -- read-only: whatever the player types or pastes is put straight back, and the report stays selected for copying
     editBox:HookScript("OnTextChanged", function(_, userInput)
         if userInput then
             scroll:SetText(currentText)
+            editBox:HighlightText()
         end
+    end)
+    editBox:HookScript("OnEditFocusGained", function()
+        editBox:HighlightText()
+    end)
+    editBox:HookScript("OnMouseUp", function()
+        editBox:HighlightText()
     end)
 
     registerSpecialFrame()

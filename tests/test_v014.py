@@ -406,7 +406,7 @@ def test_picker_hint_fontstring(m):
 
 
 def test_content_height_grew_and_rows_below_moved(m):
-    assert m.opt.tabHeights.General == 204 and m.opt.rows["debug"].points[1][5] == -160
+    assert m.opt.tabHeights.General == 234 and m.opt.rows["debug"].points[1][5] == -160
     assert m.opt.CONTENT_H == max(m.opt.tabHeights.values()) == 446
     # the picker hint (one line) clears the shape row
     assert 78 + 30 <= 108
@@ -473,6 +473,6 @@ def test_section_is_named_arrival(m):
 
 
 def test_content_height_equals_the_cursor_result(m):
-    last = m.opt.rows["debug"]
-    assert m.opt.tabHeights.General == -last.points[1][5] + last.height + 16
+    last = m.opt.rows["copyStatus"]  # the Bug report row closes the General tab
+    assert m.opt.tabHeights.General == -last.points[1][5] + 28 + 16
     assert m.opt.CONTENT_H == max(m.opt.tabHeights.values())
