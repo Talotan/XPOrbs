@@ -358,14 +358,14 @@ def test_status_shows_the_active_shapes_look(env):
     m = build(env)
     m.slash("shape retro")
     m.stub.chat = m.lua.table() if False else m.stub.chat
-    m.slash("status")
+    m.slash("status chat")
     assert any(
         line.endswith("orb shape: Retro (size 2 px, quantity 100%, opacity 100%)")
         for line in m.say()
     )  # pulsing is Bubble's own, so it is not mentioned for Retro
     m.slash("shape bubble")
     m.slash("pulse off")
-    m.slash("status")
+    m.slash("status chat")
     assert any(
         "orb shape: Bubble (size 14, quantity 100%, opacity 100%), pulsing off" in line
         for line in m.say()
@@ -378,14 +378,14 @@ def filter_lines(g):
 
 def test_status_has_no_filter_line_until_retro_matters(env):
     g = make(env)
-    g.slash("status")
+    g.slash("status chat")
     assert filter_lines(g) == []
 
 
 def test_status_says_the_filter_is_not_tried_yet_on_retro(env):
     g = make(env)
     g.ns.SetOrbShape("retro")
-    g.slash("status")
+    g.slash("status chat")
     assert filter_lines(g)[-1].endswith("retro pixel filter: not tried yet")
 
 
@@ -393,7 +393,7 @@ def test_status_reports_nearest_after_a_retro_orb_was_drawn(env):
     g = make(env)
     go(g, "retro", n=2, trail=False, advance=0.1)
     set_shape(g, "starlight")  # the line stays once a retro orb has been drawn
-    g.slash("status")
+    g.slash("status chat")
     assert filter_lines(g)[-1].endswith("retro pixel filter: nearest")
 
 
@@ -410,7 +410,7 @@ def test_status_reports_the_smoothed_fallback(env):
         """
     )
     go(g, "retro", n=2, trail=False, advance=0.1)
-    g.slash("status")
+    g.slash("status chat")
     assert filter_lines(g)[-1].endswith(
         "retro pixel filter: smoothed (nearest unavailable)"
     )

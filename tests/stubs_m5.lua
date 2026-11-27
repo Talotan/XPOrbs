@@ -177,7 +177,57 @@ function stub.buildStepperDropdown(f)
         f.Dropdown:Decrement()
     end
 end
+-- Blizzard's ButtonFrameTemplate: the Inset child, SetTitle, and the two global helpers that hide the portrait and the
+-- button bar (recorded on the frame).
+function stub.buildButtonFrame(f)
+    f.Inset = baseCreate("Frame")
+    function f:SetTitle(title)
+        self.title = title
+    end
+end
+function ButtonFrameTemplate_HidePortrait(f)
+    f.portraitHidden = true
+end
+function ButtonFrameTemplate_HideButtonBar(f)
+    f.buttonBarHidden = true
+end
+UISpecialFrames = {}
+
+-- Blizzard's ScrollingEditBoxTemplate: a host with GetEditBox (a real EditBox stub that records HighlightText's range),
+-- SetText (fires the edit box's OnTextChanged with userInput false, as the client does) and SetFocus. A player typing
+-- is `eb.scripts.OnTextChanged(eb, true)` after changing eb.text.
+function stub.buildScrollingEditBox(f)
+    local eb = baseCreate("EditBox")
+    eb.parentFrame = f
+    function eb:HighlightText(from, to)
+        self.highlighted = true
+        self.highlightRange = { from, to }
+    end
+    function f:GetEditBox()
+        return eb
+    end
+    function f:SetText(text)
+        eb.text = text
+        local fn = eb.scripts.OnTextChanged
+        if fn then
+            fn(eb, false)
+        end
+    end
+    function f:SetFocus()
+        eb:SetFocus()
+    end
+end
+
+-- A client missing a template: CreateFrame raises for every name in stub.missingTemplates, like the real one does.
+stub.missingTemplates = {}
+function GetBuildInfo()
+    return "1.16.1", "12345", "Nov 27 2026", 16001
+end
+
 function CreateFrame(kind, name, parent, template)
+    if template and stub.missingTemplates[template] then
+        error("CreateFrame: Couldn't find inherited node \"" .. template .. "\"")
+    end
     local f = baseCreate(kind, name, parent)
     f.name, f.template = name, template
     if parent ~= nil then
@@ -190,6 +240,10 @@ function CreateFrame(kind, name, parent, template)
         stub.buildStepperSlider(f)
     elseif template == "XPOrbsDropdownWithSteppersTemplate" then
         stub.buildStepperDropdown(f)
+    elseif template == "ButtonFrameTemplate" then
+        stub.buildButtonFrame(f)
+    elseif template == "ScrollingEditBoxTemplate" then
+        stub.buildScrollingEditBox(f)
     elseif template == "TooltipBackdropTemplate" then
         -- the border art; SetBackdropColor / SetBackdropBorderColor are recorders below
         f.NineSlice = baseCreate("Frame")

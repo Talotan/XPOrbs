@@ -91,6 +91,9 @@ read_globals = {
     "C_Timer",
     "IsMouseButtonDown",
     "EnumerateFrames",
+    "UISpecialFrames",
+    "ButtonFrameTemplate_HidePortrait",
+    "ButtonFrameTemplate_HideButtonBar",
     -- dev/Bench.lua only (the in-game benchmark, never packaged)
     "C_AddOnProfiler",
     "Enum",

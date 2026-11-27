@@ -327,7 +327,7 @@ def test_style_and_pop_commands_persist_and_toggle(env):
 
 def test_status_shows_pop_and_no_anchor_line(env):
     g = make(env)
-    g.slash("status")
+    g.slash("status chat")
     lines = chat_lines(g)
     assert any(
         "orbs: driver=" in ln and "style=popstream" in ln and "pops=0" in ln

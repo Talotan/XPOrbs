@@ -179,7 +179,7 @@ def test_reset_restores_wide(env):
 def test_status_has_its_own_line_and_the_orbs_line_is_unchanged(env):
     g = make(env)
     g.slash("unknown off")
-    g.slash("status")
+    g.slash("status chat")
     lines = chat_lines(g)
     assert any(line.endswith("unknown origin: off") for line in lines)
     assert any("orbs: driver=" in line and "unknown" not in line for line in lines)

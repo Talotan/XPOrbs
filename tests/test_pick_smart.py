@@ -74,7 +74,7 @@ def test_the_options_row_and_status_show_the_label_not_the_token(m5):
     click(m5)
     texts = panel_texts(m5)
     assert "DaylightUI (picked)" in texts and not any("@daylight" in t for t in texts)
-    m5.slash("status")
+    m5.slash("status chat")
     assert any("picked DaylightUI" in line for line in m5.say()) and not any(
         "@" in line for line in m5.say()
     )

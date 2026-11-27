@@ -177,7 +177,7 @@ def test_command_rested_split_and_origin(m2):
 def test_pick_prompt_and_status(m2):
     m2.slash("pick")
     assert "Click the XP bar" in m2.stub.chat[len(m2.stub.chat)]
-    m2.slash("status")
+    m2.slash("status chat")
     lines = [m2.stub.chat[i] for i in range(1, len(m2.stub.chat) + 1)]
     orbs_line = [ln for ln in lines if "orbs: driver=idle" in ln]
     assert orbs_line and "MainStatusTrackingBarContainer" in orbs_line[0] and "fallback=no" in orbs_line[0]
@@ -185,7 +185,7 @@ def test_pick_prompt_and_status(m2):
 
 def test_status_before_any_burst_and_fallback(m2):
     m2.G.MainStatusTrackingBarContainer.shown = False
-    m2.slash("status")
+    m2.slash("status chat")
     lines = [m2.stub.chat[i] for i in range(1, len(m2.stub.chat) + 1)]
     assert any("fallback=yes" in ln and "dest=nil" in ln for ln in lines)
 

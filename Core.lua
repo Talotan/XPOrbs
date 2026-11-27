@@ -627,7 +627,8 @@ function commands.help()
     say("/xporbs debug on|off - toggle debug logging")
     say("/xporbs debug maxlevel on|off - pretend to be at max level (this session only)")
     say("/xporbs sound on|off|glass|coin|swish|pixel - chime when orbs arrive (the name picks the sound)")
-    say("/xporbs status - show addon state")
+    say("/xporbs status - open the addon state in a window to copy into a bug report")
+    say("/xporbs status chat - print the addon state in chat instead")
     say("/xporbs test [pct] [rested] [style] [smooth|chaos|helix] - fire a test burst on your target")
     say("/xporbs test stress [n] - fire n test bursts over about 2 seconds (default 20, max 100)")
     say("/xporbs perf [reset] - addon memory, driver frame time and pool usage")
@@ -683,8 +684,115 @@ function commands.debug(arg)
     end
 end
 
-function commands.status()
+-- The settings that differ from the defaults, one "dotted.path = value" line each, for the status report. Only what the
+-- player changed, so the report stays short. Nothing in the database names the player. Left out: the log, the debug
+-- flag (already in the first status line), the picker's remembered hues (noise) and the picked frame (its own status
+-- line shows it by name; the saved token is internal).
+do
+    local SKIP = { log = true, version = true, debug = true, bench = true, colorHS = true, targetFrame = true }
+    local SKIP_PATH = { ["minimap.minimapPos"] = true } -- LibDBIcon's own angle
+
+    local function round3(n)
+        return math.floor(n * 1000 + 0.5) / 1000
+    end
+
+    -- the item count when t is a plain array (an empty table counts as one), nil when it has any other key
+    local function arrayLen(t)
+        local n = 0
+        for _ in pairs(t) do
+            n = n + 1
+        end
+        return n == #t and n or nil
+    end
+
+    local function sameValue(a, b)
+        if type(a) ~= "table" or type(b) ~= "table" then
+            return a == b
+        end
+        for k, v in pairs(a) do
+            if not sameValue(v, b[k]) then
+                return false
+            end
+        end
+        for k in pairs(b) do
+            if a[k] == nil then
+                return false
+            end
+        end
+        return true
+    end
+
+    local function show(v)
+        local kind = type(v)
+        if kind == "number" then
+            return tostring(round3(v))
+        elseif kind == "string" then
+            return '"' .. string.sub(v, 1, 60) .. '"'
+        elseif kind == "table" then
+            local n = arrayLen(v)
+            local numbers = n ~= nil
+            for i = 1, n or 0 do
+                numbers = numbers and type(v[i]) == "number"
+            end
+            if numbers and n == 3 and math.min(v[1], v[2], v[3]) >= 0 and math.max(v[1], v[2], v[3]) <= 1 then
+                -- a colour
+                return string.format("#%02x%02x%02x", math.floor(v[1] * 255 + 0.5), math.floor(v[2] * 255 + 0.5),
+                    math.floor(v[3] * 255 + 0.5))
+            elseif numbers and n <= 4 then
+                local parts = {}
+                for i = 1, n do
+                    parts[i] = tostring(round3(v[i]))
+                end
+                return table.concat(parts, ", ")
+            elseif n then
+                return n .. " entries" -- a long list such as the calibration points: the count is enough
+            end
+            return "(table)"
+        end
+        return tostring(v)
+    end
+
+    local function walk(prefix, saved, default, out)
+        local keys, seen = {}, {}
+        for _, t in ipairs({ saved, default or {} }) do
+            for k in pairs(t) do
+                if not seen[k] then
+                    seen[k] = true
+                    keys[#keys + 1] = k
+                end
+            end
+        end
+        table.sort(keys, function(a, b)
+            return tostring(a) < tostring(b)
+        end)
+        for _, k in ipairs(keys) do
+            local path = prefix .. tostring(k)
+            if not (prefix == "" and SKIP[k]) and not SKIP_PATH[path] then
+                local value, base = saved[k], default and default[k]
+                if type(value) == "table" and type(base) == "table" and not (arrayLen(value) and arrayLen(base)) then
+                    walk(path .. ".", value, base, out)
+                elseif not sameValue(value, base) then
+                    out[#out + 1] = "  " .. path .. " = " .. show(value)
+                end
+            end
+        end
+    end
+
+    function ns.ChangedSettings(db)
+        local out = {}
+        walk("", db, ns.defaults, out)
+        return out
+    end
+end
+
+-- Everything /xporbs status reports, as a list of lines (the window shows them, `status chat` prints them). Players
+-- paste this into public bug reports, so it must never carry the character name, realm or GUID.
+function ns.StatusLines()
+    if not ns.db then
+        ns:InitDB()
+    end
     local db = ns.db
+    local lines = {}
     local version = "?"
     if C_AddOns and C_AddOns.GetAddOnMetadata then
         local ok, versionText = pcall(C_AddOns.GetAddOnMetadata, ADDON, "Version")
@@ -692,17 +800,47 @@ function commands.status()
             version = versionText
         end
     end
-    say("XPOrbs " .. version .. " (db schema " .. tostring(db.version) .. "), enabled=" .. tostring(db.enabled)
-        .. ", debug=" .. tostring(db.debug))
-    local logCount = type(ns.db.log) == "table" and #ns.db.log or 0
-    say("log entries: " .. logCount)
+    lines[#lines + 1] = "XPOrbs " .. version .. " (db schema " .. tostring(db.version) .. "), enabled="
+        .. tostring(db.enabled) .. ", debug=" .. tostring(db.debug)
+    lines[#lines + 1] = "log entries: " .. (type(db.log) == "table" and #db.log or 0)
     for _, provider in ipairs(ns.statusProviders) do
         local ok, line = pcall(provider)
         if ok and line then
-            say(line)
+            lines[#lines + 1] = line
         elseif not ok then
-            say("status error: " .. tostring(line))
+            lines[#lines + 1] = "status error: " .. tostring(line)
         end
+    end
+    local client = "client: unknown"
+    if GetBuildInfo then
+        local ok, gameVersion, build, _, interface = pcall(GetBuildInfo)
+        if ok and gameVersion then
+            client = "client: " .. tostring(gameVersion) .. " (build " .. tostring(build or "?") .. "), interface "
+                .. tostring(interface or "?")
+        end
+    end
+    lines[#lines + 1] = client
+    local changed = ns.ChangedSettings(db)
+    if #changed == 0 then
+        lines[#lines + 1] = "settings changed from default: none"
+    else
+        lines[#lines + 1] = "settings changed from default:"
+        for _, line in ipairs(changed) do
+            lines[#lines + 1] = line
+        end
+    end
+    return lines
+end
+
+-- /xporbs status opens the copyable window (StatusWindow.lua); `status chat` prints the same lines in chat, and so does
+-- a client that can't build the window.
+function commands.status(arg)
+    if arg ~= "chat" and ns.StatusWindow then
+        ns.StatusWindow:Show()
+        return
+    end
+    for _, line in ipairs(ns.StatusLines()) do
+        say(line)
     end
 end
 

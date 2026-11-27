@@ -176,7 +176,7 @@ def test_slash_minimap_reports_state_and_help(m):
     assert "usage: /xporbs minimap on|off" in m.say()[-1]
     m.slash("help")
     assert any("/xporbs minimap on|off" in line for line in m.say())
-    m.slash("status")
+    m.slash("status chat")
     assert any(line.endswith("minimap button: hidden") for line in m.say())
 
 
@@ -247,7 +247,7 @@ def test_libs_missing_addon_still_works(env, kw):
     m = make(env, **kw)
     assert len(m.p2a.registers) == 0
     assert m.ns.Minimap.err is not None
-    m.slash("status")
+    m.slash("status chat")
     assert any("minimap button: unavailable (" in line for line in m.say())
     # the slash command and the options checkbox still save the choice
     m.slash("minimap off")

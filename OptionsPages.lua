@@ -50,6 +50,7 @@ local FLIGHT_PATH_DESC = {
     chaos = "Orbs dart and weave like fireflies on the way.",
     helix = "Orbs spiral around each other in pairs.",
 }
+local STATUS_TIP = "Opens your addon status in a window to copy into a bug report"
 local MAX_TIP = "At max level, each kill sends a small burst of orbs to your portrait."
 local SOUND_TIP = "Glass: a glassy tink. Coin: a soft coin clink. Swish: a soft brushed whoosh. "
     .. "Pixel: a retro chip-tune ding. "
@@ -440,8 +441,17 @@ local function buildSound(y)
     return y + 32
 end
 
+-- The Debug log row also holds the Copy status button: both are for bug reports, and the row costs the tab no height.
 local function buildDebug(y)
-    checkbox(y, "debug", "Debug log")
+    local row = checkbox(y, "debug", "Debug log")
+    local copyStatus = button(row, "Copy status", CTRL_X + 44, 110, function()
+        ns.StatusWindow:Show()
+    end)
+    copyStatus:SetScript("OnEnter", function(self)
+        showTip(self, STATUS_TIP)
+    end)
+    copyStatus:SetScript("OnLeave", hideTip)
+    Options.controls.copyStatus = copyStatus
     return y + 28
 end
 

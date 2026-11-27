@@ -217,7 +217,7 @@ def test_status_names_the_style_and_wide(env):
     g = make(env)
     g.slash("style popstream direct")
     g.slash("wide off")
-    g.slash("status")
+    g.slash("status chat")
     lines = chat_lines(g)
     assert any(line.endswith("kill style: Popstream (Direct), zoom-scaled spread: off") for line in lines)
     assert any(line.endswith("unknown origin: off") for line in lines)  # make() pins "off"

@@ -246,7 +246,7 @@ def test_unreadable_zoom_falls_back(env, how):
     burst(g, plate=plate, n=5, x=300, y=300, kind="kill")
     (G,) = pop_frames(g)
     assert anchor_of(G) == ("CENTER", "CENTER", 0, -20)
-    g.slash("status")  # must not raise either
+    g.slash("status chat")  # must not raise either
     status = [str(g.stub.chat[i]) for i in range(1, len(g.stub.chat) + 1) if "anchor: zoom=" in str(g.stub.chat[i])]
     assert status and "offset=n/a" in status[-1]
 
@@ -277,7 +277,7 @@ def test_zoomanchor_command_persists_and_reports(env):
 def test_status_line(env):
     g = make(env)
     set_points(g, [(5, 50)])
-    g.slash("status")
+    g.slash("status chat")
     lines = [str(g.stub.chat[i]) for i in range(1, len(g.stub.chat) + 1)]
     assert any(
         "anchor: zoom=off a=10.0 b=500.0 zMin=2.0 camera=15.0 offset=43.3 points=1" in ln

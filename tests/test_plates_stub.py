@@ -364,7 +364,7 @@ def test_unit_died_registration_failure_is_survived(env):
 def test_status_lines(env):
     g = Game(env)
     g.plate(guid="G1", cx=1, cy=1)
-    env.G.SlashCmdList.XPORBS("status")
+    env.G.SlashCmdList.XPORBS("status chat")
     chat = [str(g.stub.chat[i]) for i in range(1, len(g.stub.chat) + 1)]
     assert any("plates: tracked=1 held=0 retry=idle" in m for m in chat)
     assert any("kills: tier1=0" in m and "UNIT_DIED=yes" in m for m in chat)

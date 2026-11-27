@@ -152,7 +152,7 @@ def test_options_without_settings_api_prints_a_fallback(env):
     assert m5.opt.category is None
     m5.slash("options")
     assert "isn't available" in m5.say()[-1]
-    m5.slash("status")
+    m5.slash("status chat")
     assert any("options panel: unavailable" in line for line in m5.say())
 
 
@@ -580,7 +580,7 @@ def test_picked_frame_is_used_and_a_hidden_one_falls_back(m5):
     tg = m5.ns.Target
     _, _, ok = tg.GetDestination(tg)
     assert ok and tg.lastName == "MyBar"
-    m5.slash("status")
+    m5.slash("status chat")
     assert any("xp bar frame: picked MyBar, using MyBar" in line for line in m5.say())
     bar.shown = False
     _, _, ok = tg.GetDestination(tg)
@@ -612,7 +612,7 @@ def test_pick_refreshes_an_open_panel(m5):
 
 
 def test_status_shows_auto_without_a_pick(m5):
-    m5.slash("status")
+    m5.slash("status chat")
     assert any(
         "xp bar frame: auto, using MainStatusTrackingBarContainer" in line
         for line in m5.say()

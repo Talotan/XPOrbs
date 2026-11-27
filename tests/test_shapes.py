@@ -125,7 +125,7 @@ def test_help_and_status_mention_the_shape(env):
         for line in m.say()
     )
     m.db.orbShape = "bubble"
-    m.slash("status")
+    m.slash("status chat")
     assert any("orb shape: Bubble" in line for line in m.say())
 
 

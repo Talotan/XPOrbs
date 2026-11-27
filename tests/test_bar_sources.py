@@ -247,6 +247,6 @@ def test_status_and_options_name_the_addon(m5):
     daylight(
         m5, m5.stub.makeFreeBar(100, 700, 400, 12, True, 0, 1000, 750, "HORIZONTAL")
     )
-    m5.slash("status")
+    m5.slash("status chat")
     assert any("xp bar frame: auto, using DaylightUI" in line for line in m5.say())
     assert m5.ns.Options.panel is not None

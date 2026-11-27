@@ -41,6 +41,7 @@ ColourPicker.lua
 OptionsLook.lua
 OptionsPages.lua
 Options.lua
+StatusWindow.lua
 ShapePreview.lua
 Preview.lua
 Setup.lua

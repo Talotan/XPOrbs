@@ -358,7 +358,7 @@ def test_stats_log_line_and_status_drop_tier3(env):
     g.tick(0.1)
     assert g.has_log("STATS tier1=1 tier2=0 tier4=0 dropped=0 other=0 secret=0")
     assert not g.has_log("tier3")
-    g.env.G.SlashCmdList.XPORBS("status")
+    g.env.G.SlashCmdList.XPORBS("status chat")
     said = " ".join(str(g.stub.chat[i]) for i in range(1, len(g.stub.chat) + 1))
     assert "kills: tier1=1 tier2=0 tier4=0" in said and "tier3" not in said
 
@@ -623,7 +623,7 @@ def test_log_ring_is_chronological_and_bounded(env):
     assert nums == list(
         range(1000 - len(log), 1000)
     )  # contiguous, oldest first, newest last
-    env.G.SlashCmdList.XPORBS("status")  # reads #log
+    env.G.SlashCmdList.XPORBS("status chat")  # reads #log
     assert any("log entries: " in str(v) for v in env.ns.stub.chat.values())
 
 
