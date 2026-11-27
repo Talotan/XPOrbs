@@ -324,7 +324,7 @@ def test_scroll_frame_without_any_template_still_scrolls(env):
         ("zoomSpread", 380),
         ("targetFrame", 8),
         ("glowShape", 108),
-        ("glow", 208),
+        ("glow", 276),  # the Aim at row (68 px) sits above the offsets
         ("debug", 160),
     ],
 )

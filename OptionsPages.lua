@@ -385,6 +385,51 @@ local function buildFlight(y)
     return boxY + KILL_PAD + KILL_ROWS_H + BOX_BOTTOM_PAD
 end
 
+-- "Aim at" (db.targetAnchor): an Auto radio (the fill edge on a bar, the centre of a round frame) and, right of it, a
+-- 3 x 3 grid of small radios laid out like the points they name (corners, edges, centre). One reset for the row. It
+-- stays live whatever the other settings say: the portrait that max-level bursts aim at is automatic, not a setting.
+local AIM_ROW_H = 62 -- three grid rows of 20 px, with a pixel or so of air
+local AIM_GRID_X = 90 -- px right of CTRL_X: past the "Auto" radio and its caption
+local AIM_TIP = "The XP fill edge on a bar, the centre of a round frame."
+local function buildAimRow(y)
+    local row = newRow(y, AIM_ROW_H)
+    Options.rows.targetAnchor = row
+    label(row, "Aim at", LABEL_X)
+    local radios = {}
+    local function addRadio(value, x, rowIndex, caption, tip)
+        local radio = newRadio(row, x, caption)
+        if rowIndex then
+            -- a grid cell: no caption, so no hit area past the radio itself, and placed on its own line of the row
+            radio:ClearAllPoints()
+            radio:SetPoint("TOPLEFT", row, "TOPLEFT", x - 2, -1 - rowIndex * 20)
+            pcall(radio.SetHitRectInsets, radio, 0, 0, 0, 0)
+        end
+        radio:SetScript("OnClick", function()
+            radioClick("targetAnchor", value)
+        end)
+        radio:SetScript("OnEnter", function(self)
+            showTip(self, tip)
+        end)
+        radio:SetScript("OnLeave", hideTip)
+        radios[value] = radio
+        Options.controls["targetAnchor_" .. value] = radio
+    end
+    addRadio("fill", CTRL_X, nil, "Auto", AIM_TIP)
+    for i, point in ipairs(ns.AIM_POINTS) do
+        addRadio(point, CTRL_X + AIM_GRID_X + ((i - 1) % 3) * 20, math.floor((i - 1) / 3), "", ns.AIM_LABEL[point])
+    end
+    refreshers[#refreshers + 1] = function()
+        local current = settings().targetAnchor
+        for value, radio in pairs(radios) do
+            radio:SetChecked(current == value)
+        end
+    end
+    addReset(row, "targetAnchor", { "targetAnchor" }, function()
+        return "Auto"
+    end)
+    return y + AIM_ROW_H + 6
+end
+
 -- Arrival: where the orbs land. The XP bar row (what was found, plus the picker) comes first, then the target frame's
 -- shape and offsets and the glow. The shape and offsets stay live with Show glow off; only the intensity dims.
 local function buildArrival(y)
@@ -439,7 +484,7 @@ local function buildArrival(y)
     addReset(shapeRow, "glowShape", { "glowShape" }, function()
         return SHAPE_NAME[ns.defaults.glowShape] or tostring(ns.defaults.glowShape)
     end)
-    y = y + 32
+    y = buildAimRow(y + 32)
     slider(y, "glowOffsetX", "Target offset X", "%d px", " px")
     y = y + 32
     slider(y, "glowOffsetY", "Target offset Y", "%d px", " px")

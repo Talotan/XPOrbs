@@ -23,6 +23,7 @@ def y_of(m, key):
 def test_arrival_rows_are_in_the_requested_order(m):
     order = [
         "glowShape",
+        "targetAnchor",
         "glowOffsetX",
         "glowOffsetY",
         "glow",
@@ -30,7 +31,8 @@ def test_arrival_rows_are_in_the_requested_order(m):
     ]
     ys = [y_of(m, k) for k in order]
     assert ys == sorted(ys) and len(set(ys)) == len(ys)
-    assert y_of(m, "glowOffsetX") == y_of(m, "glowShape") + 32  # no description block between shape and offsets
+    assert y_of(m, "targetAnchor") == y_of(m, "glowShape") + 32  # no description block between shape and Aim at
+    assert y_of(m, "glowOffsetX") == y_of(m, "targetAnchor") + 68  # the 62 px grid row and 6 px of air
     assert y_of(m, "glowIntensity") == y_of(m, "glow") + 28
 
 

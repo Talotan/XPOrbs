@@ -11,6 +11,7 @@ local OrbMath = ns.OrbMath
 
 local BAR_FRAMES = { "MainStatusTrackingBarContainer", "StatusTrackingBarManager", "MainMenuExpBar" }
 local FALLBACK_Y = 20
+local lastRect = { left = 0, bottom = 0, w = 0, h = 0 } -- the one table Target.lastRect points at (no garbage)
 
 Target.lastName = nil -- frame name used by the last GetDestination() call (nil on fallback)
 Target.lastSource = nil -- id of the bar source that supplied it (nil for a pick, a Blizzard container or the fallback)
@@ -63,6 +64,12 @@ local function verticalFillEdge(left, bottom, w, h, xp, xpMax)
     return OrbMath.StatusFill(left, bottom, w, h, frac, true, false)
 end
 
+-- The point of the bar frame the orbs aim at (db.targetAnchor), or nil for the default (the fill edge, or the centre of
+-- a round frame). GetDestination sets it per call: the portrait is never aimed at a corner, so it clears it there.
+local aimAnchor
+-- The rect of the frame the last successful frameEdge measured; GetDestination copies it into Target.lastRect.
+local measured = { left = 0, bottom = 0, w = 0, h = 0 }
+
 -- Returns x, y, w, h (UIParent units) and whether the point came from a vertical bar: a vertical StatusBar, or any
 -- other frame while the glow shape is "vertical".
 local function frameEdge(f, xp, xpMax, centre)
@@ -79,6 +86,18 @@ local function frameEdge(f, xp, xpMax, centre)
     end
     left, bottom = OrbMath.ToUIParent(left, bottom, frameScale, parentScale)
     w, h = OrbMath.ToUIParent(w, h, frameScale, parentScale)
+    measured.left, measured.bottom, measured.w, measured.h = left, bottom, w, h
+    if aimAnchor then
+        -- a chosen corner, edge or centre replaces the fill edge and the round centre, XP readable or not; the vertical
+        -- flag (it picks the flash shape) is what it would have been without the anchor
+        local ax, ay = OrbMath.AnchorPoint(left, bottom, w, h, aimAnchor)
+        local isVertical
+        if not centre then
+            local fillFrac, fillVertical = statusFill(f)
+            isVertical = fillFrac and fillVertical or (not fillFrac and ns.db and ns.db.glowShape == "vertical") or nil
+        end
+        return ax, ay, w, h, isVertical
+    end
     if centre then
         return left + w / 2, bottom + h / 2, w, h
     end
@@ -351,7 +370,10 @@ end
 -- Returns x, y, ok. ok is false when no bar frame was usable and the bottom-centre fallback was returned.
 -- With a secret XP reading the last readable pair is used (cached in Target.lastXP / lastXPMax); with none, the frame
 -- centre.
--- Target.lastW / lastH are the destination frame's size in UIParent units (nil on the fallback).
+-- Target.lastW / lastH are the destination frame's size in UIParent units (nil on the fallback); Target.lastRect is its
+-- { left, bottom, w, h } in the same units (nil on the fallback, one table reused between calls).
+-- db.targetAnchor (not "fill") aims at that point of the bar frame instead of the fill edge or the centre; the portrait
+-- ignores it.
 -- centre = true aims at the middle of the frame instead of the XP fill edge (a round target such as a portrait has
 -- no fill edge).
 -- db.glowOffsetX / glowOffsetY (UIParent px) are added to every result, the fallback included: the offset is the
@@ -375,6 +397,11 @@ function Target:GetDestination(centre, portrait)
     end
     local x, y, frameW, frameH, frameVertical
     local name, usedSource, viaPick
+    local anchor = ns.db and ns.db.targetAnchor
+    if type(anchor) ~= "string" or anchor == "fill" then
+        anchor = nil
+    end
+    aimAnchor = nil
     if portrait then
         local portrait1, portrait2, portrait3 = playerPortraitCandidates()
         x, y, frameW, frameH, frameVertical = tryObject(portrait1, xp, xpMax, true)
@@ -391,6 +418,7 @@ function Target:GetDestination(centre, portrait)
             centre = (ns.db ~= nil and ns.db.glowShape == "round") or xp == nil or xpMax == nil
         end
     else
+        aimAnchor = anchor
         local picked = ns.db and ns.db.targetFrame
         local parsed = type(picked) == "string" and parsePick(picked) or PLAIN_PICK
         if parsed.kind == "source" then
@@ -417,6 +445,7 @@ function Target:GetDestination(centre, portrait)
             end
         end
     end
+    aimAnchor = anchor -- no portrait aim from here on: the bar frames below take the chosen point
     if not x then
         for i = 1, #BAR_SOURCES do
             local sourceName
@@ -439,6 +468,9 @@ function Target:GetDestination(centre, portrait)
     if x then
         self.lastName, self.lastOk = name, true
         self.lastW, self.lastH, self.lastVertical = frameW, frameH, frameVertical == true
+        local rect = lastRect
+        rect.left, rect.bottom, rect.w, rect.h = measured.left, measured.bottom, measured.w, measured.h
+        self.lastRect = rect
         self.lastSource, self.lastSourceLabel = usedSource and usedSource.id, usedSource and usedSource.label
         self.lastSourceViaPick = viaPick == true
         x, y = OrbMath.ApplyOffset(x, y, ns.db and ns.db.glowOffsetX, ns.db and ns.db.glowOffsetY)
@@ -446,6 +478,7 @@ function Target:GetDestination(centre, portrait)
     end
     local okw, w = pcall(UIParent.GetWidth, UIParent)
     self.lastName, self.lastOk, self.lastW, self.lastH, self.lastVertical = nil, false, nil, nil, false
+    self.lastRect = nil
     self.lastSource, self.lastSourceLabel, self.lastSourceViaPick = nil, nil, false
     local fx, fy = OrbMath.ApplyOffset(okw and num(w) and w / 2 or 0, FALLBACK_Y, ns.db and ns.db.glowOffsetX,
         ns.db and ns.db.glowOffsetY)

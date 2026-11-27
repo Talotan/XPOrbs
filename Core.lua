@@ -74,6 +74,9 @@ ns.defaults = {
     -- (circular glow at the frame centre)
     glowShape = "bar",
     glowIntensity = 100, -- arrival flash strength in percent (25-200): scales its alpha and, a little, its size
+    -- where on the XP bar frame orbs land: "fill" (the XP fill edge on a bar, the centre of a round frame) or one of
+    -- ns.AIM_POINTS (a corner, edge or the centre). The offsets below are added to whichever it is
+    targetAnchor = "fill",
     glowOffsetX = 0, -- UIParent px added to the landing point (where orbs aim and the glow is drawn)
     glowOffsetY = 0,
     setupDismissed = false, -- true: the "find your XP bar" window (Setup.lua) never opens by itself
@@ -152,6 +155,13 @@ ns.STRATA_ORDER = { "BACKGROUND", "LOW", "MEDIUM", "HIGH", "DIALOG", "FULLSCREEN
 ns.STRATA_LABEL = {
     BACKGROUND = "Background", LOW = "Low", MEDIUM = "Medium", HIGH = "High", DIALOG = "Dialog",
     FULLSCREEN = "Fullscreen", FULLSCREEN_DIALOG = "Fullscreen Dialog",
+}
+-- the points the "Aim at" setting can name, in the order the options grid draws them (WoW anchor point names)
+ns.AIM_POINTS = { "TOPLEFT", "TOP", "TOPRIGHT", "LEFT", "CENTER", "RIGHT", "BOTTOMLEFT", "BOTTOM", "BOTTOMRIGHT" }
+ns.AIM_LABEL = {
+    TOPLEFT = "Top left corner", TOP = "Top edge", TOPRIGHT = "Top right corner", LEFT = "Left edge",
+    CENTER = "Centre", RIGHT = "Right edge", BOTTOMLEFT = "Bottom left corner", BOTTOM = "Bottom edge",
+    BOTTOMRIGHT = "Bottom right corner",
 }
 ns.SHAPE_ORDER = { "starlight", "bubble", "retro", "crackle" }
 ns.SHAPE_LABEL = { starlight = "Starlight", retro = "Retro", bubble = "Bubble", crackle = "Crackle" } -- valid orbShape
@@ -488,6 +498,9 @@ local function sanitize(db)
     end
     if db.glowShape ~= "bar" and db.glowShape ~= "vertical" and db.glowShape ~= "round" then
         db.glowShape = defaults.glowShape
+    end
+    if db.targetAnchor ~= "fill" and not ns.AIM_LABEL[db.targetAnchor] then
+        db.targetAnchor = defaults.targetAnchor
     end
     if not ns.STRATA_LABEL[db.orbStrata] then
         db.orbStrata = defaults.orbStrata

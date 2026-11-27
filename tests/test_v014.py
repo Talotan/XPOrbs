@@ -279,10 +279,11 @@ def test_round_flash_lands_on_the_centre_plus_offset(m):
     "key,y,h",
     [
         ("glowShape", 108, 24),
-        ("glowOffsetX", 140, 32),
-        ("glowOffsetY", 172, 32),
-        ("glow", 208, 28),
-        ("glowIntensity", 236, 32),
+        ("targetAnchor", 140, 62),  # the Aim at row: a 3 x 3 grid, then 6 px of air
+        ("glowOffsetX", 208, 32),
+        ("glowOffsetY", 240, 32),
+        ("glow", 276, 28),
+        ("glowIntensity", 304, 32),
     ],
 )
 def test_new_rows_follow_the_grid(m, key, y, h):

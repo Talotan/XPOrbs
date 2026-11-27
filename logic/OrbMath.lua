@@ -343,6 +343,24 @@ function OrbMath.FillEdge(left, bottom, width, height, xp, xpMax)
     return left + width * frac, bottom + height / 2
 end
 
+-- One of nine points of a rect, by WoW anchor point name: TOPLEFT, TOP, TOPRIGHT, LEFT, CENTER, RIGHT, BOTTOMLEFT,
+-- BOTTOM, BOTTOMRIGHT (anything else gives the centre). left / bottom is the rect's lower left corner.
+function OrbMath.AnchorPoint(left, bottom, width, height, point)
+    local x, y = left + width / 2, bottom + height / 2
+    point = type(point) == "string" and point or "CENTER"
+    if string.find(point, "LEFT", 1, true) then
+        x = left
+    elseif string.find(point, "RIGHT", 1, true) then
+        x = left + width
+    end
+    if string.find(point, "TOP", 1, true) then
+        y = bottom + height
+    elseif string.find(point, "BOTTOM", 1, true) then
+        y = bottom
+    end
+    return x, y
+end
+
 -- Landing point on a StatusBar fill edge, whichever way it fills. frac (0..1, clamped) is how full the bar is.
 -- Horizontal: x = left + w * frac (right - w * frac when reversed), y at the vertical middle.
 -- Vertical: y = bottom + h * frac (top - h * frac when reversed), x at the horizontal middle.

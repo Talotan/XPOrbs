@@ -131,3 +131,26 @@ def test_cubic_endpoints_and_midpoint(om):
     x, y = om.Cubic(0.5, 0, 0, 0, 80, 80, 80, 80, 0)
     assert x == pytest.approx((0 + 0 + 240 + 80) / 8)
     assert y == pytest.approx((0 + 240 + 240 + 0) / 8)
+
+
+@pytest.mark.parametrize(
+    "point,expected",
+    [
+        ("TOPLEFT", (100, 30)),
+        ("TOP", (300, 30)),
+        ("TOPRIGHT", (500, 30)),
+        ("LEFT", (100, 20)),
+        ("CENTER", (300, 20)),
+        ("RIGHT", (500, 20)),
+        ("BOTTOMLEFT", (100, 10)),
+        ("BOTTOM", (300, 10)),
+        ("BOTTOMRIGHT", (500, 10)),
+    ],
+)
+def test_anchor_point_names_the_nine_points_of_a_rect(om, point, expected):
+    assert tuple(om.AnchorPoint(100, 10, 400, 20, point)) == expected
+
+
+def test_anchor_point_gives_the_centre_for_anything_else(om):
+    for junk in (None, "", "MIDDLE", 5, "fill"):
+        assert tuple(om.AnchorPoint(100, 10, 400, 20, junk)) == (300, 20)
