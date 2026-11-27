@@ -55,6 +55,14 @@ def options_source():
     )
 
 
+ORBS_FILES = ["Sound.lua", "Orbs.lua", "OrbsCommands.lua"]
+
+
+def orbs_source():
+    """The orb renderer's Lua source (split across ORBS_FILES), joined for text assertions."""
+    return "\n".join((ROOT / name).read_text(encoding="utf-8") for name in ORBS_FILES)
+
+
 def make_runtime():
     lua = lupa_rt.LuaRuntime(unpack_returned_tuples=True)
     ns = lua.table()

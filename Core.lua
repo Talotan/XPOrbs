@@ -706,7 +706,8 @@ function commands.status()
     end
 end
 
--- /xporbs test, style, pop, pick, setup and options are defined by Orbs.lua, Target.lua, Setup.lua and Options.lua.
+-- /xporbs test, style, pop, pick, sound, setup and options are defined by OrbsCommands.lua, Picker.lua, Sound.lua,
+-- Setup.lua and Options.lua.
 
 -- Restore every setting to its default. The schema version, the debug flag and the log are kept.
 function commands.reset()

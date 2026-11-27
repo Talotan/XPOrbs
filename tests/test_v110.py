@@ -6,7 +6,7 @@ import re
 import zipfile
 
 import pytest
-from conftest import ROOT, lua_list, options_source
+from conftest import ROOT, lua_list, options_source, orbs_source
 from test_m5 import show
 from test_v09 import burst, make, pop_textures, set_level
 
@@ -151,7 +151,7 @@ def test_crossfade_underlay_is_a_dark_tint_of_each_orbs_own_colour(env):
 
 
 def test_no_hardcoded_navy_underlay_left():
-    src = (ROOT / "Orbs.lua").read_text(encoding="utf-8")
+    src = orbs_source()
     assert "UNDER_R" not in src and "0.02, 0.08, 0.30" not in src
 
 
@@ -776,7 +776,7 @@ def test_driver_goes_idle_with_sound_on(env):
 
 
 def test_the_chime_path_is_built_once_at_load():
-    src = (ROOT / "Orbs.lua").read_text(encoding="utf-8")
+    src = orbs_source()
     assert (
         src.count('media\\\\chime\\\\" .. volume') == 1
     )  # one concatenation, in the load-time table, none in the driver
@@ -1255,7 +1255,7 @@ ALL_VOICES = ("glass", "coin", "swish", "pixel")
 
 
 def test_every_voice_has_six_notes_at_every_level_and_the_files_exist():
-    src = (ROOT / "Orbs.lua").read_text(encoding="utf-8")
+    src = orbs_source()
     table = re.search(r"local CHIME_PATHS = \{(.*?)\}$", src, re.M).group(1)
     assert set(re.findall(r"(\w+) = \{\}", table)) == set(ALL_VOICES)
     for voice in ALL_VOICES:
@@ -1279,7 +1279,7 @@ def test_a_saved_coin_stays_coin(env):
 
 
 def test_chime_paths_has_exactly_the_four_voices():
-    src = (ROOT / "Orbs.lua").read_text(encoding="utf-8")
+    src = orbs_source()
     table = re.search(r"local CHIME_PATHS = \{(.*?)\}$", src, re.M).group(1)
     assert re.findall(r"(\w+) = \{\}", table) == ["glass", "coin", "swish", "pixel"]
 

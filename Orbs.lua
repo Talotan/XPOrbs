@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: GPL-3.0-or-later
-local ADDON, ns = ...
+local _, ns = ...
 
 -- Orb renderer: one overlay frame, a hand-rolled texture pool and a single OnUpdate driver that only runs
 -- while orbs or the arrival flash are alive. Frames are created lazily on the first burst.
@@ -7,10 +7,10 @@ local ADDON, ns = ...
 -- How it fits together: Kills.lua (and /xporbs test) call Orbs:Burst, which builds one "orb" record per orb in `live`
 -- (start point, control point, flight time, textures) and hands them to the driver. The driver (`drive`) moves every
 -- orb each frame along a cubic curve from OrbMath towards the XP bar (Target:GetDestination) and plays the arrival
--- chime and flash. A corpse pop or crossfade shares one pooled "group" (a small frame anchored to the nameplate plus
--- its textures) between its orbs. Orb record fields: x0/y0 stream start, control1X/Y first control point, px/py
--- P-hat (the estimated mob position), ux/uy unit vector from P-hat towards the bar, ringX/Y ring point (pop and
--- crossfade copy A), hold seconds spent in that ring before the flight, dur flight time, delay start delay,
+-- chime (Sound.lua) and flash. A corpse pop or crossfade shares one pooled "group" (a small frame anchored to the
+-- nameplate plus its textures) between its orbs. Orb record fields: x0/y0 stream start, control1X/Y first control
+-- point, px/py P-hat (the estimated mob position), ux/uy unit vector from P-hat towards the bar, ringX/Y ring point
+-- (pop and crossfade copy A), hold seconds spent in that ring before the flight, dur flight time, delay start delay,
 -- pathKind / pathAmp / pathFreq1-3 / pathPhase1-3 the flight path (db.flightPath at spawn) and its random parameters.
 
 local Orbs = {}
@@ -26,31 +26,6 @@ local FLASH_TEX = "Interface\\AddOns\\XPOrbs\\media\\flash"
 local FLASH_TEX_VERTICAL = "Interface\\AddOns\\XPOrbs\\media\\flash_v" -- the flash transposed (32x128)
 -- arrival flash art per shape (orb.tga is a radial gradient); one table so the driver holds one upvalue, not three
 local FLASH_SHAPE_TEX = { bar = FLASH_TEX, vertical = FLASH_TEX_VERTICAL, round = ORB_TEX }
--- Every chime file, built once so nothing is concatenated while orbs fly: CHIME_PATHS[voice][volume][note]. The game
--- has no per-sound volume, so each volume level (ns.ranges.soundVolume, percent) is its own pre-rendered folder, made
--- by tools/make_sounds.py.
-local CHIME_NOTES = 6
-local CHIME_PATHS = { glass = {}, coin = {}, swish = {}, pixel = {} }
-do
-    local range = ns.ranges.soundVolume
-    local lowest, highest, step = range[1], range[2], range[3]
-    for voice, byVolume in pairs(CHIME_PATHS) do
-        for volume = lowest, highest, step do
-            local notePaths = {}
-            for note = 1, CHIME_NOTES do
-                notePaths[note] = "Interface\\AddOns\\XPOrbs\\media\\chime\\" .. volume .. "\\" .. voice
-                    .. note .. ".ogg"
-            end
-            byVolume[volume] = notePaths
-        end
-    end
-end
--- the six paths for a voice at the saved volume (a saved value that is off the grid falls back to the default level)
-local function chimeNotePaths(voice)
-    local byVolume = CHIME_PATHS[voice] or CHIME_PATHS.glass
-    return byVolume[ns.db.soundVolume] or byVolume[ns.defaults.soundVolume]
-end
-
 local TWO_PI = math.pi * 2
 local random = math.random
 local floor, min, max, sqrt, cos, sin = math.floor, math.min, math.max, math.sqrt, math.cos, math.sin
@@ -58,8 +33,6 @@ local floor, min, max, sqrt, cos, sin = math.floor, math.min, math.max, math.sqr
 -- Tunables (retune here).
 local EXTRAS = 5 -- ceiling formula: cap * (1 + EXTRAS) * 2 + 8. Per orb: orb + underlay + sparkle + 3 trail ghosts
 local MIN_DUR = 0.05 -- shortest allowed flight, so a bad flightTime can never strand an orb
-local STRESS_TIME = 2.0 -- /xporbs test stress spreads its bursts over this many seconds
-local STRESS_DEFAULT, STRESS_MAX = 20, 100
 local GLOW = 2.0 -- the orb art fades to nothing at its rim, so draw it larger than db.size
 local SPARKLE = 1.9
 local SPARKLE_ALPHA = 0.6
@@ -281,9 +254,11 @@ local pops, nPops = {}, 0
 local popErrSeen = false
 local crossfadeGroups, nCrossfade = {}, 0 -- crossfade pop frames alive (their orbs are driven from the stream loop)
 local portraitMode = false -- decided once per Burst (Target:PortraitMode): orbs aim at the portrait centre, round flash
-local chime = ns.Chime.New({ now = GetTime, gap = 0.07, perBurst = 6 })
-local soundDead = false -- the first sound failure switches the chime off for the session
-Orbs.chime = chime -- exposed for tests
+-- Sound.lua (loaded before this file) owns the chime; the driver's two calls are cached here so an arrival costs one
+-- direct call and no table lookup.
+local soundArrive, soundDone = ns.Sound.Arrive, ns.Sound.Done
+Orbs.chime = ns.Sound.chime -- exposed for tests
+Orbs.sampleOffsets = ns.Sound.sampleOffsets -- ... and the sample's drawn arrival times
 local burstSeq = 0 -- burst key counter; every orb carries its burst's key (orb.burstKey)
 local burstLeft = {} -- burst key -> orbs of that burst still alive (the chime forgets a burst when it hits 0)
 
@@ -530,7 +505,7 @@ local function freeOrb(orb)
             burstLeft[burstKey] = left
         else
             burstLeft[burstKey] = nil
-            chime:Done(burstKey)
+            soundDone(burstKey)
         end
     end
     if orb.under then
@@ -1113,93 +1088,21 @@ local function updatePops(dt)
     end
 end
 
--- An orb arrived: asks the chime for a note and plays it. The first failure (an error, or the client saying the file
--- won't play) logs SOUND_ERR once and silences the chime for the session. Allocates nothing.
-local function playChime(burstKey)
-    local note = chime:Arrive(burstKey)
-    if not note then
-        return
-    end
-    local ok, willPlay = pcall(PlaySoundFile, chimeNotePaths(ns.db.soundVoice)[note], "SFX")
-    if not ok or willPlay == false then
-        soundDead = true
-        ns:Log("SOUND_ERR %s", ok and "the client won't play the file" or string.sub(tostring(willPlay), 1, 120))
-    end
-end
-
--- Chime sample (the options panel's play button): the chime of a burst of SAMPLE_COUNT orbs arriving, through
--- playChime so the note progression and the per-note gap match real arrivals. A real burst's orbs land at slightly
--- different times, so each press draws fresh arrival times (seconds after the press) into one reused scratch table:
--- the first note at 0, the rest spread at random inside SAMPLE_SPAN, sorted, and never closer than SAMPLE_MIN_GAP
--- (the chime's own 70 ms rate limit, logic/Chime.lua, plus about one frame: notes play on frame ticks, so two notes
--- drawn just over 70 ms apart could land on frames under it and one would be dropped). The room beyond the
--- minimum gaps is SAMPLE_SPAN - (SAMPLE_COUNT - 1) * SAMPLE_MIN_GAP; sorted random draws share it out unevenly.
--- One short-lived OnUpdate that removes itself after the last note; a new press restarts it.
-local SAMPLE_COUNT = 6
-local SAMPLE_SPAN = 0.50
-local SAMPLE_MIN_GAP = 0.085
-local SAMPLE_OFFSETS = {}
-for index = 1, SAMPLE_COUNT do
-    SAMPLE_OFFSETS[index] = 0
-end
-Orbs.sampleOffsets = SAMPLE_OFFSETS -- exposed for tests
-
--- Fills SAMPLE_OFFSETS in place: insertion-sorted random shares of the spare time, plus the minimum gaps.
-local function drawSampleOffsets()
-    local spare = SAMPLE_SPAN - (SAMPLE_COUNT - 1) * SAMPLE_MIN_GAP
-    SAMPLE_OFFSETS[1] = 0
-    for index = 2, SAMPLE_COUNT do
-        local share = random() * spare
-        local slot = index
-        while slot > 2 and SAMPLE_OFFSETS[slot - 1] > share do
-            SAMPLE_OFFSETS[slot] = SAMPLE_OFFSETS[slot - 1]
-            slot = slot - 1
-        end
-        SAMPLE_OFFSETS[slot] = share
-    end
-    for index = 2, SAMPLE_COUNT do
-        SAMPLE_OFFSETS[index] = SAMPLE_OFFSETS[index] + (index - 1) * SAMPLE_MIN_GAP
-    end
-end
-local SAMPLE_KEY = "chime-sample" -- its own burst key, so it never eats a real burst's six-note allowance
-local sampleFrame
-local sampleNext, sampleElapsed = 1, 0
-
-local function sampleStop()
-    if sampleFrame then
-        sampleFrame:SetScript("OnUpdate", nil)
-    end
-    chime:Done(SAMPLE_KEY)
-    sampleNext = #SAMPLE_OFFSETS + 1
-end
-
-local function sampleTick(_, dt)
-    sampleElapsed = sampleElapsed + (isNumber(dt) and dt or 0)
-    while sampleNext <= #SAMPLE_OFFSETS and sampleElapsed >= SAMPLE_OFFSETS[sampleNext] do
-        sampleNext = sampleNext + 1
-        if ns.db.sound and not soundDead then
-            playChime(SAMPLE_KEY)
-        end
-    end
-    if sampleNext > #SAMPLE_OFFSETS then
-        sampleStop()
-    end
-end
-
--- Starts (or restarts) the sample. Returns false when the chime is off or switched off for the session.
+-- The chime's public methods live on Orbs (the options panel, /xporbs and the tests call them here); the work is in
+-- Sound.lua. PlayChimeSample returns false when the chime is off or dead; the sample's frame is exposed for tests.
 function Orbs:PlayChimeSample()
-    if not settings().sound or soundDead then
-        return false
-    end
-    if not sampleFrame then
-        sampleFrame = CreateFrame("Frame")
-        Orbs.sampleFrame = sampleFrame
-    end
-    chime:Done(SAMPLE_KEY)
-    drawSampleOffsets()
-    sampleNext, sampleElapsed = 1, 0
-    sampleFrame:SetScript("OnUpdate", sampleTick)
-    return true
+    local started = ns.Sound.PlayChimeSample()
+    Orbs.sampleFrame = ns.Sound.sampleFrame
+    return started
+end
+
+function Orbs:PreviewSound(voice)
+    ns.Sound.PreviewSound(voice)
+end
+
+-- true once a sound failure has switched the chime off for this session
+function Orbs:SoundDisabled()
+    return ns.Sound.Disabled()
 end
 
 -- Perf counters for /xporbs perf: frames the driver ran, their summed and worst time in ms.
@@ -1236,9 +1139,7 @@ local function drive(self, dt)
             else
                 local progress = flightElapsed / orb.dur
                 if progress >= 1 then
-                    if ns.db.sound and not soundDead then
-                        playChime(orb.burstKey)
-                    end
+                    soundArrive(orb.burstKey)
                     if ns.db.glow ~= false then
                         arrivedRecently = arrivedRecently + 1
                         flashAge, flashOn, flashRested = 0, true, orb.rested
@@ -1804,9 +1705,15 @@ function Orbs:Info()
     return active, texInUse, texCreated, ceiling()
 end
 
--- liveOrbs, popsAlive, driverFrames, driverTotalMs, driverMaxMs: what the dev-only benchmark (dev/Bench.lua) samples
+-- liveOrbs, popsAlive, driverFrames, driverTotalMs, driverMaxMs: what the dev-only benchmark (dev/Bench.lua) and
+-- /xporbs perf (OrbsCommands.lua) sample
 function Orbs:BenchProbe()
     return nLive, nPops, perfFrames, perfTotal, perfMax
+end
+
+-- /xporbs perf reset: zeroes the driver's frame counters (the driver updates them as plain upvalues)
+function Orbs:PerfReset()
+    perfFrames, perfTotal, perfMax = 0, 0, 0
 end
 
 -- popsInUse, popFramesCreated, popFrameCap
@@ -1820,441 +1727,7 @@ function Orbs:PoolInfo()
     return #freePop, popsCreated, nPops, nCrossfade
 end
 
--- Stream origin for /xporbs test (style = a render style). Popstream (Nameplate) follows the kill rule
--- (Target:StreamOrigin: the estimate P-hat, the portrait only without one); Direct Stream and Popstream (Direct) start
--- at the estimate too; otherwise target frame, else the cursor,
--- else the screen centre. Every read is
--- checked for secrecy and pcall'd. Returns x, y, label (x, y nil only when even the screen size is unreadable).
-local function testOrigin(style, ex, ey)
-    if style == "popstream" then
-        local startX, startY, startLabel = Target:StreamOrigin(ex, ey)
-        if startX then
-            return startX, startY, startLabel
-        end
-    elseif (style == "stream" or style == "streampop") and isNumber(ex) and isNumber(ey) then
-        return ex, ey, "estimate"
-    end
-    local frameX, frameY = Target:TargetFrameOrigin()
-    if frameX then
-        return frameX, frameY, "targetframe"
-    end
-    local okCursor, cursorX, cursorY = pcall(GetCursorPosition)
-    local okScale, scale = pcall(UIParent.GetEffectiveScale, UIParent)
-    if okCursor and okScale and isNumber(cursorX) and isNumber(cursorY) and isNumber(scale) and scale > 0 then
-        return cursorX / scale, cursorY / scale, "cursor"
-    end
-    local okWidth, width = pcall(UIParent.GetWidth, UIParent)
-    local okHeight, height = pcall(UIParent.GetHeight, UIParent)
-    if okWidth and okHeight and isNumber(width) and isNumber(height) then
-        return width / 2, height / 2, "centre"
-    end
-    return nil, nil, "centre"
-end
-
--- Fires one test burst of pct % of a level. Returns the numbers the /xporbs test report prints.
-local function fireTest(pct, rested, force, forceMode, path)
-    local config = settings()
-    local okXpMax, xpMax = pcall(UnitXPMax, "player")
-    if not okXpMax or not isNumber(xpMax) or xpMax <= 0 then
-        xpMax = 1000 -- max level, no data or a secret value: any positive number gives the same orb count
-    end
-    local gain = pct / 100 * xpMax
-    local n, scale = OrbMath.Count(gain, xpMax, config.density, config.cap)
-    local nPurple = 0
-    if rested then
-        local _
-        _, nPurple = OrbMath.RestedSplit(n, gain, gain / 2)
-    end
-    -- the target's estimate (its GUID, when readable, finds a mouseover sample); no target = a keyboard-style estimate
-    local guid
-    local okGuid, targetGuid = pcall(UnitGUID, "target")
-    if okGuid and readable(targetGuid) and type(targetGuid) == "string" then
-        guid = targetGuid
-    end
-    local ex, ey, est, estW = ns.Mouseover:Estimate(guid)
-    -- the options window's "Test target" stand-in (Preview.lua): a located mob with a nameplate, whatever is targeted
-    -- Burst hangs the pop off the plate it is given at a style-dependent offset (the zoom anchor's body offset below
-    -- BOTTOM, else POP_Y from the CENTER for the Popstream pop, else the BOTTOM itself), so the stand-in is told that
-    -- offset and places its invisible anchor frame to cancel it: the pop lands on the model's chest whatever the
-    -- zoom-anchor setting (Preview.lua).
-    local standInPlate
-    if ns.Preview then
-        local popOffsetY = zoomAnchorY(config)
-        if not popOffsetY then
-            local renderStyle = ns.RenderStyle(force or config.style, forceMode or config.popMode)
-            popOffsetY = renderStyle == "popstream" and POP_Y + (ns.Preview.ANCHOR_SIZE or 0) / 2 or 0
-        end
-        local okStandIn, plateFrame, bodyX, bodyY = pcall(ns.Preview.TestTarget, ns.Preview, popOffsetY)
-        if okStandIn and plateFrame then
-            standInPlate = plateFrame
-            ex, ey, est, estW = bodyX, bodyY, "mouseover", 1 -- bodyY is already raised towards the pop anchor
-        end
-    end
-    local x, y, label = testOrigin(ns.RenderStyle(force or config.style, forceMode or config.popMode), ex, ey)
-    local mode = Orbs:Burst({
-        x = x,
-        y = y,
-        plate = standInPlate or Target:TargetPlate(),
-        n = n,
-        scale = scale,
-        nPurple = nPurple,
-        kind = "test",
-        style = force,
-        popMode = forceMode,
-        path = path,
-        ex = ex,
-        ey = ey,
-        est = est,
-        estW = estW,
-        zoomFactor = standInPlate and 1 or nil, -- the stand-in's window is fixed: the camera must not size its pop
-    })
-    if standInPlate then
-        pcall(ns.Preview.PlayDeath, ns.Preview) -- the stand-in dies as the orbs leave it
-    end
-    return n, scale, nPurple, est, estW, mode, label
-end
-
--- /xporbs test stress [n]: n test bursts (1-15 % of a level each) spread over STRESS_TIME seconds, from one short-lived
--- OnUpdate frame that removes its own script when the last burst has fired.
-local stressFrame
-local stressN, stressFired, stressEl = 0, 0, 0
-
-local function stressStop()
-    if stressFrame then
-        stressFrame:SetScript("OnUpdate", nil)
-    end
-end
-
-local function stressTick(_, dt)
-    stressEl = stressEl + (isNumber(dt) and dt or 0)
-    while stressFired < stressN and stressEl >= stressFired * STRESS_TIME / stressN do
-        stressFired = stressFired + 1
-        local ok, err = pcall(fireTest, 1 + floor(random() * 15), false, nil)
-        if not ok then
-            ns:Log("stress error %s", tostring(err))
-            stressStop()
-            return
-        end
-    end
-    if stressFired >= stressN then
-        stressStop()
-    end
-end
-
-local function startStress(arg)
-    local n = floor(tonumber(arg) or STRESS_DEFAULT)
-    n = max(1, min(STRESS_MAX, n))
-    if not stressFrame then
-        stressFrame = CreateFrame("Frame")
-        Orbs.stressFrame = stressFrame
-    end
-    stressN, stressFired, stressEl = n, 0, 0
-    stressFrame:SetScript("OnUpdate", stressTick)
-    ns.Print(string.format("stress: %d test bursts over about %g s", n, STRESS_TIME))
-end
-
--- what /xporbs test prints as style= for each Burst result
-local TEST_USED = { ["pop+stream"] = "popstream/nameplate", streampop = "popstream/direct" }
-
--- /xporbs test [pct] [rested] [popstream|crossfade|stream] [nameplate|direct] [smooth|chaos|helix]
--- (any style alias works: streampop = Popstream (Direct), wide / mob = Popstream (Nameplate); nameplate / direct alone
--- mean Popstream with that pop; smooth / chaos / helix override the flight path for that burst; the old "frame" /
--- "plate" words are ignored)
--- /xporbs test stress [n]
--- quiet = true fires the burst without the chat report (the Test Kill buttons use it through ns.TestKill; the slash
--- handler passes a second argument of its own, so the flag is not a parameter of ns.commands.test).
-local function runTest(arg, quiet)
-    local first, count = string.match(arg or "", "^%s*(%S+)%s*(%S*)")
-    if first == "stress" then
-        startStress(count)
-        return
-    end
-    settings() -- loads the db if it is not up yet
-    local pct, rested, force, forceMode, path = 5, false, nil, nil, nil
-    for tok in string.gmatch(arg or "", "%S+") do
-        if tok == "rested" then
-            rested = true
-        elseif ns.STYLE_ALIAS[tok] then
-            force = tok
-        elseif ns.PATH_LABEL[tok] then
-            path = tok
-        elseif tok == "nameplate" or tok == "direct" then
-            force, forceMode = force or "popstream", tok
-        elseif tok ~= "frame" and tok ~= "plate" then
-            local v = tonumber(tok)
-            if v and v > 0 then
-                pct = min(v, 1000)
-            end
-        end
-    end
-    Orbs.lastUnknown = nil
-    local n, scale, nPurple, est, estW, mode, label = fireTest(pct, rested, force, forceMode, path)
-    if quiet then
-        return
-    end
-    local used = TEST_USED[mode] or mode
-    if mode == "crossfade" then
-        label = "estimated"
-    end
-    ns.Print(string.format("test: %g%% of a level -> %d orbs (%d purple), scale %.2f, est=%s w=%.2f pop=%s stream=%s"
-        .. " style=%s", pct, n, nPurple, scale, est or "none", estW or 0, mode == "pop+stream" and "yes" or "no",
-        label, used) .. (Orbs.lastUnknown and " unknown=" .. Orbs.lastUnknown or "")
-        .. (path and " path=" .. path or ""))
-end
-
-function ns.commands.test(arg)
-    runTest(arg, false)
-end
-
--- The Test Kill buttons (Preview.lua, Options.lua): the same burst as /xporbs test, with no chat output.
-function ns.TestKill(arg)
-    runTest(arg, true)
-end
-
--- /xporbs perf [reset]: addon memory, driver frame time, pool usage.
-function ns.commands.perf(arg)
-    if arg == "reset" then
-        perfFrames, perfTotal, perfMax = 0, 0, 0
-        ns.Print("perf counters reset")
-        return
-    end
-    local mem = "n/a"
-    if UpdateAddOnMemoryUsage and GetAddOnMemoryUsage then
-        local okUpdate = pcall(UpdateAddOnMemoryUsage)
-        local okUsage, kb = pcall(GetAddOnMemoryUsage, ADDON)
-        if okUpdate and okUsage and isNumber(kb) then
-            mem = string.format("%.1f KB", kb)
-        end
-    end
-    ns.Print("perf: memory " .. mem)
-    if perfFrames == 0 and not debugprofilestop then
-        ns.Print("perf: driver timing n/a")
-    else
-        ns.Print(string.format("perf: driver frames=%d avg=%.3f ms max=%.3f ms", perfFrames,
-            perfFrames > 0 and perfTotal / perfFrames or 0, perfMax))
-    end
-    ns.Print(string.format("perf: textures created=%d in use=%d ceiling=%d", texCreated, texInUse, ceiling()))
-    ns.Print(string.format("perf: pop frames created=%d (cap %d)", popsCreated, POP_FRAMES))
-    ns.Print(string.format("perf: live orbs=%d", nLive))
-end
-
-local function refreshPanel()
-    if ns.Options and ns.Options.Refresh then
-        ns.Options:Refresh()
-    end
-end
-
--- Plays one random note of a voice at the saved volume so the options panel and /xporbs sound can preview it (even with
--- the chime off). One pcall, no state.
-function Orbs:PreviewSound(voice)
-    if CHIME_PATHS[voice] and PlaySoundFile then
-        pcall(PlaySoundFile, chimeNotePaths(voice)[random(CHIME_NOTES)], "SFX")
-    end
-end
-
--- /xporbs sound on|off|glass|coin|swish|pixel|volume N: the arrival chime. Turning it on also clears a SOUND_ERR
--- shutdown, so it can be retried. A voice name picks the sound (and turns the chime on). volume N sets the volume in
--- percent (snapped to the options slider's steps) and plays a sample note if the chime is on.
-function ns.commands.sound(arg)
-    local word, rest = string.match(arg or "", "^%s*(%S*)%s*(.-)%s*$")
-    if word == "on" or CHIME_PATHS[word] then
-        settings().sound = true
-        if word ~= "on" then
-            settings().soundVoice = word
-        end
-        soundDead = false
-        refreshPanel()
-    elseif word == "off" then
-        settings().sound = false
-        refreshPanel()
-    elseif word == "volume" then
-        local range = ns.ranges.soundVolume
-        local percent = ns.OrbMath.Snap(ns.OrbMath.ParseNumber(rest), range[1], range[2], range[3])
-        if not percent then
-            ns.Print(string.format("sound: volume needs a number, %d to %d (percent)", range[1], range[2]))
-            return
-        end
-        settings().soundVolume = percent
-        refreshPanel()
-        if settings().sound and not soundDead then
-            Orbs:PreviewSound(settings().soundVoice)
-        end
-    elseif word ~= "" then
-        ns.Print("sound: use on, off, glass, coin, swish, pixel or volume N")
-        return
-    end
-    local note = soundDead and " (switched off this session: the client wouldn't play the file)" or ""
-    ns.Print(string.format("chime: %s, %s, volume %d%%%s", settings().sound and "on" or "off",
-        tostring(settings().soundVoice),
-        tonumber(settings().soundVolume) or ns.defaults.soundVolume, note))
-end
-
--- true once a sound failure has switched the chime off for this session
-function Orbs:SoundDisabled()
-    return soundDead
-end
-
--- /xporbs style popstream [nameplate|direct] | crossfade | stream, plus the old names (Core STYLE_ALIAS): streampop =
--- Popstream (Direct), wide / mob = Popstream (Nameplate) with Wide on. /xporbs pop on|off = popstream|stream.
-function ns.commands.style(arg)
-    local word, subMode = string.match(arg or "", "^%s*(%S*)%s*(%S*)")
-    if word == "nameplate" or word == "direct" then
-        word, subMode = "popstream", word
-    end
-    if word ~= "" then
-        local alias = ns.STYLE_ALIAS[word]
-        if not alias
-            or (subMode ~= "" and (alias[1] ~= "popstream" or (subMode ~= "nameplate" and subMode ~= "direct"))) then
-            ns.Print("style: use popstream [nameplate|direct], crossfade or stream")
-            return
-        end
-        ns.SetStyle(settings(), word)
-        if subMode ~= "" then
-            settings().popMode = subMode
-        end
-        refreshPanel()
-    end
-    ns.Print("kill style: " .. ns.StyleLabel(settings()))
-end
-
--- /xporbs flightmode time|speed: debug switch between a fixed flight time and a flight speed (db.flightMode); not in
--- /xporbs help. No argument shows the current mode.
-function ns.commands.flightmode(arg)
-    local word = string.match(arg or "", "^%s*(%S*)")
-    if word ~= "" then
-        if word ~= "time" and word ~= "speed" then
-            ns.Print("flightmode: use time or speed (now " .. tostring(settings().flightMode) .. ")")
-            return
-        end
-        settings().flightMode = word
-        refreshPanel()
-    end
-    ns.Print("flight mode: " .. tostring(settings().flightMode))
-end
-
--- /xporbs path smooth|chaos|helix: how orbs fly (db.flightPath). No argument shows the current one.
-function ns.commands.path(arg)
-    local word = string.match(arg or "", "^%s*(%S*)")
-    if word ~= "" then
-        if not ns.PATH_LABEL[word] then
-            ns.Print("path: use smooth, chaos or helix")
-            return
-        end
-        settings().flightPath = word
-        refreshPanel()
-    end
-    ns.Print("flight pathing: " .. (ns.PATH_LABEL[settings().flightPath] or "Smooth"))
-end
-
--- /xporbs shape starlight|bubble|retro|crackle: how the orbs are drawn (db.orbShape). Size, quantity and opacity are
--- remembered per shape (ns.SetOrbShape). No argument shows the current one.
-function ns.commands.shape(arg)
-    local word = string.match(arg or "", "^%s*(%S*)")
-    if word ~= "" then
-        settings()
-        if not ns.SetOrbShape(word) then
-            ns.Print("shape: use starlight, bubble, retro or crackle")
-            return
-        end
-        refreshPanel()
-    end
-    ns.Print("orb shape: " .. (ns.SHAPE_LABEL[settings().orbShape] or ns.SHAPE_LABEL.starlight))
-end
-
--- /xporbs pulse on|off: the "Pulsing" tickbox, always Bubble's own look (shapeLook.bubble.pulse): its orbs gently swell
--- and shrink.
-function ns.commands.pulse(arg)
-    local word = string.match(arg or "", "%S+")
-    settings()
-    if word == "on" or word == "off" then
-        ns.SetShapeLook("bubble", "pulse", word == "on") -- Bubble's own look, whichever shape is active
-        refreshPanel()
-    elseif word ~= nil then
-        ns.Print("pulse: use on or off (now " .. (ns.GetShapeLook("bubble", "pulse") and "on" or "off") .. ")")
-        return
-    end
-    ns.Print("pulsing: " .. (ns.GetShapeLook("bubble", "pulse") and "on" or "off")
-        .. (settings().orbShape ~= "bubble" and " (Bubble only)" or ""))
-end
-
-local function spreadState()
-    return settings().zoomSpread and "on" or "off"
-end
-
--- /xporbs wide on|off: the "Zoom-scaled spread" tickbox (db.zoomSpread): located orbs' spawn spread scales with zoom.
-function ns.commands.wide(arg)
-    local word = string.match(arg or "", "%S+")
-    if word == "on" or word == "off" then
-        settings().zoomSpread = word == "on"
-        refreshPanel()
-    elseif word ~= nil then
-        ns.Print("wide: use on or off (now " .. spreadState() .. ")")
-        return
-    end
-    ns.Print("zoom-scaled spread: " .. spreadState())
-end
-
--- /xporbs unknown off|wide: where the stream starts when the mob is not located (no Options control; "off" is kept
--- for future quest/exploration streams)
-function ns.commands.unknown(arg)
-    local word = string.match(arg or "", "%S+")
-    if word ~= nil and UNKNOWN.level[word] == nil then
-        ns.Print("unknown: use off or wide (now " .. tostring(settings().unknownOrigin) .. ")")
-        return
-    end
-    if word ~= nil then
-        settings().unknownOrigin = word
-    end
-    ns.Print("unknown origin: " .. tostring(settings().unknownOrigin))
-end
-
-function ns.commands.pop(arg)
-    local word = string.match(arg or "", "%S+")
-    if word == "on" then
-        settings().style = "popstream"
-        refreshPanel()
-    elseif word == "off" then
-        settings().style = "stream"
-        refreshPanel()
-    elseif word ~= nil then
-        ns.Print("pop: use on or off")
-        return
-    end
-    ns.Print("kill style: " .. ns.StyleLabel(settings()))
-end
-
-table.insert(ns.statusProviders, function()
-    Target:GetDestination()
-    return string.format(
-        "orbs: driver=%s, live textures=%d, pool=%d/%d, dest=%s, fallback=%s, style=%s, pops=%d (frames %d/%d)",
-        active and "active" or "idle",
-        texInUse,
-        texCreated,
-        ceiling(),
-        tostring(Target.lastName) .. (Target.lastSourceLabel and (" [" .. Target.lastSourceLabel .. "]") or ""),
-        Target.lastOk and "no" or "yes",
-        ns.RenderStyle(settings().style, settings().popMode),
-        nPops,
-        popsCreated,
-        POP_FRAMES
-    )
-end)
-
-table.insert(ns.statusProviders, function()
-    return "kill style: " .. ns.StyleLabel(settings()) .. ", zoom-scaled spread: " .. spreadState()
-end)
-
-table.insert(ns.statusProviders, function()
-    return "unknown origin: " .. tostring(settings().unknownOrigin)
-end)
-
-table.insert(ns.statusProviders, function()
-    local config = settings()
-    local size = config.orbShape == "retro" and (config.size .. " px") or tostring(config.size)
-    local line = string.format("orb shape: %s (size %s, quantity %d%%, opacity %d%%)",
-        ns.SHAPE_LABEL[config.orbShape] or ns.SHAPE_LABEL.starlight, size, config.density, config.opacity)
-    if config.orbShape == "bubble" then
-        line = line .. ", pulsing " .. (config.pulse and "on" or "off")
-    end
-    return line
-end)
+-- Shared with OrbsCommands.lua (loaded right after this file) so the test commands read the same values: the pop
+-- frame's y offset, the unknown-origin levels (UNKNOWN.level) and the zoom anchor read.
+Orbs.k = { POP_Y = POP_Y, UNKNOWN_LEVEL = UNKNOWN.level }
+Orbs.ZoomAnchorY = zoomAnchorY

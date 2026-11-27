@@ -336,8 +336,11 @@ Core.lua             defaults, saved-variable migration, slash commands, debug l
 Plates.lua           hostile nameplate tracking (GUID, name, anchor frame); never measures a plate
 Kills.lua            event wiring, kill matching, rested detection, hands bursts to Orbs
 Mouseover.lua        cursor samples while hovering a hostile unit
-Target.lua           destination (XP bar edge), frame picker
+Target.lua           destination (XP bar edge)
+Picker.lua           the XP bar frame picker (/xporbs pick)
+Sound.lua            the arrival chime: file paths, notes, the options panel's sample and preview, /xporbs sound
 Orbs.lua             overlay, texture pool, plate-anchored frames, flight and glow
+OrbsCommands.lua     /xporbs test (and stress), perf, style, path, shape and the other renderer commands, their status lines
 Shapes.lua           the Retro, Bubble and Crackle orb shapes (Starlight is drawn in Orbs.lua)
 Calib.lua            zoom-anchor calibration panel (/xporbs calib)
 OptionsKit.lua       settings panel: shared state, change plumbing, row widgets (ns.OptionsKit)

@@ -4,7 +4,7 @@ readable zoom, "other" bursts ignoring the zoom-scaled spread, the shared zoom-p
 import re
 
 import pytest
-from conftest import ROOT, addon_files
+from conftest import ROOT, addon_files, orbs_source
 from test_killmatcher import Rig
 from test_m5 import show
 from test_p2_styles import fire_known, max_dist, recs, seeded
@@ -243,7 +243,7 @@ def test_calib_uses_the_core_zoom_points_cap(env):
 
 
 def test_orbs_has_no_styleof_wrapper():
-    assert "styleOf" not in (ROOT / "Orbs.lua").read_text(encoding="utf-8")
+    assert "styleOf" not in orbs_source()
 
 
 # ---------------------------------------------------------------- 8. SP_PROFILE plan uses scratch arrays

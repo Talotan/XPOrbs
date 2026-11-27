@@ -7,7 +7,7 @@ import re
 import zipfile
 
 import pytest
-from conftest import OPTIONS_FILES, ROOT, options_source
+from conftest import OPTIONS_FILES, ORBS_FILES, ROOT, options_source
 from test_m5 import ctl, show
 from test_v013 import reset_shown
 from test_v09 import burst, make, restricted_plate
@@ -109,7 +109,7 @@ def test_the_zip_ships_the_whole_chime_tree(tmp_path):
 def test_nothing_references_the_old_flat_files():
     for rel in (
         "Core.lua",
-        "Orbs.lua",
+        *ORBS_FILES,
         *OPTIONS_FILES,
         "README.md",
         "tools/package.py",

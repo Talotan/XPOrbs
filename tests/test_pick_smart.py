@@ -1,5 +1,5 @@
 """The smarter picker: a known addon bar under the cursor saves "@id", an unnamed XP StatusBar saves a path to itself,
-and an unnamed bar under an oversized named container is refused (Target.lua smart pick)."""
+and an unnamed bar under an oversized named container is refused (Picker.lua smart pick)."""
 
 import pytest
 from test_m5 import build, panel_texts, show
@@ -283,13 +283,14 @@ def test_a_dotted_global_name_is_still_found(m5):
 
 
 def measure_steady_state_allocation(m, frames=300):
-    """KB the addon allocates over `frames` GetDestination calls with no collection. The loop runs four times and the last
-    pass is reported: the early passes absorb one-off warm-up (lazily cached parse, the stub's first calls)."""
+    """KB the addon allocates over `frames` GetDestination calls with no collection. The loop runs eight times and the last
+    pass is reported: the early passes absorb one-off warm-up (lazily cached parse, the stub's first calls, and a
+    heap-size effect that settles after three to five collections depending on how much Lua is loaded)."""
     return m.lua.eval(
         """function(target, frames)
             local fn = target.GetDestination
             local grown
-            for _ = 1, 4 do
+            for _ = 1, 8 do
                 collectgarbage("collect")
                 collectgarbage("stop")
                 local before = collectgarbage("count")

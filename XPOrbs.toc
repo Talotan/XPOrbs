@@ -29,7 +29,9 @@ Plates.lua
 Target.lua
 Picker.lua
 Mouseover.lua
+Sound.lua
 Orbs.lua
+OrbsCommands.lua
 Shapes.lua
 Calib.lua
 Kills.lua
