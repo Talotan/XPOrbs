@@ -66,6 +66,9 @@ ns.defaults = {
         crackle = { size = 14, density = 100, opacity = 100, blend = "natural", pulse = false, sparkle = true,
             crackleSpeed = 100 },
     },
+    -- the frame strata the orbs and the arrival flash draw in (ns.STRATA_ORDER). FULLSCREEN_DIALOG is above everything,
+    -- the game menu and other addons' windows included; lower ones let those draw over the orbs
+    orbStrata = "FULLSCREEN_DIALOG",
     glow = true, -- arrival flash on/off
     -- "bar" (horizontal flash on the fill edge), "vertical" (the same flash upright, filling bottom to top) or "round"
     -- (circular glow at the frame centre)
@@ -144,6 +147,12 @@ ns.STYLE_LABEL = { popstream = "Popstream", crossfade = "Crossfade", stream = "D
 ns.POPMODE_LABEL = { nameplate = "Nameplate", direct = "Direct" }
 ns.PATH_ORDER = { "smooth", "chaos", "helix" }
 ns.PATH_LABEL = { smooth = "Smooth", chaos = "Chaos", helix = "Helix" } -- the valid db.flightPath values
+-- the valid db.orbStrata values, lowest first (TOOLTIP is left out on purpose)
+ns.STRATA_ORDER = { "BACKGROUND", "LOW", "MEDIUM", "HIGH", "DIALOG", "FULLSCREEN", "FULLSCREEN_DIALOG" }
+ns.STRATA_LABEL = {
+    BACKGROUND = "Background", LOW = "Low", MEDIUM = "Medium", HIGH = "High", DIALOG = "Dialog",
+    FULLSCREEN = "Fullscreen", FULLSCREEN_DIALOG = "Fullscreen Dialog",
+}
 ns.SHAPE_ORDER = { "starlight", "bubble", "retro", "crackle" }
 ns.SHAPE_LABEL = { starlight = "Starlight", retro = "Retro", bubble = "Bubble", crackle = "Crackle" } -- valid orbShape
 -- what each shape remembers
@@ -479,6 +488,9 @@ local function sanitize(db)
     end
     if db.glowShape ~= "bar" and db.glowShape ~= "vertical" and db.glowShape ~= "round" then
         db.glowShape = defaults.glowShape
+    end
+    if not ns.STRATA_LABEL[db.orbStrata] then
+        db.orbStrata = defaults.orbStrata
     end
     if db.soundVoice ~= "glass" and db.soundVoice ~= "coin"
         and db.soundVoice ~= "swish" and db.soundVoice ~= "pixel" then
@@ -865,6 +877,9 @@ function commands.reset()
     sanitize(db)
     if ns.Minimap then
         ns.Minimap.Reapply()
+    end
+    if ns.Orbs and ns.Orbs.ApplyStrata then
+        ns.Orbs.ApplyStrata() -- the orb layer is back to its default
     end
     if ns.Options and ns.Options.Refresh then
         ns.Options:Refresh()

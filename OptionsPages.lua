@@ -242,6 +242,38 @@ local SPEED_TYPE_DROPDOWN = {
     field = "speedTypeDropdown", radioX = { 0, 130 },
 }
 
+-- The "Orb layer" dropdown (db.orbStrata): the frame strata orbs and the flash draw in. A pick moves the live frames at
+-- once (Orbs.ApplyStrata), and so does the row's reset.
+local STRATA_LOW_NOTE = "The game menu and popups then draw over the orbs. Orbs from Test Kill may pass behind the "
+    .. "preview windows."
+local ORB_LAYER_DROPDOWN = {
+    key = "orbStrata", text = "Orb layer", order = ns.STRATA_ORDER, labels = ns.STRATA_LABEL,
+    desc = {
+        BACKGROUND = "Behind most of the interface. " .. STRATA_LOW_NOTE,
+        LOW = "Behind most windows. " .. STRATA_LOW_NOTE,
+        MEDIUM = "Level with ordinary interface frames. " .. STRATA_LOW_NOTE,
+        HIGH = "Above ordinary windows, below dialogs. " .. STRATA_LOW_NOTE,
+        DIALOG = "Level with dialogs and the preview windows. " .. STRATA_LOW_NOTE,
+        FULLSCREEN = "Above most windows, below the game menu and popups. " .. STRATA_LOW_NOTE,
+        FULLSCREEN_DIALOG = "Above almost everything, including the game menu and other addons' windows.",
+    },
+    -- the radios are only drawn when no dropdown template exists (a tight fit)
+    field = "orbStrataDropdown", radioX = { 0, 90, 140, 200, 250, 310, 400 },
+    set = function(kind)
+        settings().orbStrata = kind
+        ns.Orbs.ApplyStrata()
+    end,
+    reset = {
+        default = function(key)
+            return ns.defaults[key]
+        end,
+        reset = function(key)
+            settings()[key] = ns.defaults[key]
+            ns.Orbs.ApplyStrata()
+        end,
+    },
+}
+
 local function flightStyleRow(y)
     return choiceRow(FLIGHT_DROPDOWN, y)
 end
@@ -425,7 +457,7 @@ local function buildArrival(y)
     postRefresh[#postRefresh + 1] = function()
         setDim(Options.rows.glowIntensity, { Options.controls.glowIntensity }, settings().glow ~= false)
     end
-    return y + 32
+    return choiceRow(ORB_LAYER_DROPDOWN, y + 32)
 end
 
 local function buildSound(y)

@@ -392,7 +392,7 @@ local function ensureFrames()
     end
     overlay = CreateFrame("Frame", nil, UIParent)
     overlay:SetAllPoints(UIParent)
-    overlay:SetFrameStrata("FULLSCREEN_DIALOG") -- above the test target and preview windows (DIALOG) on purpose
+    overlay:SetFrameStrata(Orbs.Strata()) -- FULLSCREEN_DIALOG by default: above the test target and preview windows
     overlay:EnableMouse(false)
     overlay:Show()
     Orbs.overlay = overlay
@@ -784,15 +784,39 @@ end
 
 -- ---------------------------------------------------------------- corpse pop
 
+-- The strata the overlay and every pop frame draw in (db.orbStrata, the Arrival tab's "Orb layer"); a missing or
+-- unknown saved value gives the default. Kept as fields of Orbs, not locals, to stay under Lua's local limits.
+Orbs.popFrames = {} -- every pop frame ever made (pooled or in use), so a strata change reaches them all
+function Orbs.Strata()
+    local saved = ns.db and ns.db.orbStrata
+    if ns.STRATA_LABEL[saved] then
+        return saved
+    end
+    return ns.defaults.orbStrata
+end
+
+-- Moves the overlay (which carries the flash) and all existing pop frames to the current strata. Frames made later
+-- read it themselves.
+function Orbs.ApplyStrata()
+    local strata = Orbs.Strata()
+    if overlay then
+        overlay:SetFrameStrata(strata)
+    end
+    for _, frame in ipairs(Orbs.popFrames) do
+        frame:SetFrameStrata(strata)
+    end
+end
+
 -- A pooled pop ("group"): group.frame is a 1x1 frame whose ONLY anchor is the nameplate; group.tex holds up to
 -- POP_MAX * 3 textures (underlay, orb, sparkle per orb) created lazily and parented to group.frame; per-orb parameters
 -- live in the arrays group.offsetX/offsetY/drift/size/rotation.
 local function newPop()
     local frame = CreateFrame("Frame", nil, UIParent)
     frame:SetSize(1, 1)
-    frame:SetFrameStrata("FULLSCREEN_DIALOG") -- above the test target and preview windows (DIALOG) on purpose
+    frame:SetFrameStrata(Orbs.Strata())
     frame:EnableMouse(false)
     frame:Hide()
+    Orbs.popFrames[#Orbs.popFrames + 1] = frame
     return { frame = frame, tex = {}, offsetX = {}, offsetY = {}, drift = {}, size = {}, rotation = {}, n = 0,
         used = 0, st = {} }
 end
