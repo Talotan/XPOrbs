@@ -7,7 +7,7 @@ import re
 import zipfile
 
 import pytest
-from conftest import ROOT
+from conftest import OPTIONS_FILES, ROOT, options_source
 from test_m5 import ctl, show
 from test_v013 import reset_shown
 from test_v09 import burst, make, restricted_plate
@@ -110,7 +110,7 @@ def test_nothing_references_the_old_flat_files():
     for rel in (
         "Core.lua",
         "Orbs.lua",
-        "Options.lua",
+        *OPTIONS_FILES,
         "README.md",
         "tools/package.py",
     ):
@@ -308,7 +308,7 @@ def test_slider_uses_the_shared_range_and_sits_under_the_sound_row(env):
     assert str(m.opt.valueTexts["soundVolume"].text) == "100%"
     row, voice_row = m.opt.rows["soundVolume"], m.opt.rows["soundVoice"]
     assert row.points[1][5] == voice_row.points[1][5] - 28
-    assert "100, 250, 25" not in (ROOT / "Options.lua").read_text(encoding="utf-8")
+    assert "100, 250, 25" not in options_source()
 
 
 def test_slider_writes_the_db_and_shows_the_percent(env):

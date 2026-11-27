@@ -6,7 +6,7 @@ import re
 import zipfile
 
 import pytest
-from conftest import ROOT, lua_list
+from conftest import ROOT, lua_list, options_source
 from test_m5 import show
 from test_v09 import burst, make, pop_textures, set_level
 
@@ -159,7 +159,7 @@ def test_no_colour_word_in_the_toc_notes_or_option_text():
     toc = (ROOT / "XPOrbs.toc").read_text(encoding="utf-8")
     notes = re.search(r"^## Notes:(.*)$", toc, re.MULTILINE).group(1).lower()
     assert not any(w in notes for w in ("blue", "purple", "magenta", "violet"))
-    opts = (ROOT / "Options.lua").read_text(encoding="utf-8").lower()
+    opts = options_source().lower()
     assert "blue orb" not in opts and "purple orb" not in opts
 
 

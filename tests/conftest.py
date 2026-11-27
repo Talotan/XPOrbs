@@ -39,6 +39,22 @@ def addon_files():
     return [f for f in toc_files() if not f.startswith("Libs/") and f.endswith(".lua")]
 
 
+OPTIONS_FILES = [
+    "OptionsKit.lua",
+    "ColourPicker.lua",
+    "OptionsLook.lua",
+    "OptionsPages.lua",
+    "Options.lua",
+]
+
+
+def options_source():
+    """The settings panel's Lua source (the panel is split across OPTIONS_FILES), joined for text assertions."""
+    return "\n".join(
+        (ROOT / name).read_text(encoding="utf-8") for name in OPTIONS_FILES
+    )
+
+
 def make_runtime():
     lua = lupa_rt.LuaRuntime(unpack_returned_tuples=True)
     ns = lua.table()

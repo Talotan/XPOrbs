@@ -33,6 +33,10 @@ Shapes.lua
 Calib.lua
 Kills.lua
 Sources.lua
+OptionsKit.lua
+ColourPicker.lua
+OptionsLook.lua
+OptionsPages.lua
 Options.lua
 ShapePreview.lua
 Preview.lua

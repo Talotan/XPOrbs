@@ -340,7 +340,11 @@ Target.lua           destination (XP bar edge), frame picker
 Orbs.lua             overlay, texture pool, plate-anchored frames, flight and glow
 Shapes.lua           the Retro, Bubble and Crackle orb shapes (Starlight is drawn in Orbs.lua)
 Calib.lua            zoom-anchor calibration panel (/xporbs calib)
-Options.lua          settings panel
+OptionsKit.lua       settings panel: shared state, change plumbing, row widgets (ns.OptionsKit)
+ColourPicker.lua     colour swatches and the hue-keeping colour picker workaround
+OptionsLook.lua      the Look tab
+OptionsPages.lua     the General, Sound, Flight and Arrival tabs
+Options.lua          settings panel shell: tab strip, scroll frame, footer, /xporbs options
 ShapePreview.lua     the orb preview window above the test target (follows the panel)
 Minimap.lua          minimap button (LibDBIcon) and the addon-compartment entry
 logic/               pure Lua: XPParse, OrbMath, KillMatcher, MobEstimate, Engaged, Chime (no WoW globals)

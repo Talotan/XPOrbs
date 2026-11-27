@@ -50,9 +50,9 @@ def test_ranges_table_is_shared_with_options(env):
     assert (r.cap[1], r.cap[2], r.cap[3]) == (5, 80, 1)
     assert (r.flightTime[1], r.flightTime[2], r.flightTime[3]) == (0.4, 1.5, 0.05)
     assert (r.glowIntensity[1], r.glowIntensity[2]) == (25, 200)
-    from conftest import ROOT
+    from conftest import options_source
 
-    src = (ROOT / "Options.lua").read_text(encoding="utf-8")
+    src = options_source()
     assert (
         "5, 80, 1" not in src
         and "0.4, 1.5, 0.05" not in src
